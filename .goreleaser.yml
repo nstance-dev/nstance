@@ -1,0 +1,161 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nstance-server
+    main: ./cmd/nstance-server
+    binary: nstance-server
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    overrides:
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
+    ldflags:
+      - -s -w
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion={{.Version}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildDate={{.Date}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitHash={{.ShortCommit}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitDate={{.CommitDate}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitBranch={{.Branch}}
+
+  - id: nstance-agent
+    main: ./cmd/nstance-agent
+    binary: nstance-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion={{.Version}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildDate={{.Date}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitHash={{.ShortCommit}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitDate={{.CommitDate}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitBranch={{.Branch}}
+
+  - id: nstance-operator
+    main: ./cmd/nstance-operator
+    binary: nstance-operator
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion={{.Version}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildDate={{.Date}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitHash={{.ShortCommit}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitDate={{.CommitDate}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitBranch={{.Branch}}
+
+  - id: nstance-admin
+    main: ./cmd/nstance-admin
+    binary: nstance-admin
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion={{.Version}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.buildDate={{.Date}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitHash={{.ShortCommit}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitDate={{.CommitDate}}
+      - -X github.com/nstance-dev/nstance/internal/buildvars.commitBranch={{.Branch}}
+
+archives:
+  - id: nstance-server
+    name_template: "nstance-server_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - nstance-server
+    files:
+      - LICENSE
+      - src: docs/components/nstance-server.md
+        dst: README.md
+        strip_parent: true
+  - id: nstance-agent
+    name_template: "nstance-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - nstance-agent
+    files:
+      - LICENSE
+      - src: docs/components/nstance-agent.md
+        dst: README.md
+        strip_parent: true
+  - id: nstance-operator
+    name_template: "nstance-operator_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - nstance-operator
+    files:
+      - LICENSE
+      - src: docs/components/nstance-operator.md
+        dst: README.md
+        strip_parent: true
+  - id: nstance-admin
+    name_template: "nstance-admin_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    builds:
+      - nstance-admin
+    files:
+      - LICENSE
+      - src: docs/components/nstance-admin.md
+        dst: README.md
+        strip_parent: true
+
+signs:
+  - artifacts: checksum
+    cmd: cosign
+    signature: "${artifact}.bundle"
+    args: ["sign-blob", "--yes", "--bundle=${signature}", "${artifact}"]
+    output: true
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+  algorithm: sha512
+
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+  - id: binary
+    artifacts: binary
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_{{ .Binary }}.spdx.json"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: nstance-dev
+    name: nstance
+  draft: false
+  prerelease: auto

@@ -1,0 +1,182 @@
+// Nstance <https://nstance.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package nstance.v1;
+
+option go_package = "github.com/nstance-dev/nstance/internal/proto";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// OperatorService provides authenticated API for Nstance Operator
+service OperatorService {
+  // Certificate renewal
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+  
+  // GetConfigStatus returns current configuration metadata for per-shard config
+  rpc GetConfigStatus(google.protobuf.Empty) returns (ConfigStatusResponse);
+  
+  // RefreshConfig triggers server to reload configuration from S3
+  rpc RefreshConfig(google.protobuf.Empty) returns (RefreshConfigResponse);
+  
+  // Group management operations
+  rpc ListGroups(google.protobuf.Empty) returns (ListGroupsResponse);
+  rpc UpsertGroup(UpsertGroupRequest) returns (GroupStatus);
+  rpc DeleteGroup(DeleteGroupRequest) returns (google.protobuf.Empty);
+  
+  // Instance management operations
+  rpc CreateInstance(CreateInstanceRequest) returns (CreateInstanceResponse);
+  rpc DeleteInstance(DeleteInstanceRequest) returns (DeleteInstanceResponse);
+  rpc GetInstanceStatus(GetInstanceStatusRequest) returns (InstanceStatusResponse);
+  rpc AcknowledgeDrained(DrainAckRequest) returns (google.protobuf.Empty);
+  
+  // Watch streams for operator sync
+  rpc WatchGroups(google.protobuf.Empty) returns (stream GroupEvent);
+  rpc WatchInstances(google.protobuf.Empty) returns (stream InstanceEvent);
+  rpc WatchErrors(google.protobuf.Empty) returns (stream ErrorEvent);
+}
+
+// Certificate renewal request
+message RenewCertificateRequest {
+  bytes public_key_pem = 1; // Same or new public key
+}
+
+// Certificate renewal response
+message RenewCertificateResponse {
+  bytes client_certificate_pem = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// Configuration status response
+
+message ConfigStatusResponse {
+  string etag = 1;
+  google.protobuf.Timestamp last_modified = 2;
+  int64 size = 3;
+}
+
+// RefreshConfig response
+message RefreshConfigResponse {
+  bool updated = 1;           // true if config was updated, false if unchanged
+  string prev_etag = 2;       // Config etag before refresh
+  string etag = 3;            // Config etag after refresh
+}
+
+// Group management requests
+
+message UpsertGroupRequest {
+  string key = 1;
+  GroupConfig config = 2;
+}
+
+message GroupConfig {
+  string template = 1;
+  int32 size = 2;
+  string instance_type = 3;
+  string subnet_pool = 4;  // Logical subnet pool ID (references server.subnet_pools map key)
+  map<string, string> vars = 5;
+  map<string, string> args = 6;  // Group-level overrides
+}
+
+message DeleteGroupRequest {
+  string key = 1;
+}
+
+message ListGroupsResponse {
+  repeated GroupStatus groups = 1;
+}
+
+message GroupStatus {
+  string key = 1;                    // Group name/key
+  string tenant = 2;                 // Tenant identifier
+  string template = 3;               // Instance template used
+  int32 size = 4;                    // Desired size
+  string instance_type = 5;          // Instance type (from template or override)
+  string subnet_pool = 6;            // Logical subnet pool ID for this group
+  map<string, string> vars = 7;      // Merged vars
+  bool is_static = 8;                // Whether group is defined in static config
+  string etag = 9;                   // Hash of this group's merged config for change detection
+  int32 actual_size = 10;              // Number of currently running managed instances (excludes on-demand)
+  repeated string provider_ids = 11;   // Provider IDs of running managed instances, sorted (excludes on-demand)
+}
+
+// Instance management requests
+
+message CreateInstanceRequest {
+  string instance_id = 1; // If empty, server generates one
+  InstanceConfig config = 2;
+}
+
+message InstanceConfig {
+  string group = 1;          // Required group reference
+  string template = 2;       // Optional template override
+  string instance_type = 3;  // Optional instance type override
+  string subnet_pool = 4;       // Optional subnet pool override
+  map<string, string> vars = 5; // Additional vars
+}
+
+message CreateInstanceResponse {
+  string instance_id = 1; // Generated or confirmed instance ID
+  string status = 2; // Current instance status
+}
+
+message DeleteInstanceRequest {
+  string instance_id = 1;
+}
+
+message DeleteInstanceResponse {
+  string status = 1; // "deleting", "deleted", "unknown"
+}
+
+message GetInstanceStatusRequest {
+  string instance_id = 1;
+}
+
+message InstanceStatusResponse {
+  string instance_id = 1;
+  string tenant = 2;           // Tenant identifier
+  string status = 3;           // "pending", "running", "terminating", "terminated", etc.
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp last_seen = 5;
+  string provider_instance_id = 6; // e.g., EC2 instance ID
+}
+
+// Group change event
+message GroupEvent {
+  enum Type {
+    UPSERT = 0;
+    DELETE = 1;
+  }
+  Type type = 1;
+  GroupStatus group = 2;  // For UPSERT: full group status. For DELETE: only key is set.
+}
+
+// Instance event (for watch stream)
+
+message InstanceEvent {
+  string instance_id = 1;
+  string tenant = 2;                          // Tenant identifier
+  string provider_instance_id = 3;            // Provider's instance ID (e.g., i-1234567890abcdef0) for node mapping
+  string group = 4;
+  string status = 5;                          // "pending_deletion", "deleting", "deleted"
+  string reason = 6;                          // Why instance is being deleted (e.g., "unhealthy")
+  google.protobuf.Timestamp unhealthy_at = 7; // When instance was determined unhealthy
+  google.protobuf.Timestamp delete_at = 8;    // When instance will be deleted (drain_timeout from unhealthy_at)
+}
+
+// Acknowledge instance drained request (optional - allows early deletion)
+
+message DrainAckRequest {
+  string instance_id = 1;
+}
+
+// Error event for provider errors, config validation failures, etc.
+message ErrorEvent {
+  string group = 1;                           // Affected group (optional)
+  string instance_id = 2;                     // Affected instance (optional)
+  string error = 3;                           // Error message
+  google.protobuf.Timestamp timestamp = 4;    // When the error occurred
+}

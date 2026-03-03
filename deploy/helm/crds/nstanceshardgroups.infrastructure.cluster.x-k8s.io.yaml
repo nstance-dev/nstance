@@ -1,0 +1,226 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  labels:
+    cluster.x-k8s.io/v1beta1: v1beta1
+    cluster.x-k8s.io/v1beta2: v1beta1
+  name: nstanceshardgroups.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: NstanceShardGroup
+    listKind: NstanceShardGroupList
+    plural: nstanceshardgroups
+    singular: nstanceshardgroup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Nstance Group
+      jsonPath: .spec.group
+      name: Group
+      type: string
+    - description: Zone Shard
+      jsonPath: .spec.shard
+      name: Shard
+      type: string
+    - description: Desired size
+      jsonPath: .spec.size
+      name: Size
+      type: integer
+    - description: Backed by static config
+      jsonPath: .status.isStatic
+      name: Static
+      type: boolean
+    - description: Shard group is ready
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          NstanceShardGroup represents a group on a single shard.
+          One resource per (group, shard) pair provides per-shard visibility.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NstanceShardGroupSpec defines the desired state of NstanceShardGroup
+            properties:
+              group:
+                description: Group is the name of the Nstance Group
+                minLength: 1
+                type: string
+              instanceType:
+                description: InstanceType is an optional instance type override
+                type: string
+              shard:
+                description: Shard identifies which zone shard this group is on
+                minLength: 1
+                type: string
+              size:
+                description: Size is the desired number of instances for THIS shard
+                format: int32
+                minimum: 0
+                type: integer
+              subnetPool:
+                description: |-
+                  SubnetPool specifies which subnet pool to use for new dynamic groups.
+                  This is a subnet pool ID that references server.subnet_pools map key.
+                type: string
+              template:
+                description: |-
+                  Template is the name of the Nstance template defined in server config.
+                  Required when creating a new dynamic group (no static group with this key).
+                type: string
+              vars:
+                additionalProperties:
+                  type: string
+                description: Vars are additional vars merged with template vars
+                type: object
+            required:
+            - group
+            - shard
+            - size
+            type: object
+          status:
+            description: NstanceShardGroupStatus defines the observed state of NstanceShardGroup
+            properties:
+              conditions:
+                description: Conditions represent the current state of the NstanceShardGroup
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              config:
+                description: Config is the merged configuration from the server
+                properties:
+                  instanceType:
+                    description: InstanceType is the instance type being used
+                    type: string
+                  subnetPool:
+                    description: SubnetPool is the ID of the subnet pool used by this
+                      group
+                    type: string
+                  template:
+                    description: Template is the instance template being used
+                    type: string
+                  vars:
+                    additionalProperties:
+                      type: string
+                    description: Vars are the merged vars being used
+                    type: object
+                type: object
+              isStatic:
+                description: |-
+                  IsStatic indicates this group is backed by static server config on this shard.
+                  When true, template and subnet pool are defined by server config and cannot be overridden.
+                type: boolean
+              lastSyncTime:
+                description: LastSyncTime is when the status was last synced from
+                  the server
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation most recently observed
+                  by the controller
+                format: int64
+                type: integer
+              providerIDs:
+                description: ProviderIDs is the list of provider IDs of running instances
+                  on this shard (sorted)
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              replicas:
+                description: Replicas is the number of running instances on this shard
+                  for this group
+                format: int32
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,128 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+#
+# This workflow syncs Terraform modules to distribution repos on every push
+# to main that touches deploy/tf/ or the module documentation.
+
+name: Terraform Module Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'deploy/tf/**'
+      - 'docs/reference/opentofu-terraform.md'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve symlinks and prepare AWS modules
+        run: |
+          mkdir -p /tmp/aws
+          cp -rL deploy/tf/aws/* /tmp/aws/
+
+          # Copy README without Hugo frontmatter
+          sed '1{/^---$/!b};1,/^---$/d' docs/reference/opentofu-terraform.md > /tmp/aws/README.md
+
+          # Copy examples and rewrite relative sources to GitHub URLs
+          mkdir -p /tmp/aws/examples
+          cp -rL deploy/tf/examples/aws/* /tmp/aws/examples/
+          cp -rL deploy/tf/examples/multi-cloud /tmp/aws/examples/
+
+          # Rewrite relative module sources to GitHub URLs
+          find /tmp/aws/examples -name "*.tf" -exec sed -i'' -e \
+            's|source = "\.\./\.\./\.\./aws/|source = "github.com/nstance-dev/terraform-aws-nstance//|g' {} \;
+          find /tmp/aws/examples -name "*.tf" -exec sed -i'' -e \
+            's|source = "\.\./\.\./aws/|source = "github.com/nstance-dev/terraform-aws-nstance//|g' {} \;
+          find /tmp/aws/examples -name "*.tf" -exec sed -i'' -e \
+            's|source = "\.\./\.\./gcp/|source = "github.com/nstance-dev/terraform-gcp-nstance//|g' {} \;
+
+          # Verify no symlinks remain
+          if find /tmp/aws -type l | grep -q .; then
+            echo "Error: Unresolved symlinks in AWS modules"
+            find /tmp/aws -type l
+            exit 1
+          fi
+
+          echo "AWS modules prepared successfully"
+          ls -la /tmp/aws/
+          ls -la /tmp/aws/examples/
+
+      - name: Resolve symlinks and prepare GCP modules
+        run: |
+          mkdir -p /tmp/gcp
+          cp -rL deploy/tf/gcp/* /tmp/gcp/
+
+          # Copy README without Hugo frontmatter
+          sed '1{/^---$/!b};1,/^---$/d' docs/reference/opentofu-terraform.md > /tmp/gcp/README.md
+
+          # Copy examples and rewrite relative sources to GitHub URLs
+          mkdir -p /tmp/gcp/examples
+          cp -rL deploy/tf/examples/gcp/* /tmp/gcp/examples/
+          cp -rL deploy/tf/examples/multi-cloud /tmp/gcp/examples/
+
+          # Rewrite relative module sources to GitHub URLs
+          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' -e \
+            's|source = "\.\./\.\./\.\./gcp/|source = "github.com/nstance-dev/terraform-gcp-nstance//|g' {} \;
+          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' -e \
+            's|source = "\.\./\.\./gcp/|source = "github.com/nstance-dev/terraform-gcp-nstance//|g' {} \;
+          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' -e \
+            's|source = "\.\./\.\./aws/|source = "github.com/nstance-dev/terraform-aws-nstance//|g' {} \;
+
+          if find /tmp/gcp -type l | grep -q .; then
+            echo "Error: Unresolved symlinks in GCP modules"
+            find /tmp/gcp -type l
+            exit 1
+          fi
+
+          echo "GCP modules prepared successfully"
+          ls -la /tmp/gcp/
+          ls -la /tmp/gcp/examples/
+
+      - name: Setup SSH for deploy keys
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Push to terraform-aws-nstance
+        env:
+          SSH_KEY: ${{ secrets.AWS_REPO_DEPLOY_KEY }}
+        run: |
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          cd /tmp/aws
+          git init -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add origin git@github.com:nstance-dev/terraform-aws-nstance.git
+          git add .
+          git commit -m "Sync from nstance-dev/nstance@${GITHUB_SHA::8}"
+          git push -f origin main
+
+          rm ~/.ssh/id_ed25519
+          echo "Synced terraform-aws-nstance"
+
+      - name: Push to terraform-gcp-nstance
+        env:
+          SSH_KEY: ${{ secrets.GCP_REPO_DEPLOY_KEY }}
+        run: |
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          cd /tmp/gcp
+          git init -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add origin git@github.com:nstance-dev/terraform-gcp-nstance.git
+          git add .
+          git commit -m "Sync from nstance-dev/nstance@${GITHUB_SHA::8}"
+          git push -f origin main
+
+          echo "Synced terraform-gcp-nstance"

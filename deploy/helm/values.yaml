@@ -1,0 +1,116 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+# Default values for nstance-operator
+
+# Operator image configuration
+image:
+  repository: ghcr.io/nstance-dev/nstance-operator
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+imagePullSecrets: []
+
+# Number of replicas (leader election ensures only one is active at any given time)
+replicaCount: 2
+
+# Namespace where operator will run
+namespace: nstance
+
+# Secret containing operator registration nonce JWT
+# You must create this secret before installing the chart:
+#   kubectl create secret generic nstance-registration \
+#     --from-literal=nonce=<JWT-from-nstance-server>
+# Once the operator has registered, this will no longer be used
+registrationSecret:
+  name: nstance-registration
+  key: nonce
+
+# Names for secrets that will be auto-created by the operator
+managedSecretNames:
+  # Operator's private key
+  privateKey: nstance-operator-key
+  # Operator's client certificate from server
+  clientCert: nstance-operator-cert
+
+# Configuration for the operator ConfigMap
+operatorConfigMap:
+  name: nstance-operator-config
+  create: true
+
+# Operator configuration
+# These values are rendered into the operator's config.yaml
+# provided that operatorConfigMap.create is set to true
+config:
+  shards: {}
+  # Example:
+  #   us-east-1a:
+  #     registration_addr: "172.16.0.100:8992"
+  #     operator_addr: "172.16.0.100:8993"
+  #   us-east-1b:
+  #     registration_addr: "172.16.1.100:8992"
+  #     operator_addr: "172.16.1.100:8993"
+
+# Deployment configuration
+deployment:
+  create: true
+
+# Leader election settings
+leaderElection:
+  enabled: true
+
+# Metrics server configuration
+metricsAddr: ":8080"
+
+# Health probe configuration
+healthProbeAddr: ":8081"
+
+# Log level (debug, info, warn, error)
+logLevel: info
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC configuration
+rbac:
+  create: true
+
+# Pod resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Pod security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+
+# Install CRDs
+installCRDs: true

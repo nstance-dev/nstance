@@ -1,0 +1,36 @@
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+# Build directories
+bin/
+
+# Temp directories
+temp/
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Generated files
+deploy/proxmox/agent-userdata.sh
+
+# TF specific
+*.tfvars
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+.terraform/
+
+# OS specific
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.env
+!/.env

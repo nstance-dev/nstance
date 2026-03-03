@@ -1,0 +1,1 @@
+../../common/cluster/variables.tf

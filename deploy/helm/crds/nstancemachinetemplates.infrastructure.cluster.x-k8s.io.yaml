@@ -1,0 +1,92 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  labels:
+    cluster.x-k8s.io/v1beta1: v1beta1
+    cluster.x-k8s.io/v1beta2: v1beta1
+  name: nstancemachinetemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: NstanceMachineTemplate
+    listKind: NstanceMachineTemplateList
+    plural: nstancemachinetemplates
+    singular: nstancemachinetemplate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Nstance Group
+      jsonPath: .spec.template.spec.group
+      name: Group
+      type: string
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          NstanceMachineTemplate is the Schema for the nstancemachinetemplates API
+          This is an immutable template pattern (CAPI standard) used to stamp out Machine → NstanceMachine pairs
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NstanceMachineTemplateSpec defines the desired state of NstanceMachineTemplate
+            properties:
+              template:
+                description: Template defines the machines that will be created from
+                  this template
+                properties:
+                  spec:
+                    description: Spec is the specification of the desired behavior
+                      of the machine
+                    properties:
+                      group:
+                        description: Group is the name of the Nstance Group
+                        minLength: 1
+                        type: string
+                      instanceType:
+                        description: InstanceType is an optional override
+                        type: string
+                      vars:
+                        additionalProperties:
+                          type: string
+                        description: Vars are additional vars
+                        type: object
+                    required:
+                    - group
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

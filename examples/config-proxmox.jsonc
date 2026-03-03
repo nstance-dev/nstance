@@ -1,0 +1,90 @@
+{
+  "cluster": {
+    "id": "example-cluster",
+    "secrets": {
+      "provider": "object-storage",
+      "prefix": "secret/",
+      "encryption_key": {
+        "provider": "env",
+        "source": "NSTANCE_ENCRYPTION_KEY"
+      }
+    }
+  },
+  "shard": {
+    "id": "dev",
+    "infra": {
+      "provider": "proxmox",
+      "region": "dev",
+      "zone": "deva",
+      "options": {
+        "insecure_tls": true,
+        "cloud_init_iso_storage": "local"
+      }
+    },
+    "bind": {
+      "health_addr": "0.0.0.0:8990",
+      "election_addr": "0.0.0.0:8991",
+      "registration_addr": "0.0.0.0:8992",
+      "operator_addr": "0.0.0.0:8993",
+      "agent_addr": "0.0.0.0:8994"
+    },
+    "advertise": {
+      "health_addr": ":8990",
+      "election_addr": ":8991",
+      "registration_addr": "127.0.0.1:8992",
+      "operator_addr": "127.0.0.1:8993",
+      "agent_addr": "127.0.0.1:8994"
+    },
+    "subnet_pools": {
+      "default": ["vmbr0"]
+    },
+    "expiry": {},
+    "default_drain_timeout": "2s",
+    "garbage_collection": {
+      "interval": "3s",
+      "registration_timeout": "60s"
+    },
+    "leader_election": {
+      "frequent_interval": "1s",
+      "infrequent_interval": "5s",
+      "leader_timeout": "3s"
+    },
+    "error_exit_jitter": {
+      "min_delay": "1s",
+      "max_delay": "5s"
+    }
+  },
+  "defaults": {
+    "args": {
+      "StoragePool": "local-lvm",
+      "TemplateName": "debian-13-template",
+      "Bridge": "vmbr0",
+      "Cores": 2,
+      "Memory": 2048,
+      "DiskSize": "20G",
+      "StartOnBoot": true
+    },
+    "vars": {
+      "Environment": "development",
+      "ClusterSlug": "dev",
+      "ClusterFQDN": "dev.nstance.local"
+    }
+  },
+  "templates": {
+    "test": {
+      "kind": "tst",
+      "arch": "amd64",
+      "userdata": {"content": "#!/bin/bash\necho \"Test instance started\""},
+      "subnet_pool": "default"
+    }
+  },
+  "groups": {
+    "default": {
+      "test": {
+        "template": "test",
+        "size": 1,
+        "subnet_pool": "default"
+      }
+    }
+  }
+}

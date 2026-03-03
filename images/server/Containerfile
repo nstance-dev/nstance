@@ -1,0 +1,46 @@
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+# Build stage - using alpine with musl for static CGO build
+FROM golang:1.25-alpine AS builder
+
+# Install build dependencies for CGO/SQLite
+RUN apk add --no-cache gcc musl-dev
+
+WORKDIR /workspace
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the server (requires CGO for SQLite)
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT_HASH=unknown
+ARG BUILD_DATE=unknown
+
+RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -a -trimpath \
+    -ldflags="-w -s -extldflags -static \
+    -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion=${VERSION} \
+    -X github.com/nstance-dev/nstance/internal/buildvars.buildDate=${BUILD_DATE} \
+    -X github.com/nstance-dev/nstance/internal/buildvars.commitHash=${COMMIT_HASH}" \
+    -o /nstance-server \
+    ./cmd/nstance-server
+
+# Runtime stage
+FROM gcr.io/distroless/static:nonroot
+
+WORKDIR /
+
+# Copy the binary from builder
+COPY --from=builder /nstance-server /nstance-server
+
+# Use distroless nonroot user
+USER nonroot:nonroot
+
+ENTRYPOINT ["/nstance-server"]

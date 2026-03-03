@@ -1,0 +1,103 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.deployment.create }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nstance-operator.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nstance-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nstance-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nstance-operator.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "nstance-operator.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      containers:
+      - name: manager
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.containerSecurityContext | nindent 10 }}
+        command:
+        - /nstance-operator
+        args:
+        - --leader-elect={{ .Values.leaderElection.enabled }}
+        - --metrics-bind-address={{ .Values.metricsAddr }}
+        - --health-probe-bind-address={{ .Values.healthProbeAddr }}
+        - --zap-log-level={{ .Values.logLevel }}
+        - --config=/etc/nstance/operator/config.yaml
+        env:
+        - name: NSTANCE_NAMESPACE
+          value: {{ .Values.namespace }}
+        - name: NSTANCE_NONCE_SECRET
+          value: {{ .Values.registrationSecret.name }}
+        - name: NSTANCE_KEY_SECRET
+          value: {{ .Values.managedSecretNames.privateKey }}
+        - name: NSTANCE_CERT_SECRET
+          value: {{ .Values.managedSecretNames.clientCert }}
+        - name: NSTANCE_CAPI_SERVICEACCOUNT
+          value: nstance-capi-workload
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: config
+          mountPath: /etc/nstance/operator
+        - name: config
+          mountPath: /etc/nstance/operator
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: {{ .Values.operatorConfigMap.name }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

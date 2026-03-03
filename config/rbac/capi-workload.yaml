@@ -1,0 +1,41 @@
+# Nstance <https://nstance.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+# ServiceAccount used by CAPI's ClusterCache kubeconfig secret.
+# The operator creates a TokenRequest against this SA to generate
+# a minimal-privilege kubeconfig for CAPI controllers.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nstance-capi-workload
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nstance-capi-workload
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+# CAPI's runningOnWorkloadCluster check GETs its own pod via the kubeconfig
+# to detect if management==workload cluster (which it is in our case)
+# https://github.com/kubernetes-sigs/cluster-api/blob/main/controllers/clustercache/cluster_accessor_client.go#L145
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get"]
+- nonResourceURLs: ["/"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nstance-capi-workload
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nstance-capi-workload
+subjects:
+- kind: ServiceAccount
+  name: nstance-capi-workload
+  namespace: default

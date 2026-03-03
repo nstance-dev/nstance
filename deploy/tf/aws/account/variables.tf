@@ -1,0 +1,1 @@
+../../common/account/variables.tf

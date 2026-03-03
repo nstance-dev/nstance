@@ -1,0 +1,37 @@
+// Nstance <https://nstance.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package nstance.v1;
+
+option go_package = "github.com/nstance-dev/nstance/internal/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// RegistrationService provides anonymous client registration using registration nonce JWTs
+service RegistrationService {
+  // RegisterAgent registers a new agent using a registration nonce JWT
+  rpc RegisterAgent(RegisterClientRequest) returns (RegisterClientResponse);
+  
+  // RegisterOperator registers a new operator using a registration nonce JWT
+  rpc RegisterOperator(RegisterClientRequest) returns (RegisterClientResponse);
+}
+
+// Registration request containing the nonce JWT and public key
+
+message RegisterClientRequest {
+  string registration_nonce_jwt = 1;
+  bytes public_key_pem = 2; // PEM-encoded public key
+  string private_ipv4 = 3;  // Agent-reported private IPv4
+  string private_ipv6 = 4;  // Agent-reported private IPv6
+  string hostname = 5;      // Agent-reported hostname
+}
+
+// Registration response containing the client certificate
+
+message RegisterClientResponse {
+  bytes client_certificate_pem = 1; // PEM-encoded client certificate
+  google.protobuf.Timestamp expires_at = 2;
+}

@@ -1,0 +1,137 @@
+// Nstance <https://nstance.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package operator
+
+import (
+	"context"
+	"crypto/md5"
+	"encoding/json"
+	"fmt"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/internal/server/api"
+	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+)
+
+func (s *Service) ListGroups(ctx context.Context, req *emptypb.Empty) (*proto.ListGroupsResponse, error) {
+	clientInfo, err := api.GetClientInfo(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get client info: %v", err)
+	}
+
+	tenant := clientInfo.Tenant
+	s.logger.Info("Listing groups", "client_id", clientInfo.ClientID, "tenant", tenant)
+
+	groups, err := s.listGroups(tenant)
+	if err != nil {
+		s.logger.Error("Failed to list groups", "client_id", clientInfo.ClientID, "tenant", tenant, "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to list groups: %v", err)
+	}
+
+	s.logger.Info("Listed groups successfully", "client_id", clientInfo.ClientID, "tenant", tenant, "count", len(groups))
+
+	return &proto.ListGroupsResponse{
+		Groups: groups,
+	}, nil
+}
+
+func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
+	dbGroups, err := s.localDB.GetAllGroups(tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	config := s.configLoader.GetCurrent()
+	if config == nil {
+		return nil, fmt.Errorf("no configuration loaded")
+	}
+
+	// Get static groups for this tenant
+	staticGroups := config.Groups[tenant]
+
+	var groups []*proto.GroupStatus
+	for groupKey := range dbGroups {
+		var staticGroup serverconfig.GroupConfig
+		var isStatic bool
+		if staticGroups != nil {
+			staticGroup, isStatic = staticGroups[groupKey]
+		}
+		dynamicGroup, hasDynamic := s.configLoader.GetDynamicGroup(tenant, groupKey)
+
+		var finalGroup serverconfig.GroupConfig
+		if isStatic {
+			finalGroup = staticGroup
+			if hasDynamic {
+				if dynamicGroup.Size != nil {
+					finalGroup.Size = dynamicGroup.Size
+				}
+				if dynamicGroup.InstanceType != "" {
+					finalGroup.InstanceType = dynamicGroup.InstanceType
+				}
+				if len(dynamicGroup.Vars) > 0 {
+					if finalGroup.Vars == nil {
+						finalGroup.Vars = make(map[string]string)
+					}
+					for k, v := range dynamicGroup.Vars {
+						finalGroup.Vars[k] = v
+					}
+				}
+			}
+		} else if hasDynamic {
+			finalGroup = dynamicGroup
+		} else {
+			s.logger.Warn("Group in database not found in current config", "group_key", groupKey)
+			continue
+		}
+
+		gs := &proto.GroupStatus{
+			Key:          groupKey,
+			Tenant:       tenant,
+			Template:     finalGroup.Template,
+			Size:         int32(finalGroup.GetSize()),
+			InstanceType: finalGroup.InstanceType,
+			SubnetPool:   finalGroup.SubnetPool,
+			Vars:         finalGroup.Vars,
+			IsStatic:     isStatic,
+		}
+		providerIDs, err := s.localDB.GetProviderIDsByGroup(groupKey, true)
+		if err != nil {
+			s.logger.Warn("Failed to get provider IDs for group", "group", groupKey, "error", err)
+		} else {
+			gs.ActualSize = int32(len(providerIDs))
+			gs.ProviderIds = providerIDs
+		}
+		gs.Etag = computeGroupEtag(gs)
+		groups = append(groups, gs)
+	}
+
+	return groups, nil
+}
+
+// computeGroupEtag generates a deterministic hash of a group's merged config for change detection.
+// Only configuration fields are included — runtime state (actual_size, provider_ids) is excluded
+// so that instance lifecycle changes don't cause unnecessary config change signals.
+func computeGroupEtag(g *proto.GroupStatus) string {
+	data, err := json.Marshal(map[string]any{
+		"key":           g.Key,
+		"tenant":        g.Tenant,
+		"template":      g.Template,
+		"size":          g.Size,
+		"instance_type": g.InstanceType,
+		"subnet_pool":   g.SubnetPool,
+		"vars":          g.Vars,
+		"is_static":     g.IsStatic,
+	})
+	if err != nil {
+		return ""
+	}
+
+	hash := md5.Sum(data)
+	return fmt.Sprintf("%x", hash)
+}

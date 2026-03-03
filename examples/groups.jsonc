@@ -1,0 +1,9 @@
+{
+  "default": {
+    "test": {
+      "template": "test",
+      "size": 1,
+      "subnet_pool": "default"
+    }
+  }
+}

@@ -1,0 +1,97 @@
+// Nstance <https://nstance.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package nstance.v1;
+
+option go_package = "github.com/nstance-dev/nstance/internal/proto";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// AgentService provides authenticated API for Nstance Agents
+service AgentService {
+  // ReceiveKeyRequests provides a persistent stream of key generation requests from server to agent
+  rpc ReceiveKeyRequests(google.protobuf.Empty) returns (stream KeyGenerationRequest);
+
+  // SubmitPublicKeys allows agents to submit public keys for certificate generation
+  rpc SubmitPublicKeys(PublicKeysRequest) returns (google.protobuf.Empty);
+  
+  // SubmitHealthReport allows agents to send periodic health reports via persistent stream
+  rpc SubmitHealthReport(stream HealthReportRequest) returns (google.protobuf.Empty);
+  
+  // ReceiveFiles provides a persistent stream of files from server to agent (certificates, secrets, config updates)
+  rpc ReceiveFiles(google.protobuf.Empty) returns (stream FileTransfer);
+}
+
+// Key generation request from server to agent
+
+message KeyGenerationRequest {
+  repeated string key_names = 1;
+}
+
+// Public keys submission from agent to server
+
+message PublicKeysRequest {
+  string instance_id = 1;
+  repeated PublicKeySubmission keys = 2;
+}
+
+message PublicKeySubmission {
+  string filename = 1; // e.g., "kubelet.server"
+  bytes public_key_pem = 2; // PEM-encoded public key
+}
+
+// Health report from agent to server
+
+message HealthReportRequest {
+  string version = 1; // Agent version
+  string instance_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  int64 count = 4; // Health report sequence number
+  google.protobuf.Timestamp started = 5; // When metrics collection started
+  google.protobuf.Timestamp window_start = 6; // Current metrics window start
+  google.protobuf.Timestamp window_end = 7; // Current metrics window end
+  string uptime = 8; // Uptime duration string
+  Metrics one_minute = 9; // 1-minute averages
+  Metrics five_minutes = 10; // 5-minute averages
+  Metrics fifteen_minutes = 11; // 15-minute averages
+  map<string, FileStatus> files = 12; // File status map
+  TerminationNotice termination_notice = 13; // Optional termination notice for spot instances
+  string config_hash = 14; // Runtime config hash from /opt/nstance-agent/identity/config.hash
+}
+
+message Metrics {
+  double cpu_usage = 1; // CPU usage percentage
+  repeated double cpu_core_usage = 2; // Per-core CPU usage percentages
+  double memory_usage = 3; // Memory usage percentage
+  double network_bytes_sent = 4; // Network bytes sent
+  double network_bytes_received = 5; // Network bytes received
+  double disk_used = 6; // Disk usage percentage
+  double disk_inodes_used = 7; // Disk inode usage percentage
+  double disk_bytes_read = 8; // Disk bytes read
+  double disk_bytes_written = 9; // Disk bytes written
+}
+
+message FileStatus {
+  oneof status {
+    google.protobuf.Timestamp last_modified = 1; // File exists and last modified time
+    string error = 2; // Error accessing file
+  }
+}
+
+message TerminationNotice {
+  string action = 1; // Action to take, e.g., "terminate"
+  google.protobuf.Timestamp deadline = 2; // Optional termination deadline
+}
+
+// File transfer from server to agent
+
+message FileTransfer {
+  string filename = 1;
+  bytes content = 2;
+  google.protobuf.Timestamp last_modified = 3;
+  string config_hash = 4; // Optional: updated runtime config hash to write to identity/config.hash
+}

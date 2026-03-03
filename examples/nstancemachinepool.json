@@ -1,0 +1,18 @@
+{
+  "apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+  "kind": "NstanceMachinePool",
+  "metadata": {
+    "name": "example",
+    "namespace": "default",
+    "resourceVersion": "c87e2f6e673b0c43",
+    "uid": "dev-example-176541862567883800f"
+  },
+  "spec": {
+    "group": "example",
+    "template": "test",
+    "shards": [
+      "dev-1",
+      "dev-2"
+    ]
+  }
+}
