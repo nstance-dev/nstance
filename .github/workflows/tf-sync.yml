@@ -24,24 +24,24 @@ jobs:
 
       - name: Resolve symlinks and prepare AWS modules
         run: |
-          mkdir -p /tmp/aws
-          cp -rL deploy/tf/aws/* /tmp/aws/
+          mkdir -p /tmp/aws/modules
+          cp -rL deploy/tf/aws/* /tmp/aws/modules/
 
           # Copy README without Hugo frontmatter
           sed '1{/^---$/!b};1,/^---$/d' docs/reference/opentofu-terraform.md > /tmp/aws/README.md
 
-          # Copy examples and rewrite relative sources to GitHub URLs
+          # Copy examples and rewrite relative sources to registry syntax
           mkdir -p /tmp/aws/examples
           cp -rL deploy/tf/examples/aws/* /tmp/aws/examples/
           cp -rL deploy/tf/examples/multi-cloud /tmp/aws/examples/
 
-          # Rewrite relative module sources to GitHub URLs
-          find /tmp/aws/examples -name "*.tf" -exec sed -i'' -e \
-            's|source = "\.\./\.\./\.\./aws/|source = "github.com/nstance-dev/terraform-aws-nstance//|g' {} \;
-          find /tmp/aws/examples -name "*.tf" -exec sed -i'' -e \
-            's|source = "\.\./\.\./aws/|source = "github.com/nstance-dev/terraform-aws-nstance//|g' {} \;
-          find /tmp/aws/examples -name "*.tf" -exec sed -i'' -e \
-            's|source = "\.\./\.\./gcp/|source = "github.com/nstance-dev/terraform-gcp-nstance//|g' {} \;
+          # Rewrite relative module sources to registry sources and add version pinning
+          find /tmp/aws/examples -name "*.tf" -exec sed -i'' \
+            -e 's|source *= *"\.\./\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
+            -e 's|source *= *"\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
+            -e 's|source *= *"\.\./\.\./gcp/\([^"]*\)"|source  = "nstance-dev/nstance/gcp//modules/\1"|g' \
+            -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 1.0"' \
+            {} \;
 
           # Verify no symlinks remain
           if find /tmp/aws -type l | grep -q .; then
@@ -51,29 +51,29 @@ jobs:
           fi
 
           echo "AWS modules prepared successfully"
-          ls -la /tmp/aws/
+          ls -la /tmp/aws/modules/
           ls -la /tmp/aws/examples/
 
       - name: Resolve symlinks and prepare GCP modules
         run: |
-          mkdir -p /tmp/gcp
-          cp -rL deploy/tf/gcp/* /tmp/gcp/
+          mkdir -p /tmp/gcp/modules
+          cp -rL deploy/tf/gcp/* /tmp/gcp/modules/
 
           # Copy README without Hugo frontmatter
           sed '1{/^---$/!b};1,/^---$/d' docs/reference/opentofu-terraform.md > /tmp/gcp/README.md
 
-          # Copy examples and rewrite relative sources to GitHub URLs
+          # Copy examples and rewrite relative sources to registry syntax
           mkdir -p /tmp/gcp/examples
           cp -rL deploy/tf/examples/gcp/* /tmp/gcp/examples/
           cp -rL deploy/tf/examples/multi-cloud /tmp/gcp/examples/
 
-          # Rewrite relative module sources to GitHub URLs
-          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' -e \
-            's|source = "\.\./\.\./\.\./gcp/|source = "github.com/nstance-dev/terraform-gcp-nstance//|g' {} \;
-          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' -e \
-            's|source = "\.\./\.\./gcp/|source = "github.com/nstance-dev/terraform-gcp-nstance//|g' {} \;
-          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' -e \
-            's|source = "\.\./\.\./aws/|source = "github.com/nstance-dev/terraform-aws-nstance//|g' {} \;
+          # Rewrite relative module sources to registry sources and add version pinning
+          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' \
+            -e 's|source *= *"\.\./\.\./\.\./gcp/\([^"]*\)"|source  = "nstance-dev/nstance/gcp//modules/\1"|g' \
+            -e 's|source *= *"\.\./\.\./gcp/\([^"]*\)"|source  = "nstance-dev/nstance/gcp//modules/\1"|g' \
+            -e 's|source *= *"\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
+            -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 1.0"' \
+            {} \;
 
           if find /tmp/gcp -type l | grep -q .; then
             echo "Error: Unresolved symlinks in GCP modules"
@@ -82,7 +82,7 @@ jobs:
           fi
 
           echo "GCP modules prepared successfully"
-          ls -la /tmp/gcp/
+          ls -la /tmp/gcp/modules/
           ls -la /tmp/gcp/examples/
 
       - name: Setup SSH for deploy keys

@@ -47,8 +47,10 @@ The delineation of these modules enables cluster deployments to scale from singl
 
 Each cloud provider has its own published module repository:
 
-- **AWS**: `github.com/nstance-dev/terraform-aws-nstance//{module}`
-- **GCP**: `github.com/nstance-dev/terraform-gcp-nstance//{module}`
+- **AWS**: `nstance-dev/nstance/aws//modules/{module}`
+  - Source: `github.com/nstance-dev/terraform-aws-nstance//{module}`
+- **GCP**: `nstance-dev/nstance/gcp//modules/{module}`
+  - Source: `github.com/nstance-dev/terraform-gcp-nstance//{module}`
 
 Region and project are inferred from the provider configuration via data sources (`data.aws_region.current` or `data.google_client_config.current`), to minimise the number of required variables per module.
 
@@ -140,7 +142,8 @@ When `enable_ipv6 = true` (the default), each subnet needs an IPv6 CIDR. You can
 
 ```hcl
 module "network" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//network"
+  source  = "nstance-dev/nstance/aws//modules/network"
+  version = "~> 1.0"
 
   vpc_cidr_ipv4 = "172.18.0.0/16"
 
@@ -170,7 +173,8 @@ To disable IPv6 and use IPv4-only networking:
 
 ```hcl
 module "network" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//network"
+  source  = "nstance-dev/nstance/aws//modules/network"
+  version = "~> 1.0"
 
   vpc_cidr_ipv4 = "172.18.0.0/16"
   enable_ipv6   = false
@@ -196,17 +200,20 @@ provider "aws" {
 }
 
 module "cluster" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//cluster"
+  source  = "nstance-dev/nstance/aws//modules/cluster"
+  version = "~> 1.0"
 }
 
 module "account" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//account"
+  source  = "nstance-dev/nstance/aws//modules/account"
+  version = "~> 1.0"
 
   cluster = module.cluster
 }
 
 module "network" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//network"
+  source  = "nstance-dev/nstance/aws//modules/network"
+  version = "~> 1.0"
 
   cluster       = module.cluster
   vpc_cidr_ipv4 = "172.18.0.0/16"
@@ -239,7 +246,8 @@ module "network" {
 }
 
 module "shard" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//shard"
+  source  = "nstance-dev/nstance/aws//modules/shard"
+  version = "~> 1.0"
 
   cluster = module.cluster
   account = module.account
@@ -275,16 +283,20 @@ provider "aws" {
 }
 
 module "cluster" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//cluster"
+  source  = "nstance-dev/nstance/aws//modules/cluster"
+  version = "~> 1.0"
 }
 
 module "account" {
-  source  = "github.com/nstance-dev/terraform-aws-nstance//account"
+  source  = "nstance-dev/nstance/aws//modules/account"
+  version = "~> 1.0"
+
   cluster = module.cluster
 }
 
 module "network" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//network"
+  source  = "nstance-dev/nstance/aws//modules/network"
+  version = "~> 1.0"
 
   cluster = module.cluster
 
@@ -339,7 +351,8 @@ module "network" {
 
 # Create shards for each AZ
 module "shard_1a" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//shard"
+  source  = "nstance-dev/nstance/aws//modules/shard"
+  version = "~> 1.0"
 
   cluster = module.cluster
   account = module.account
@@ -358,7 +371,8 @@ module "shard_1a" {
 }
 
 module "shard_1b" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//shard"
+  source  = "nstance-dev/nstance/aws//modules/shard"
+  version = "~> 1.0"
 
   cluster = module.cluster
   account = module.account
@@ -377,7 +391,8 @@ module "shard_1b" {
 }
 
 module "shard_1c" {
-  source = "github.com/nstance-dev/terraform-aws-nstance//shard"
+  source  = "nstance-dev/nstance/aws//modules/shard"
+  version = "~> 1.0"
 
   cluster = module.cluster
   account = module.account
