@@ -84,6 +84,7 @@ func (p *Generator) prepareCertificateRequests(
 			Organization: certConfig.Organization,
 			DNS:          certConfig.DNS,
 			IP:           certConfig.IP,
+			URI:          certConfig.URI,
 			TTL:          certConfig.TTL,
 		}
 

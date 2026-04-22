@@ -230,6 +230,7 @@ type CertConfig struct {
 	Organization []string `json:"organization"` // Organization (for client certs)
 	DNS          []string `json:"dns"`          // DNS SANs (supports templating)
 	IP           []string `json:"ip"`           // IP SANs (supports templating)
+	URI          []string `json:"uri"`          // URI SANs (supports templating)
 	Country      []string `json:"country"`      // Country (C)
 	Province     []string `json:"province"`     // State/Province (ST)
 	Locality     []string `json:"locality"`     // Locality (L)

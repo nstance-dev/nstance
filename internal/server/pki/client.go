@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"time"
 
 	"github.com/nstance-dev/nstance/internal/server/keys"
@@ -215,6 +216,18 @@ func GenerateClientCertificateWithConfig(caCertPEM, caKeyPEM, clientPublicKeyPEM
 		if ip := net.ParseIP(ipStr); ip != nil {
 			template.IPAddresses = append(template.IPAddresses, ip)
 		}
+	}
+
+	// Parse and add URI SANs
+	for _, uriStr := range config.URI {
+		u, err := url.Parse(uriStr)
+		if err != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to parse URI SAN %q: %w", uriStr, err)
+		}
+		if u.Scheme == "" {
+			return nil, time.Time{}, fmt.Errorf("URI SAN %q must be an absolute URI with a scheme", uriStr)
+		}
+		template.URIs = append(template.URIs, u)
 	}
 
 	// Generate certificate

@@ -20,6 +20,7 @@ type CertificateConfig struct {
 	Organization []string
 	DNS          []string
 	IP           []string
+	URI          []string
 	Country      []string
 	Province     []string
 	Locality     []string
@@ -93,6 +94,18 @@ func ProcessCertificateTemplate(certConfig CertificateConfig, data CertificateTe
 		// Validate and only add valid IP addresses
 		if strings.TrimSpace(ip) != "" && net.ParseIP(ip) != nil {
 			result.IP = append(result.IP, ip)
+		}
+	}
+
+	// Process URI SANs
+	result.URI = make([]string, 0, len(certConfig.URI))
+	for _, uriTemplate := range certConfig.URI {
+		uri, err := processTemplate("URI", uriTemplate, data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process URI template: %w", err)
+		}
+		if strings.TrimSpace(uri) != "" {
+			result.URI = append(result.URI, uri)
 		}
 	}
 

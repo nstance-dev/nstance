@@ -71,4 +71,5 @@ Supported certificate fields:
 - `postalCode`: Postal Code
 - `dns`: DNS SANs (supports templating)
 - `ip`: IP SANs (supports templating)
+- `uri`: URI SANs (supports templating)
 - `ttl`: Validity period in hours
