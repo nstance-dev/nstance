@@ -12,30 +12,31 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/pki"
 )
 
-// generateSecrets handles secret file processing for required files
-func (p *Generator) generateSecrets(ctx context.Context, instanceID string, cfg *config.Config, template *config.TemplateConfig, filesRequired []string, processedFiles map[string]bool) (map[string][]byte, error) {
+// generateStorageFiles handles storage file processing for required files
+func (p *Generator) generateStorageFiles(ctx context.Context, instanceID string, cfg *config.Config, template *config.TemplateConfig, filesRequired []string, processedFiles map[string]bool) (map[string][]byte, error) {
 	generatedFiles := make(map[string][]byte)
-	var secretsProcessed int
+	var storageProcessed int
 
 	var templateData *pki.CertificateTemplateData
 
 	for _, filename := range filesRequired {
-		// Check if this file is configured as a secret in the template
+		// Check if this file is configured as a storage file in the template
 		fileConfig, exists := template.Files[filename]
-		if !exists || fileConfig.Kind != "secret" {
+		if !exists || fileConfig.Kind != "storage" {
 			continue
 		}
 
 		// Mark this file as processed
 		processedFiles[filename] = true
 
-		// Validate secret source is specified
+		// Validate storage source is specified
 		if fileConfig.Source == "" {
-			p.logger.Error("Secret file missing source configuration",
+			p.logger.Error("Storage file missing source configuration",
 				"instance_id", instanceID,
 				"filename", filename)
 			continue
 		}
+
 		source := fileConfig.Source
 
 		// Render source as a Go template if it contains template syntax
@@ -62,7 +63,7 @@ func (p *Generator) generateSecrets(ctx context.Context, instanceID string, cfg 
 
 			rendered, err := p.templateRenderer.processTemplate(source, *templateData)
 			if err != nil {
-				p.logger.Error("Failed to render secret source template",
+				p.logger.Error("Failed to render storage source template",
 					"instance_id", instanceID,
 					"filename", filename,
 					"source", source,
@@ -72,10 +73,10 @@ func (p *Generator) generateSecrets(ctx context.Context, instanceID string, cfg 
 			source = rendered
 		}
 
-		// Fetch secret content from store
-		secretContent, err := p.secretsStore.Get(ctx, source)
+		// Fetch content from storage
+		content, _, err := p.storageBackend.Get(ctx, source)
 		if err != nil {
-			p.logger.Error("Failed to fetch secret",
+			p.logger.Error("Failed to fetch storage file",
 				"instance_id", instanceID,
 				"filename", filename,
 				"source", source,
@@ -83,20 +84,20 @@ func (p *Generator) generateSecrets(ctx context.Context, instanceID string, cfg 
 			continue
 		}
 
-		// Add secret file to generated list
-		generatedFiles[filename] = secretContent
-		secretsProcessed++
+		// Add storage file to generated list
+		generatedFiles[filename] = content
+		storageProcessed++
 
-		p.logger.Debug("Secret file generated",
+		p.logger.Debug("Storage file generated",
 			"instance_id", instanceID,
 			"filename", filename,
 			"source", source)
 	}
 
-	if secretsProcessed > 0 {
-		p.logger.Info("Secret files processed successfully",
+	if storageProcessed > 0 {
+		p.logger.Info("Storage files processed successfully",
 			"instance_id", instanceID,
-			"secrets_processed", secretsProcessed)
+			"storage_processed", storageProcessed)
 	}
 
 	return generatedFiles, nil

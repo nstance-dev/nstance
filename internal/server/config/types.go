@@ -246,7 +246,7 @@ type KeyConfig struct {
 
 // FileConfig defines file configuration (secrets, certificates, or templates)
 type FileConfig struct {
-	Kind     string      `json:"kind" validate:"required,oneof=secret certificate env json string"`
+	Kind     string      `json:"kind" validate:"required,oneof=secret storage certificate env json string"`
 	Source   string      `json:"source,omitempty"`   // For secrets: secret name
 	Template interface{} `json:"template,omitempty"` // For certificates: string template name; for env/json/string: template content
 	Key      *KeyConfig  `json:"key,omitempty"`      // For certificates: key reference
@@ -483,6 +483,10 @@ func (c *Config) Validate() error {
 			case "secret":
 				if fileConfig.Source == "" {
 					return fmt.Errorf("template %s file %s of kind secret must specify a source", templateName, fileName)
+				}
+			case "storage":
+				if fileConfig.Source == "" {
+					return fmt.Errorf("template %s file %s of kind storage must specify a source", templateName, fileName)
 				}
 			case "env":
 				if fileConfig.Template == nil {

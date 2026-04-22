@@ -13,6 +13,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
+	"github.com/nstance-dev/nstance/internal/server/storage"
 )
 
 // Generator handles the generation of instance files
@@ -21,6 +22,7 @@ type Generator struct {
 	localDB          *localdb.DB
 	certService      *pki.BatchCertificateGenerator
 	secretsStore     secrets.Store
+	storageBackend   storage.Storage
 	templateRenderer *TemplateRenderer
 	logger           *slog.Logger
 }
@@ -31,6 +33,7 @@ func NewGenerator(
 	localDB *localdb.DB,
 	certService *pki.BatchCertificateGenerator,
 	secretsStore secrets.Store,
+	storageBackend storage.Storage,
 	logger *slog.Logger,
 ) *Generator {
 	if logger == nil {
@@ -42,6 +45,7 @@ func NewGenerator(
 		localDB:          localDB,
 		certService:      certService,
 		secretsStore:     secretsStore,
+		storageBackend:   storageBackend,
 		templateRenderer: NewTemplateRenderer(logger),
 		logger:           logger,
 	}
@@ -126,6 +130,17 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 		// Continue processing - don't fail the entire health report for secret errors
 	} else {
 		for k, v := range secretFiles {
+			generatedFiles[k] = v
+		}
+	}
+
+	// Handle storage files
+	storageFiles, err := p.generateStorageFiles(ctx, instanceID, cfg, &template, files, processedFiles)
+	if err != nil {
+		p.logger.Error("Failed to generate storage files", "instance_id", instanceID, "error", err)
+		// Continue processing - don't fail the entire health report for storage errors
+	} else {
+		for k, v := range storageFiles {
 			generatedFiles[k] = v
 		}
 	}

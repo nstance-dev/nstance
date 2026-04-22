@@ -221,6 +221,11 @@ Below we'll provide an example/reference configuration file for Nstance Server, 
           "kind": "secret",
           "source": "tunnel-20250924.json",
         },
+        // send a file from object storage
+        "bootstrap-config.json": {
+          "kind": "storage",
+          "source": "files/{{ .Vars.Environment }}/bootstrap-config.json",
+        },
         // send a certificate generated using a public key sent from the agent
         "kubelet.client.crt": {
           "kind": "certificate",
@@ -336,7 +341,8 @@ Nstance Server configuration file consists of:
 * `certificates` block - defining certificate templates for TLS certificate generation
 * `files` block - defining files to send to agent
   * kind = `certificate` where `template` = certificate templates, and `key` can reference an instance public key (kind of like a CSR)
-  * kind = `secret` where `source` = secret file
+  * kind = `secret` where `source` = secret file (and supports Go template variables)
+  * kind = `storage` where `source` = object storage key (and supports Go template variables)
   * kind = `env` where files are dynamically generated as .env format from key-value template objects
   * kind = `json` where files are dynamically generated as JSON from template objects with templated string values
   * kind = `string` where files are dynamically generated from raw string templates for custom formats

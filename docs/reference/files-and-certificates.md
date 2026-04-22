@@ -54,6 +54,10 @@ Certificate generation occurs asynchronously during health report processing:
 
 For example, if Nstance Agent sends a public key with name `kubelet.server` and later reports that `kubelet.server.crt` is missing or has an error, the server will generate a certificate using the configuration mapping and deliver it to the agent.
 
+## Storage Files
+
+Files can be sourced directly from object storage using `kind: "storage"`. The `source` field specifies the object key within the server's configured storage bucket. This is useful for distributing static configuration files, scripts, or other non-sensitive assets that don't require encryption via the secrets store.
+
 ## Example Configuration
 
 ```jsonc

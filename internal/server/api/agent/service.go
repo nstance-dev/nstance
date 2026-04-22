@@ -123,6 +123,7 @@ func (s *Service) initializeCertificateServices(caCertPEM, caKeyPEM []byte, shar
 		s.localDB,
 		certService,
 		s.secretsStore,
+		s.storage,
 		s.logger,
 	)
 
