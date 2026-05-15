@@ -192,15 +192,25 @@ func NewRootCmd() *cobra.Command {
 			},
 		)
 		go func() {
-			err := agentClient.StreamFiles(ctx, filesReceiver)
-			if err == nil {
-				err = fmt.Errorf("file stream closed")
-			}
-			if err != nil && !errors.Is(err, context.Canceled) {
+			for {
+				err := agentClient.StreamFiles(ctx, filesReceiver)
+				if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+					return
+				}
+				if err == nil {
+					logger.Info("file stream closed by server, reconnecting", "retry_in", "2s")
+					select {
+					case <-time.After(2 * time.Second):
+						continue
+					case <-ctx.Done():
+						return
+					}
+				}
 				select {
 				case shutdownErrsCh <- err:
 				default:
 				}
+				return
 			}
 		}()
 
