@@ -6,8 +6,15 @@ package fakeserver
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/internal/server/api"
 )
 
 // TestConfigureTenantAndInstanceEnv verifies tenant and instance setup returns agent environment variables.
@@ -100,3 +107,49 @@ func TestInstanceEnvWithAddrsDoesNotRequireStartedServer(t *testing.T) {
 		t.Fatal("expected CA cert")
 	}
 }
+
+func TestReceiveFilesStaysOpenWhenNoFilesArePending(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = context.WithValue(ctx, api.ClientInfoKey, &api.ClientInfo{ClientID: "knc123", Role: "agent", Tenant: "cluster-a"})
+	stream := &fakeReceiveFilesStream{ctx: ctx}
+	service := &agentService{s: &Server{cfg: Config{Store: newMemoryStore()}}}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- service.ReceiveFiles(&emptypb.Empty{}, stream)
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("ReceiveFiles returned before cancellation: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ReceiveFiles error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ReceiveFiles did not return after cancellation")
+	}
+}
+
+type fakeReceiveFilesStream struct {
+	ctx   context.Context
+	files []*proto.FileTransfer
+}
+
+func (s *fakeReceiveFilesStream) Send(file *proto.FileTransfer) error {
+	s.files = append(s.files, file)
+	return nil
+}
+
+func (s *fakeReceiveFilesStream) Context() context.Context { return s.ctx }
+
+func (*fakeReceiveFilesStream) SetHeader(metadata.MD) error  { return nil }
+func (*fakeReceiveFilesStream) SendHeader(metadata.MD) error { return nil }
+func (*fakeReceiveFilesStream) SetTrailer(metadata.MD)       {}
+func (*fakeReceiveFilesStream) SendMsg(any) error            { return nil }
+func (*fakeReceiveFilesStream) RecvMsg(any) error            { return nil }

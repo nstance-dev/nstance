@@ -121,27 +121,35 @@ func (a *agentService) ReceiveFiles(_ *emptypb.Empty, stream proto.AgentService_
 	if err != nil {
 		return err
 	}
-	b, err := a.s.cfg.Store.Get(stream.Context(), a.s.pendingKey(info.ClientID))
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return err
-	}
-	var files []pendingFile
-	if len(b) > 0 {
-		if err := json.Unmarshal(b, &files); err != nil {
-			return status.Errorf(codes.Internal, "decode pending files: %v", err)
-		}
-	}
-	for _, f := range files {
-		if err := stream.Send(&proto.FileTransfer{Filename: f.Filename, Content: f.Content, LastModified: timestamppb.New(f.LastModified)}); err != nil {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		b, err := a.s.cfg.Store.Get(stream.Context(), a.s.pendingKey(info.ClientID))
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
-	}
-	if len(files) > 0 {
-		if err := a.s.cfg.Store.Delete(context.WithoutCancel(stream.Context()), a.s.pendingKey(info.ClientID)); err != nil && !errors.Is(err, ErrNotFound) {
-			return status.Errorf(codes.Internal, "delete pending files: %v", err)
+		var files []pendingFile
+		if len(b) > 0 {
+			if err := json.Unmarshal(b, &files); err != nil {
+				return status.Errorf(codes.Internal, "decode pending files: %v", err)
+			}
+		}
+		for _, f := range files {
+			if err := stream.Send(&proto.FileTransfer{Filename: f.Filename, Content: f.Content, LastModified: timestamppb.New(f.LastModified)}); err != nil {
+				return err
+			}
+		}
+		if len(files) > 0 {
+			if err := a.s.cfg.Store.Delete(context.WithoutCancel(stream.Context()), a.s.pendingKey(info.ClientID)); err != nil && !errors.Is(err, ErrNotFound) {
+				return status.Errorf(codes.Internal, "delete pending files: %v", err)
+			}
+		}
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case <-ticker.C:
 		}
 	}
-	return nil
 }
 
 // SubmitHealthReport drains agent health reports until the stream closes.
