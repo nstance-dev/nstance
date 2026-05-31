@@ -40,8 +40,12 @@ count_instances() {
         g=$(jq -r '.group // empty' "$f" 2>/dev/null)
         s=$(jq -r '.status // empty' "$f" 2>/dev/null)
         od=$(jq -r '.on_demand // false' "$f" 2>/dev/null)
-        [ "$g" = "$group" ] && [ "$s" != "deleting" ] || continue
-        [ "$on_demand_only" = "true" ] && [ "$od" != "true" ] && continue
+        if [ "$g" != "$group" ] || [ "$s" = "deleting" ]; then
+            continue
+        fi
+        if [ "$on_demand_only" = "true" ] && [ "$od" != "true" ]; then
+            continue
+        fi
         count=$((count + 1))
     done
     echo "$count"
