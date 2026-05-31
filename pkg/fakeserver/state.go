@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/nstance-dev/nstance/internal/server/api"
+	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/keys"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 )
@@ -107,10 +108,38 @@ func (s *Server) loadOrCreateNonceKey(ctx context.Context) ([]byte, ed25519.Priv
 }
 
 // registrationJWT signs a one-use agent registration nonce for an instance request.
-func (s *Server) registrationJWT(req InstanceRequest) (string, error) {
+func (s *Server) registrationJWT(req InstanceRequest, tenant *TenantConfig) (string, error) {
 	now := time.Now()
-	claims := api.RegistrationNonceClaims{RegisteredClaims: jwt.RegisteredClaims{Subject: req.InstanceID, ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)), NotBefore: jwt.NewNumericDate(now.Add(-time.Minute)), IssuedAt: jwt.NewNumericDate(now)}, Kind: "agent", Sub: req.InstanceID, ClusterID: s.cfg.ClusterID, Shard: s.cfg.ShardID, Group: "local", Tenant: req.TenantID}
+	claims := api.RegistrationNonceClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   req.InstanceID,
+			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+			NotBefore: jwt.NewNumericDate(now.Add(-time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+		Kind:       "agent",
+		Sub:        req.InstanceID,
+		ConfigHash: tenantRuntimeConfigHash(tenant),
+		ClusterID:  s.cfg.ClusterID,
+		Shard:      s.cfg.ShardID,
+		Group:      "local",
+		Tenant:     req.TenantID,
+	}
 	return jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims).SignedString(s.nonceKey)
+}
+
+// tenantRuntimeConfigHash computes the runtime config hash for a tenant using
+// the same hashing scheme as the real server (config.HashRuntimeConfig), so the
+// hash agents persist locally is comparable to what production would issue for
+// for an equivalent group config.
+func tenantRuntimeConfigHash(tenant *TenantConfig) string {
+	if tenant == nil {
+		return ""
+	}
+	return config.HashRuntimeConfig(config.MergedConfig{
+		Vars:  tenant.Vars,
+		Files: tenant.Files,
+	})
 }
 
 // tenant loads and decodes tenant configuration from the store.

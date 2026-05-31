@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -217,7 +218,9 @@ func (s *Server) ConfigureTenant(ctx context.Context, cfg TenantConfig) error {
 	return s.cfg.Store.Put(ctx, s.tenantKey(cfg.TenantID), data)
 }
 
-// ConfigureInstance stores instance state.
+// ConfigureInstance stores instance state. The tenant referenced by req.TenantID
+// must already have been configured via ConfigureTenant so the registration
+// nonce can embed the tenant's runtime config hash, matching production behavior
 func (s *Server) ConfigureInstance(ctx context.Context, req InstanceRequest) error {
 	if err := s.Open(ctx); err != nil {
 		return err
@@ -225,12 +228,33 @@ func (s *Server) ConfigureInstance(ctx context.Context, req InstanceRequest) err
 	if req.TenantID == "" || req.InstanceID == "" {
 		return fmt.Errorf("tenant id and instance id are required")
 	}
-	jwt, err := s.registrationJWT(req)
+	tenant, err := s.tenant(ctx, req.TenantID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("tenant %q must be configured via ConfigureTenant before ConfigureInstance", req.TenantID)
+		}
+		return fmt.Errorf("load tenant %q: %w", req.TenantID, err)
+	}
+	jwt, err := s.registrationJWT(req, tenant)
 	if err != nil {
 		return err
 	}
 	inst := persistedInstance{TenantID: req.TenantID, InstanceID: req.InstanceID, InstanceKind: req.InstanceKind, Hostname: req.Hostname, IPv4: req.IPv4, IPv6: req.IPv6, NonceJWT: jwt}
 	return s.putInstance(ctx, &inst)
+}
+
+// CACert returns the fake server's CA certificate in PEM form. The server is
+// opened on first call so callers can render tenant configuration that embeds
+// the CA before configuring tenants or instances.
+func (s *Server) CACert(ctx context.Context) ([]byte, error) {
+	if err := s.Open(ctx); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]byte, len(s.caCertPEM))
+	copy(out, s.caCertPEM)
+	return out, nil
 }
 
 // InstanceEnv returns environment variables for a configured instance nstance-agent.

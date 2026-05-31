@@ -7,9 +7,11 @@ package fakeserver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -78,6 +80,33 @@ func TestConfigureTenantAndInstanceEnv(t *testing.T) {
 			t.Fatalf("empty instance env key %s", key)
 		}
 	}
+	claims := decodeNonceClaims(t, inst.NonceJWT)
+	if claims.ConfigHash == "" {
+		t.Fatal("expected nonce JWT to embed a non-empty config_hash claim")
+	}
+	if !strings.HasPrefix(claims.ConfigHash, "sha256:") {
+		t.Fatalf("expected config_hash to use sha256 scheme, got %q", claims.ConfigHash)
+	}
+}
+
+// TestConfigureInstanceWithoutTenantFails verifies fakeserver refuses to mint a
+// registration nonce for an instance whose tenant has not been configured yet,
+// matching the real server which always issues nonces in the context of a known
+// group/tenant.
+func TestConfigureInstanceWithoutTenantFails(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore()
+	server, err := New(Config{Store: store, ClusterID: "podplane-local", ShardID: "local"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	err = server.ConfigureInstance(ctx, InstanceRequest{TenantID: "cluster-a", InstanceID: "knc123", InstanceKind: "knc"})
+	if err == nil {
+		t.Fatal("expected ConfigureInstance to fail when tenant is missing")
+	}
+	if !strings.Contains(err.Error(), "ConfigureTenant") {
+		t.Fatalf("expected error to mention ConfigureTenant, got: %v", err)
+	}
 }
 
 func TestInstanceEnvWithAddrsDoesNotRequireStartedServer(t *testing.T) {
@@ -86,6 +115,9 @@ func TestInstanceEnvWithAddrsDoesNotRequireStartedServer(t *testing.T) {
 	server, err := New(Config{Store: store, ClusterID: "podplane-local", ShardID: "local"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	if err := server.ConfigureTenant(ctx, TenantConfig{TenantID: "cluster-a"}); err != nil {
+		t.Fatalf("ConfigureTenant: %v", err)
 	}
 	if err := server.ConfigureInstance(ctx, InstanceRequest{TenantID: "cluster-a", InstanceID: "knc123", InstanceKind: "knc"}); err != nil {
 		t.Fatalf("ConfigureInstance: %v", err)
@@ -153,3 +185,16 @@ func (*fakeReceiveFilesStream) SendHeader(metadata.MD) error { return nil }
 func (*fakeReceiveFilesStream) SetTrailer(metadata.MD)       {}
 func (*fakeReceiveFilesStream) SendMsg(any) error            { return nil }
 func (*fakeReceiveFilesStream) RecvMsg(any) error            { return nil }
+
+// decodeNonceClaims parses the unverified registration nonce JWT and returns
+// its typed claims for assertions. The fake server's signing key is internal,
+// so tests skip signature verification here.
+func decodeNonceClaims(t *testing.T, nonceJWT string) *api.RegistrationNonceClaims {
+	t.Helper()
+	claims := &api.RegistrationNonceClaims{}
+	parser := jwt.NewParser()
+	if _, _, err := parser.ParseUnverified(nonceJWT, claims); err != nil {
+		t.Fatalf("parse nonce JWT: %v", err)
+	}
+	return claims
+}
