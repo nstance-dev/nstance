@@ -46,6 +46,6 @@ See [docs/development/local-setup.md](docs/development/local-setup.md) for devel
 ## License
 
 Nstance is licensed under the Apache License, Version 2.0.
-Copyright 2026 Nadrama Pty Ltd.
+Copyright The Nstance Authors
 
 See the [LICENSE](./LICENSE) file for details.

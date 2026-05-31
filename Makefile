@@ -1,7 +1,8 @@
-# Copyright 2026 Nadrama Pty Ltd
+# Nstance <https://nstance.dev>
+# Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-YAML_HEADER := \# Nstance <https://nstance.dev>\n\# Copyright 2026 Nadrama Pty Ltd\n\# SPDX-License-Identifier: Apache-2.0
+YAML_HEADER := \# Nstance <https://nstance.dev>\n\# Copyright The Nstance Authors\n\# SPDX-License-Identifier: Apache-2.0
 
 CURRENT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 

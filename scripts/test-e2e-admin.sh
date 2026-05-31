@@ -1,6 +1,6 @@
 #!/bin/bash
 # Nstance <https://nstance.dev>
-# Copyright 2026 Nadrama Pty Ltd
+# Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # E2E test for the admin CLI commands.

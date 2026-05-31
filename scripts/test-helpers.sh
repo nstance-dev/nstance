@@ -1,5 +1,6 @@
 #!/bin/bash
-# Copyright 2026 Nadrama Pty Ltd
+# Nstance <https://nstance.dev>
+# Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # Shared helper functions for e2e test scripts.
