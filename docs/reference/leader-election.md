@@ -6,7 +6,7 @@ description: "How Nstance Server uses object storage-based leader election for s
 
 # Leader Election
 
-Nstance Server uses the [S3lect](https://github.com/nadrama-com/s3lect) Go package for leader election, which uses a single object storage lockfile per leader election group.
+Nstance Server uses the [S3lect](https://github.com/podplane/s3lect) Go package for leader election, which uses a single object storage lockfile per leader election group.
 
 It has two leader election groups:
 

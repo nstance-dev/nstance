@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nadrama-com/s3lect"
+	"github.com/podplane/s3lect"
 )
 
 // mockElector implements s3lect.Elector for testing.

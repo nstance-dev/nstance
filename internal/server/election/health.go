@@ -11,7 +11,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/nadrama-com/s3lect"
+	"github.com/podplane/s3lect"
 )
 
 // HealthServerConfig contains configuration for the election health server.

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nadrama-com/s3lect"
+	"github.com/podplane/s3lect"
 
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
