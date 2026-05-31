@@ -446,5 +446,3 @@ func isMirrorPod(pod corev1.Pod) bool {
 	_, ok := pod.Annotations["kubernetes.io/config.mirror"]
 	return ok
 }
-
-

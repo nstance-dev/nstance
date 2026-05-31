@@ -43,59 +43,37 @@ else ifeq ($(GOOS),darwin)
 	endif
 endif
 
-.PHONY: help check git-hooks proto fmt lint test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
+.DEFAULT_GOAL := help
 
-help:
-	@echo "Available Makefile commands:"
-	@echo "  check       - Check dependencies are installed"
-	@echo "  git-hooks   - Install git pre-commit hook"
-	@echo "  proto       - Generate protobuf code"
-	@echo "  fmt         - Format code"
-	@echo "  lint        - Run golangci-lint"
-	@echo "  test        - Run tests"
-	@echo "  e2e-admin   - Run e2e test for admin CLI (requires dev-tmux running)"
-	@echo "  e2e-k8s     - Run e2e test for K8s resource flow (requires dev-tmux-k8s running)"
-	@echo "  dev-tmux    - Start dev environment with s3 + server only (for admin CLI testing)"
-	@echo "  dev-tmux-k8s - Start dev environment with s3 + server + k8s + operator (for K8s testing)"
-	@echo "  dev-operator - Run operator with air against KUBECONFIG (for Kind/real K8s)"
-	@echo "  dev-proxmox - Start dev environment with Proxmox provider"
-	@echo "  kind-create  - Create a Kind cluster for dev"
-	@echo "  kind-provision - Install cert-manager, CAPI, and Nstance CRDs into Kind cluster"
-	@echo "  kind-delete  - Delete the Kind dev cluster"
-	@echo "  clean-dev   - Clean development environment"
-	@echo "  build       - Build all binaries"
-	@echo "  nstance-server"
-	@echo "  nstance-agent"
-	@echo "  nstance-operator"
-	@echo "  clean-build - Remove build artifacts"
-	@echo "  manifests   - Generate Kubernetes manifests"
-	@echo "  tag         - Tag the current commit with a version"
-	@echo "  images      - Build Docker images"
-	@echo "  image-operator"
-	@echo "  image-agent"
-	@echo "  image-server"
-	@echo "  image-admin"
-	@echo "  publish     - Publish Docker images"
-	@echo "  publish-operator"
-	@echo "  publish-agent"
-	@echo "  publish-server"
-	@echo "  publish-admin"
+.PHONY: help setup git-hooks proto fmt lint precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
 
-check:
+help: ## Show available targets
+	@echo "Usage: make <target>"
+	@awk 'BEGIN {FS = ":.*?## "} /^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5)} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+##@ Setup
+
+setup: git-hooks ## Verify required tools and install git hooks
 	@command -v go >/dev/null 2>&1 || { echo "Error: go is not installed. Please install it first."; exit 1; }
 	@command -v tmux >/dev/null 2>&1 || { echo "Error: tmux is not installed. Please install it first."; exit 1; }
 	@command -v air >/dev/null 2>&1 || { echo "Error: air is not installed. Please install it first."; exit 1; }
 	@command -v overmind >/dev/null 2>&1 || { echo "Error: overmind is not installed. Please install it first."; exit 1; }
-	@echo "All dependencies are installed. Available Makefile commands:"
+	@command -v shellcheck >/dev/null 2>&1 || { echo "Error: shellcheck is not installed. Please install it first."; exit 1; }
+	@go tool golangci-lint version >/dev/null 2>&1 || { echo "Error: golangci-lint is not installed as a Go tool. Run 'go get -tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest'"; exit 1; }
+	@echo "Setup complete. All dependencies are installed."
 
-git-hooks:
+git-hooks: ## Install git pre-commit and commit-msg hooks
 	@echo "Installing git hooks..."
 	@mkdir -p $(CURRENT).git/hooks
-	@cp $(CURRENT)scripts/pre-commit $(CURRENT).git/hooks/pre-commit
+	@cp $(CURRENT)scripts/git-hooks/pre-commit $(CURRENT).git/hooks/pre-commit
 	@chmod +x $(CURRENT).git/hooks/pre-commit
+	@cp $(CURRENT)scripts/git-hooks/commit-msg $(CURRENT).git/hooks/commit-msg
+	@chmod +x $(CURRENT).git/hooks/commit-msg
 	@echo "Git hooks installed!"
 
-proto:
+##@ Build & Test
+
+proto: ## Generate protobuf code
 	protoc -I=$(CURRENT) \
 	       --go_out=$(CURRENT)internal \
 	       --go-grpc_out=$(CURRENT)internal \
@@ -103,33 +81,95 @@ proto:
 	       --go-grpc_opt=paths=source_relative \
 	       $(CURRENT)proto/*.proto
 
-fmt:
+fmt: ## Format code
 	@echo "Formatting code..."
 	go fmt ./...
 
-lint:
-	@echo "Running linter..."
-	golangci-lint run
+lint: ## Run golangci-lint and shellcheck
+	@echo "Running golangci-lint..."
+	go tool golangci-lint run --timeout=5m
+	@echo "Running shellcheck..."
+	shellcheck $(CURRENT)scripts/*.sh
 
-test:
+precommit: ## Check formatting and run linters (read-only)
+	@echo "Checking formatting..."
+	@UNFORMATTED=$$(gofmt -l . 2>&1); \
+	if [ -n "$$UNFORMATTED" ]; then \
+		echo "The following files need formatting (run 'make fmt'):"; \
+		echo "$$UNFORMATTED"; \
+		exit 1; \
+	fi
+	@$(MAKE) lint
+
+test: ## Run tests
 	@echo "Running tests..."
 	go test -v -race -coverprofile=coverage.out ./...
 
-e2e-admin:
+e2e-admin: ## Run e2e test for admin CLI (requires dev-tmux running)
 	@$(CURRENT)scripts/test-e2e-admin.sh
 
-e2e-k8s:
+e2e-k8s: ## Run e2e test for K8s resource flow (requires dev-tmux-k8s running)
 	@$(CURRENT)scripts/test-e2e-k8s.sh
 
-dev-tmux:
+build: $(BINARIES) ## Build all binaries
+
+$(BINARIES):
+	mkdir -p $(BINARYDIR)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) \
+	CGO_ENABLED=$(if $(findstring server,$@),1,0) CC=$(CC) CXX=$(CXX) \
+	go build $(if $(BUILD_TAGS),-tags "$(BUILD_TAGS)") \
+		-o $(BINARYDIR)/$@ \
+		-trimpath \
+		-ldflags "$(EXTRA_LD_FLAGS) \
+		-X $(BUILDVARS_PKG).buildVersion=$(BUILD_VERSION) \
+		-X $(BUILDVARS_PKG).buildDate=$(BUILD_DATE) \
+		-X $(BUILDVARS_PKG).commitHash=$(COMMIT_HASH) \
+		-X $(BUILDVARS_PKG).commitDate=$(COMMIT_DATE) \
+		-X $(BUILDVARS_PKG).commitBranch=$(COMMIT_BRANCH) \
+		" $(CURRENT)cmd/$@
+	printf "%s" "$(BUILD_VERSION)-$(COMMIT_HASH)" > $(BINARYDIR)/nstance-version.txt
+
+clean-build: ## Remove build artifacts
+	rm -rf $(BINARYDIR)
+
+manifests: ## Generate Kubernetes manifests
+	cd $(CURRENT) && controller-gen object:headerFile="config/boilerplate.go.txt" paths="./api/..."
+	cd $(CURRENT) && controller-gen crd:crdVersions=v1 paths="./api/..." output:crd:artifacts:config=config/crd/bases
+	cd $(CURRENT) && controller-gen rbac:roleName=nstance-operator-role paths="./internal/operator/controller/..." output:rbac:artifacts:config=config/rbac
+	@echo "Syncing CRDs to Helm chart..."
+	@rm -f $(CURRENT)deploy/helm/crds/*.yaml
+	@cd $(CURRENT) && kustomize build config/crd/ | awk ' \
+		/^---$$/ || /^apiVersion:/ { \
+			if (name != "" && doc != "") { \
+				f = "deploy/helm/crds/" name ".yaml"; \
+				printf "$(YAML_HEADER)\n\n---\n%s", doc > f; \
+				close(f); \
+				} \
+				doc = ""; name = ""; \
+				if (/^apiVersion:/) { doc = $$0 "\n" } \
+				next; \
+				} \
+				/^  name: / && name == "" { name = $$2 } \
+				{ doc = doc $$0 "\n" } \
+				END { \
+				if (name != "" && doc != "") { \
+				f = "deploy/helm/crds/" name ".yaml"; \
+				printf "$(YAML_HEADER)\n\n---\n%s", doc > f; \
+				close(f); \
+			} \
+		}'
+
+##@ Dev Environment
+
+dev-tmux: ## Start dev environment with s3 + server only (for admin CLI testing)
 	@$(CURRENT)scripts/check-dev-ports.sh
 	@trap 'tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^nstance-.*-agents$$" | xargs -I{} tmux kill-session -t {} 2>/dev/null || true' EXIT; cd $(CURRENT) && OVERMIND_FORMATION=s3=1,server=2,k8s=0,operator=0 overmind start
 
-dev-tmux-k8s:
+dev-tmux-k8s: ## Start dev environment with s3 + server + k8s + operator (for K8s testing)
 	@$(CURRENT)scripts/check-dev-ports.sh
 	@trap 'tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^nstance-.*-agents$$" | xargs -I{} tmux kill-session -t {} 2>/dev/null || true' EXIT; cd $(CURRENT) && OVERMIND_FORMATION=s3=1,server=2,k8s=1,operator=1 overmind start
 
-dev-operator:
+dev-operator: ## Run operator with air against KUBECONFIG (for Kind/real K8s)
 	@if [ ! -f "$(CURRENT)temp/operator/kubeconfig" ]; then \
 		echo "Error: temp/operator/kubeconfig does not exist"; \
 		echo "  See docs/DEV.md 'Using with a Real Kubernetes Cluster' for setup instructions"; \
@@ -143,7 +183,7 @@ dev-operator:
 	@mkdir -p $(CURRENT)temp/logs
 	cd $(CURRENT) && KUBECONFIG=$(CURRENT)temp/operator/kubeconfig NSTANCE_NAMESPACE=$${NSTANCE_NAMESPACE:-default} air -c scripts/air/operator.toml 2>&1 | tee temp/logs/operator.log
 
-dev-proxmox:
+dev-proxmox: ## Start dev environment with Proxmox provider
 	@if [ -z "$$PROXMOX_API_URL" ]; then \
 		echo "Error: PROXMOX_API_URL is not set"; \
 		echo "  export PROXMOX_API_URL='https://proxmox.example.com:8006/api2/json'"; \
@@ -165,7 +205,7 @@ dev-proxmox:
 KIND_CLUSTER_NAME ?= nstance-dev
 KIND_CONFIG = $(CURRENT)temp/kind-config.yaml
 
-kind-create:
+kind-create: ## Create a Kind cluster for dev
 	@command -v kind >/dev/null 2>&1 || { echo "Error: kind is not installed. See https://kind.sigs.k8s.io/"; exit 1; }
 	@mkdir -p $(CURRENT)temp
 	@if [ ! -f "$(KIND_CONFIG)" ]; then \
@@ -180,7 +220,7 @@ kind-create:
 	fi
 	@echo "Context set to kind-$(KIND_CLUSTER_NAME)."
 
-kind-provision:
+kind-provision: ## Install cert-manager, CAPI, and Nstance CRDs into Kind cluster
 	@test -f "$(BINARYDIR)/nstance-admin" || $(MAKE) nstance-admin
 	@if [ ! -f "$(CURRENT)temp/dev-s3/cluster/ca.crt" ]; then \
 		echo "Error: temp/dev-s3/cluster/ca.crt does not exist."; \
@@ -225,14 +265,14 @@ kind-provision:
 		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "Kind cluster provisioned and ready. Run 'make dev-operator' to start the operator."
 
-kind-delete:
+kind-delete: ## Delete the Kind dev cluster
 	@if kind get clusters 2>/dev/null | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
 		kind delete cluster --name $(KIND_CLUSTER_NAME); \
 	else \
 		echo "Kind cluster '$(KIND_CLUSTER_NAME)' does not exist, nothing to delete."; \
 	fi
 
-clean-dev:
+clean-dev: ## Clean development environment
 	tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^nstance-.*-agents$$" | xargs -I{} tmux kill-session -t {} 2>/dev/null || true
 	pkill -f dev-k8s || true
 	pkill -f dev-s3 || true
@@ -244,55 +284,9 @@ clean-dev:
 	rm -rf $(CURRENT)temp
 	mkdir -p $(CURRENT)temp/dev-s3
 
-build: $(BINARIES)
+##@ Release
 
-$(BINARIES):
-	mkdir -p $(BINARYDIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) \
-	CGO_ENABLED=$(if $(findstring server,$@),1,0) CC=$(CC) CXX=$(CXX) \
-	go build $(if $(BUILD_TAGS),-tags "$(BUILD_TAGS)") \
-		-o $(BINARYDIR)/$@ \
-		-trimpath \
-		-ldflags "$(EXTRA_LD_FLAGS) \
-		-X $(BUILDVARS_PKG).buildVersion=$(BUILD_VERSION) \
-		-X $(BUILDVARS_PKG).buildDate=$(BUILD_DATE) \
-		-X $(BUILDVARS_PKG).commitHash=$(COMMIT_HASH) \
-		-X $(BUILDVARS_PKG).commitDate=$(COMMIT_DATE) \
-		-X $(BUILDVARS_PKG).commitBranch=$(COMMIT_BRANCH) \
-		" $(CURRENT)cmd/$@
-	printf "%s" "$(BUILD_VERSION)-$(COMMIT_HASH)" > $(BINARYDIR)/nstance-version.txt
-
-clean-build:
-	rm -rf $(BINARYDIR)
-
-manifests:
-	cd $(CURRENT) && controller-gen object:headerFile="config/boilerplate.go.txt" paths="./api/..."
-	cd $(CURRENT) && controller-gen crd:crdVersions=v1 paths="./api/..." output:crd:artifacts:config=config/crd/bases
-	cd $(CURRENT) && controller-gen rbac:roleName=nstance-operator-role paths="./internal/operator/controller/..." output:rbac:artifacts:config=config/rbac
-	@echo "Syncing CRDs to Helm chart..."
-	@rm -f $(CURRENT)deploy/helm/crds/*.yaml
-	@cd $(CURRENT) && kustomize build config/crd/ | awk ' \
-		/^---$$/ || /^apiVersion:/ { \
-			if (name != "" && doc != "") { \
-				f = "deploy/helm/crds/" name ".yaml"; \
-				printf "$(YAML_HEADER)\n\n---\n%s", doc > f; \
-				close(f); \
-				} \
-				doc = ""; name = ""; \
-				if (/^apiVersion:/) { doc = $$0 "\n" } \
-				next; \
-				} \
-				/^  name: / && name == "" { name = $$2 } \
-				{ doc = doc $$0 "\n" } \
-				END { \
-				if (name != "" && doc != "") { \
-				f = "deploy/helm/crds/" name ".yaml"; \
-				printf "$(YAML_HEADER)\n\n---\n%s", doc > f; \
-				close(f); \
-			} \
-		}'
-
-tag:
+tag: ## Tag the current commit with a version (VERSION=vX.Y.Z)
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Usage: make tag VERSION=v1.0.0"; \
 		exit 1; \
@@ -310,9 +304,9 @@ tag:
 	echo "To push the tag, run:"; \
 	echo "  git push origin $(VERSION)"
 
-images: image-operator image-agent image-server image-admin
+images: image-operator image-agent image-server image-admin ## Build all container images
 
-image-operator:
+image-operator: ## Build the operator container image
 	docker build -f $(CURRENT)images/operator/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
@@ -321,7 +315,7 @@ image-operator:
 		-t ghcr.io/nstance-dev/nstance-operator:latest \
 		$(CURRENT)
 
-image-agent:
+image-agent: ## Build the agent container image
 	docker build -f $(CURRENT)images/agent/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
@@ -330,7 +324,7 @@ image-agent:
 		-t ghcr.io/nstance-dev/nstance-agent:latest \
 		$(CURRENT)
 
-image-server:
+image-server: ## Build the server container image
 	docker build -f $(CURRENT)images/server/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
@@ -339,7 +333,7 @@ image-server:
 		-t ghcr.io/nstance-dev/nstance-server:latest \
 		$(CURRENT)
 
-image-admin:
+image-admin: ## Build the admin container image
 	docker build -f $(CURRENT)images/admin/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
 		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
@@ -348,9 +342,9 @@ image-admin:
 		-t ghcr.io/nstance-dev/nstance-admin:latest \
 		$(CURRENT)
 
-publish: publish-operator publish-agent publish-server publish-admin
+publish: publish-operator publish-agent publish-server publish-admin ## Publish all multi-arch container images
 
-publish-operator:
+publish-operator: ## Publish the multi-arch operator container image
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		-f $(CURRENT)images/operator/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
@@ -361,7 +355,7 @@ publish-operator:
 		--push \
 		$(CURRENT)
 
-publish-agent:
+publish-agent: ## Publish the multi-arch agent container image
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		-f $(CURRENT)images/agent/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
@@ -372,7 +366,7 @@ publish-agent:
 		--push \
 		$(CURRENT)
 
-publish-server:
+publish-server: ## Publish the multi-arch server container image
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		-f $(CURRENT)images/server/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \
@@ -383,7 +377,7 @@ publish-server:
 		--push \
 		$(CURRENT)
 
-publish-admin:
+publish-admin: ## Publish the multi-arch admin container image
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		-f $(CURRENT)images/admin/Containerfile \
 		--build-arg VERSION=$(BUILD_VERSION) \

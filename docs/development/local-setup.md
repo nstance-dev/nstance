@@ -126,7 +126,7 @@ Each agent window runs Air for hot-reload, enabling code changes to automaticall
 ### Prerequisites
 
 ```bash
-make check  # Verifies: go, tmux, air, overmind
+make setup  # Verifies dependencies (go, tmux, air, overmind, shellcheck, golangci-lint) and installs git hooks
 ```
 
 ### Starting the Environment

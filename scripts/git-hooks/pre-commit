@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+set -eo pipefail
+
+echo "Running pre-commit checks..."
+make precommit
+echo "Pre-commit checks passed!"

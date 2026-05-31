@@ -76,7 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 	requiredResources := map[schema.GroupVersion][]string{
-		clusterv1.GroupVersion:              {"clusters", "machinepools"},
+		clusterv1.GroupVersion:             {"clusters", "machinepools"},
 		infrastructurev1beta1.GroupVersion: {"nstanceclusters", "nstancemachinepools", "nstancemachines", "nstanceshardgroups"},
 	}
 	for gv, resources := range requiredResources {
