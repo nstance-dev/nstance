@@ -9,12 +9,12 @@
 variable "cluster" {
   description = "Cluster configuration from cluster module"
   type = object({
-    id                 = string
-    name_prefix        = optional(string, "nstance")
-    shards             = optional(list(string), [])
-    bucket             = string
-    bucket_arn         = optional(string, "")
-    secrets_provider   = optional(string, "object-storage")
+    id                    = string
+    name_prefix           = optional(string, "nstance")
+    shards                = optional(list(string), [])
+    bucket                = string
+    bucket_arn            = optional(string, "")
+    secrets_provider      = optional(string, "object-storage")
     encryption_key_source = optional(string, "")
     server_config = optional(object({
       request_timeout        = optional(string, "30s")
@@ -253,6 +253,8 @@ variable "templates" {
     machine_type  = optional(string, "")
     args          = optional(map(any), {})
     vars          = optional(map(string), {})
+    files         = optional(map(any), {})
+    userdata      = optional(any, null)
   }))
   default = {}
 }

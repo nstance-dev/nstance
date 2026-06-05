@@ -59,7 +59,9 @@ locals {
       },
       tmpl.machine_type != "" ? { instance_type = tmpl.machine_type } : {},
       length(tmpl.args) > 0 ? { args = tmpl.args } : {},
-      length(tmpl.vars) > 0 ? { vars = tmpl.vars } : {}
+      length(tmpl.vars) > 0 ? { vars = tmpl.vars } : {},
+      length(tmpl.files) > 0 ? { files = tmpl.files } : {},
+      tmpl.userdata != null ? { userdata = tmpl.userdata } : {}
     )
   }
 }
