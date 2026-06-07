@@ -10,8 +10,6 @@
 
 data "google_client_config" "current" {}
 
-data "google_project" "current" {}
-
 locals {
   project_id  = data.google_client_config.current.project
   region      = regex("^([a-z]+-[a-z]+[0-9]+)", var.zone)[0]

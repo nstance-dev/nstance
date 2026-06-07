@@ -10,11 +10,8 @@
 
 data "aws_region" "current" {}
 
-data "aws_caller_identity" "current" {}
-
 locals {
   region      = data.aws_region.current.id
-  account_id  = data.aws_caller_identity.current.account_id
   name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
   shards      = var.cluster.shards
 
