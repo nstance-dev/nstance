@@ -2,6 +2,76 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
+# ============================================================================
+# Agent Userdata Template
+# ============================================================================
+
+locals {
+  nstance_version = var.nstance_version != "" ? var.nstance_version : "latest"
+  github_repo     = "nstance-dev/nstance"
+
+  # Agent userdata template - read as-is, uses Go text/template syntax
+  # This gets stored in S3 config and interpolated by nstance-server at instance creation
+  agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", {
+    nstance_version        = local.nstance_version
+    github_repo            = local.github_repo
+    binary_url             = var.nstance_agent_binary_url
+    provider               = "aws"
+    enable_ssm             = var.enable_ssm
+    agent_debug            = var.agent_debug
+    agent_environment      = var.agent_environment
+    agent_identity_mode    = "0600"
+    agent_keys_mode        = "0640"
+    agent_recv_mode        = "0640"
+    agent_metrics_interval = var.cluster.server_config.health_check_interval
+    agent_spot_poll        = var.agent_spot_poll_interval
+  })
+
+  # Build expiry config only if at least one expiry setting is configured
+  expiry_config = (
+    var.cluster.server_config.expiry.eligible_age != "" ||
+    var.cluster.server_config.expiry.forced_age != "" ||
+    var.cluster.server_config.expiry.ondemand_age != ""
+    ) ? {
+    expiry = merge(
+      var.cluster.server_config.expiry.eligible_age != "" ? { eligible_age = var.cluster.server_config.expiry.eligible_age } : {},
+      var.cluster.server_config.expiry.forced_age != "" ? { forced_age = var.cluster.server_config.expiry.forced_age } : {},
+      var.cluster.server_config.expiry.ondemand_age != "" ? { ondemand_age = var.cluster.server_config.expiry.ondemand_age } : {}
+    )
+  } : {}
+
+  # Default template used when no templates are specified
+  default_template = {
+    default = {
+      kind     = "dft"
+      arch     = "arm64"
+      userdata = { content = local.agent_userdata_template }
+      args = {
+        ImageId = "{{ .Image.debian_13_arm64 }}"
+      }
+    }
+  }
+
+  # Use default template if none specified, otherwise use provided templates as-is
+  templates = length(var.templates) == 0 ? local.default_template : {
+    for name, tmpl in var.templates : name => merge(
+      {
+        kind = tmpl.kind
+        arch = tmpl.arch
+      },
+      tmpl.instance_type != "" ? { instance_type = tmpl.instance_type } : {},
+      length(tmpl.args) > 0 ? { args = tmpl.args } : {},
+      length(tmpl.vars) > 0 ? { vars = tmpl.vars } : {},
+      length(tmpl.files) > 0 ? { files = tmpl.files } : {},
+      tmpl.userdata != null ? { userdata = tmpl.userdata } : {}
+    )
+  }
+}
+
+# ============================================================================
+# Shard Config Upload
+# ============================================================================
+
 # Upload shard config file
 resource "aws_s3_object" "shard_config" {
   bucket       = var.cluster.bucket

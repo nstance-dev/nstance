@@ -60,6 +60,20 @@ data "aws_ami" "debian_amd64" {
 
 locals {
   server_ami_id = local.server_arch == "arm64" ? data.aws_ami.debian_arm64.id : data.aws_ami.debian_amd64.id
+
+  # Server userdata - rendered from template with Terraform variables
+  server_userdata = templatefile("${path.module}/templates/server-userdata.sh.tpl", {
+    nstance_version = local.nstance_version
+    github_repo     = local.github_repo
+    binary_url      = var.nstance_server_binary_url
+    provider        = "aws"
+    storage         = "s3"
+    aws_region      = local.region
+    gcp_project     = ""
+    bucket          = var.cluster.bucket
+    shard           = var.shard
+    enable_ssm      = var.enable_ssm
+  })
 }
 
 # Server Launch Template
