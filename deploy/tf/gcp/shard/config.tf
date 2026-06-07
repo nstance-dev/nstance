@@ -175,10 +175,6 @@ resource "google_storage_bucket_object" "shard_config" {
               args = {
                 ServiceAccount = var.account.agent_iam_role_arn
                 NetworkTags    = ["nstance-agent-${var.shard}"]
-                Labels = {
-                  "nstance-managed" = "true"
-                  "nstance-group"   = group_name
-                }
               }
             },
             length(group.vars) > 0 ? { vars = group.vars } : {},
