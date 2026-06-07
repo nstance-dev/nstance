@@ -56,7 +56,7 @@ locals {
   # Common tags applied to all resources
   common_tags = merge(
     {
-      "nstance-managed"    = "true"
+      "nstance-tf"         = "true"
       "nstance-cluster-id" = var.cluster.id
       "nstance-shard"      = var.shard
     },
