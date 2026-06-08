@@ -77,10 +77,16 @@ func (p *Generator) prepareCertificateRequests(
 			continue
 		}
 
+		// Default CN to template name if not set
+		cn := certConfig.CN
+		if cn == nil {
+			cn = &templateName
+		}
+
 		// Convert config.CertConfig to pki.CertificateConfig
 		pkiCertConfig := &pki.CertificateConfig{
 			Kind:         certConfig.Kind,
-			CN:           &templateName, // Use template name as CN
+			CN:           cn,
 			Organization: certConfig.Organization,
 			DNS:          certConfig.DNS,
 			IP:           certConfig.IP,
