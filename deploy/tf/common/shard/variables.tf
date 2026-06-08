@@ -17,31 +17,35 @@ variable "cluster" {
     secrets_provider      = optional(string, "object-storage")
     encryption_key_source = optional(string, "")
     server_config = optional(object({
-      request_timeout        = optional(string, "30s")
-      create_rate_limit      = optional(string, "")
-      health_check_interval  = optional(string, "60s")
-      default_drain_timeout  = optional(string, "5m")
-      image_refresh_interval = optional(string, "6h")
-      shutdown_timeout       = optional(string, "10s")
-
-      garbage_collection = optional(object({
-        interval                 = optional(string, "2m")
-        registration_timeout     = optional(string, "5m")
-        deleted_record_retention = optional(string, "30m")
+      request_timeout        = optional(string)
+      create_rate_limit      = optional(string)
+      health_check_interval  = optional(string)
+      default_drain_timeout  = optional(string)
+      image_refresh_interval = optional(string)
+      shutdown_timeout       = optional(string)
+      cluster_leader_election = optional(object({
+        frequent_interval   = optional(string)
+        infrequent_interval = optional(string)
+        leader_timeout      = optional(string)
       }), {})
-      leader_election = optional(object({
-        frequent_interval   = optional(string, "5s")
-        infrequent_interval = optional(string, "30s")
-        leader_timeout      = optional(string, "15s")
+      shard_leader_election = optional(object({
+        frequent_interval   = optional(string)
+        infrequent_interval = optional(string)
+        leader_timeout      = optional(string)
+      }), {})
+      garbage_collection = optional(object({
+        interval                 = optional(string)
+        registration_timeout     = optional(string)
+        deleted_record_retention = optional(string)
       }), {})
       expiry = optional(object({
-        eligible_age = optional(string, "")
-        forced_age   = optional(string, "")
-        ondemand_age = optional(string, "")
+        eligible_age = optional(string)
+        forced_age   = optional(string)
+        ondemand_age = optional(string)
       }), {})
       error_exit_jitter = optional(object({
-        min_delay = optional(string, "10s")
-        max_delay = optional(string, "40s")
+        min_delay = optional(string)
+        max_delay = optional(string)
       }), {})
       bind = optional(object({
         health_addr       = optional(string, "0.0.0.0:8990")

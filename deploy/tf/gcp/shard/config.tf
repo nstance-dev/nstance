@@ -10,6 +10,8 @@ locals {
   nstance_version = var.nstance_version != "" ? var.nstance_version : "latest"
   github_repo     = "nstance-dev/nstance"
 
+  # Agent userdata template - read as-is, uses Go text/template syntax
+  # This gets stored in GCS config and interpolated by nstance-server at instance creation
   agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", {
     nstance_version        = local.nstance_version
     github_repo            = local.github_repo
@@ -21,22 +23,51 @@ locals {
     agent_identity_mode    = "0600"
     agent_keys_mode        = "0640"
     agent_recv_mode        = "0640"
-    agent_metrics_interval = var.cluster.server_config.health_check_interval
+    agent_metrics_interval = coalesce(var.cluster.server_config.health_check_interval, "")
     agent_spot_poll        = var.agent_spot_poll_interval
   })
 
-  # Build expiry config only if at least one expiry setting is configured
-  expiry_config = (
-    var.cluster.server_config.expiry.eligible_age != "" ||
-    var.cluster.server_config.expiry.forced_age != "" ||
-    var.cluster.server_config.expiry.ondemand_age != ""
-    ) ? {
-    expiry = merge(
-      var.cluster.server_config.expiry.eligible_age != "" ? { eligible_age = var.cluster.server_config.expiry.eligible_age } : {},
-      var.cluster.server_config.expiry.forced_age != "" ? { forced_age = var.cluster.server_config.expiry.forced_age } : {},
-      var.cluster.server_config.expiry.ondemand_age != "" ? { ondemand_age = var.cluster.server_config.expiry.ondemand_age } : {}
-    )
-  } : {}
+  cluster_leader_election_config = merge(
+    var.cluster.server_config.cluster_leader_election.frequent_interval != null ? { frequent_interval = var.cluster.server_config.cluster_leader_election.frequent_interval } : {},
+    var.cluster.server_config.cluster_leader_election.infrequent_interval != null ? { infrequent_interval = var.cluster.server_config.cluster_leader_election.infrequent_interval } : {},
+    var.cluster.server_config.cluster_leader_election.leader_timeout != null ? { leader_timeout = var.cluster.server_config.cluster_leader_election.leader_timeout } : {}
+  )
+
+  shard_leader_election_config = merge(
+    var.cluster.server_config.shard_leader_election.frequent_interval != null ? { frequent_interval = var.cluster.server_config.shard_leader_election.frequent_interval } : {},
+    var.cluster.server_config.shard_leader_election.infrequent_interval != null ? { infrequent_interval = var.cluster.server_config.shard_leader_election.infrequent_interval } : {},
+    var.cluster.server_config.shard_leader_election.leader_timeout != null ? { leader_timeout = var.cluster.server_config.shard_leader_election.leader_timeout } : {}
+  )
+
+  garbage_collection_config = merge(
+    var.cluster.server_config.garbage_collection.interval != null ? { interval = var.cluster.server_config.garbage_collection.interval } : {},
+    var.cluster.server_config.garbage_collection.registration_timeout != null ? { registration_timeout = var.cluster.server_config.garbage_collection.registration_timeout } : {},
+    var.cluster.server_config.garbage_collection.deleted_record_retention != null ? { deleted_record_retention = var.cluster.server_config.garbage_collection.deleted_record_retention } : {}
+  )
+
+  expiry_config = merge(
+    var.cluster.server_config.expiry.eligible_age != null && var.cluster.server_config.expiry.eligible_age != "" ? { eligible_age = var.cluster.server_config.expiry.eligible_age } : {},
+    var.cluster.server_config.expiry.forced_age != null && var.cluster.server_config.expiry.forced_age != "" ? { forced_age = var.cluster.server_config.expiry.forced_age } : {},
+    var.cluster.server_config.expiry.ondemand_age != null && var.cluster.server_config.expiry.ondemand_age != "" ? { ondemand_age = var.cluster.server_config.expiry.ondemand_age } : {}
+  )
+
+  error_exit_jitter_config = merge(
+    var.cluster.server_config.error_exit_jitter.min_delay != null ? { min_delay = var.cluster.server_config.error_exit_jitter.min_delay } : {},
+    var.cluster.server_config.error_exit_jitter.max_delay != null ? { max_delay = var.cluster.server_config.error_exit_jitter.max_delay } : {}
+  )
+
+  shard_optional_config = merge(
+    var.cluster.server_config.request_timeout != null ? { request_timeout = var.cluster.server_config.request_timeout } : {},
+    var.cluster.server_config.create_rate_limit != null && var.cluster.server_config.create_rate_limit != "" ? { create_rate_limit = var.cluster.server_config.create_rate_limit } : {},
+    var.cluster.server_config.health_check_interval != null ? { health_check_interval = var.cluster.server_config.health_check_interval } : {},
+    var.cluster.server_config.default_drain_timeout != null ? { default_drain_timeout = var.cluster.server_config.default_drain_timeout } : {},
+    var.cluster.server_config.image_refresh_interval != null ? { image_refresh_interval = var.cluster.server_config.image_refresh_interval } : {},
+    var.cluster.server_config.shutdown_timeout != null ? { shutdown_timeout = var.cluster.server_config.shutdown_timeout } : {},
+    length(local.garbage_collection_config) > 0 ? { garbage_collection = local.garbage_collection_config } : {},
+    length(local.expiry_config) > 0 ? { expiry = local.expiry_config } : {},
+    length(local.shard_leader_election_config) > 0 ? { leader_election = local.shard_leader_election_config } : {},
+    length(local.error_exit_jitter_config) > 0 ? { error_exit_jitter = local.error_exit_jitter_config } : {}
+  )
 
   # Default template used when no templates are specified
   default_template = {
@@ -77,32 +108,32 @@ resource "google_storage_bucket_object" "shard_config" {
 
   content = jsonencode(merge(
     {
-      cluster = {
-        id = var.cluster.id
-        secrets = merge(
-          {
-            provider = var.cluster.secrets_provider == "object-storage" ? "object-storage" : var.cluster.secrets_provider
-            prefix   = var.cluster.secrets_provider == "object-storage" ? "secret/" : "nstance-${var.cluster.id}-"
-          },
-          var.cluster.secrets_provider == "object-storage" ? {
-            encryption_key = {
-              provider = "gcp-secret-manager"
-              source   = var.cluster.encryption_key_source
+      cluster = merge(
+        {
+          id = var.cluster.id
+          secrets = merge(
+            {
+              provider = var.cluster.secrets_provider == "object-storage" ? "object-storage" : var.cluster.secrets_provider
+              prefix   = var.cluster.secrets_provider == "object-storage" ? "secret/" : "nstance-${var.cluster.id}-"
+            },
+            var.cluster.secrets_provider == "object-storage" ? {
+              encryption_key = {
+                provider = "gcp-secret-manager"
+                source   = var.cluster.encryption_key_source
+                options = {
+                  project_id = local.project_id
+                }
+              }
+            } : {},
+            var.cluster.secrets_provider != "object-storage" ? {
               options = {
                 project_id = local.project_id
               }
-            }
-          } : {},
-          var.cluster.secrets_provider != "object-storage" ? {
-            options = {
-              project_id = local.project_id
-            }
-          } : {},
-        )
-        leader_election = {
-          enabled = true
-        }
-      }
+            } : {},
+          )
+        },
+        length(local.cluster_leader_election_config) > 0 ? { leader_election = local.cluster_leader_election_config } : {}
+      )
       shard = merge(
         {
           id = var.shard
@@ -131,28 +162,10 @@ resource "google_storage_bucket_object" "shard_config" {
             operator_addr     = "${google_compute_address.server_leader.address}:${local.operator_port}"
             agent_addr        = "${google_compute_address.server_leader.address}:${local.agent_port}"
           }
-          request_timeout        = var.cluster.server_config.request_timeout
-          default_drain_timeout  = var.cluster.server_config.default_drain_timeout
-          health_check_interval  = var.cluster.server_config.health_check_interval
-          image_refresh_interval = var.cluster.server_config.image_refresh_interval
-          garbage_collection = {
-            interval                 = var.cluster.server_config.garbage_collection.interval
-            registration_timeout     = var.cluster.server_config.garbage_collection.registration_timeout
-            deleted_record_retention = var.cluster.server_config.garbage_collection.deleted_record_retention
-          }
-          leader_election = {
-            frequent_interval   = var.cluster.server_config.leader_election.frequent_interval
-            infrequent_interval = var.cluster.server_config.leader_election.infrequent_interval
-            leader_timeout      = var.cluster.server_config.leader_election.leader_timeout
-          }
-          error_exit_jitter = {
-            min_delay = var.cluster.server_config.error_exit_jitter.min_delay
-            max_delay = var.cluster.server_config.error_exit_jitter.max_delay
-          }
           subnet_pools         = local.filtered_subnets
           dynamic_subnet_pools = var.dynamic_subnet_pools
         },
-        var.cluster.server_config.create_rate_limit != "" ? { create_rate_limit = var.cluster.server_config.create_rate_limit } : {}
+        local.shard_optional_config
       )
       templates = local.templates
       load_balancers = {
@@ -182,8 +195,7 @@ resource "google_storage_bucket_object" "shard_config" {
           )
         }
       }
-    },
-    local.expiry_config
+    }
   ))
 
   depends_on = [

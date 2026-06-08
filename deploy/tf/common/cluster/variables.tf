@@ -83,17 +83,22 @@ variable "server_config" {
     image_refresh_interval = optional(string) # image_refresh_interval: Image resolution refresh interval (e.g., "6h")
     shutdown_timeout       = optional(string) # shutdown_timeout: How long to wait for graceful shutdown (e.g., "30s")
 
+    cluster_leader_election = optional(object({
+      frequent_interval   = optional(string) # Polling during cluster leader transitions (e.g., "5s")
+      infrequent_interval = optional(string) # Polling during stable cluster leadership (e.g., "30s")
+      leader_timeout      = optional(string) # Time before considering cluster leader failed (e.g., "15s")
+    }))
+
+    shard_leader_election = optional(object({
+      frequent_interval   = optional(string) # Polling during shard leader transitions (e.g., "5s")
+      infrequent_interval = optional(string) # Polling during stable shard leadership (e.g., "30s")
+      leader_timeout      = optional(string) # Time before considering shard leader failed (e.g., "15s")
+    }))
 
     garbage_collection = optional(object({
       interval                 = optional(string) # How often to run GC (e.g., "2m")
       registration_timeout     = optional(string) # Wait for registration before terminating (e.g., "5m")
       deleted_record_retention = optional(string) # Keep deleted records for (e.g., "30m")
-    }))
-
-    leader_election = optional(object({
-      frequent_interval   = optional(string) # Polling during transitions (e.g., "5s")
-      infrequent_interval = optional(string) # Polling during stable periods (e.g., "30s")
-      leader_timeout      = optional(string) # Time before considering leader failed (e.g., "15s")
     }))
 
     expiry = optional(object({

@@ -429,6 +429,7 @@ All modules support these common variables for consistent naming and tagging:
 Each shard has a config file with server configuration in it. We support creating cluster-wide default configuration in the `cluster` module, and then expect to pass these down into each `shard` module invocation. Note that the `shard` module will overwrite select provider/account/region/zone-specific fields.
 
 ```hcl
+# Nested objects matching ServerConfig structure
 server_config = {
   request_timeout        = "30s"   # Request timeout
   create_rate_limit      = "100ms" # Duration between instance creates
@@ -436,29 +437,15 @@ server_config = {
   default_drain_timeout  = "5m"    # Drain timeout before force delete (set to "0s" to disable Kubernetes drain coordination)
   image_refresh_interval = "6h"    # Image resolution refresh interval
 
-  # Nested objects matching ServerConfig structure
-  garbage_collection = {
-    interval                 = "2m"   # How often to run GC
-    registration_timeout     = "5m"   # Wait for registration before terminating
-    deleted_record_retention = "30m"  # Keep deleted records for
+  # Nested objects matching ClusterConfig structure
+
+  cluster_leader_election = {
+    frequent_interval   = "5s"  # Polling during cluster leader transitions
+    infrequent_interval = "30s" # Polling during stable cluster leadership
+    leader_timeout      = "15s" # Time before considering cluster leader failed
   }
 
-  leader_election = {
-    frequent_interval   = "5s"  # Polling during transitions
-    infrequent_interval = "30s" # Polling during stable periods
-    leader_timeout      = "15s" # Time before considering leader failed
-  }
-
-  expiry = {
-    eligible_age = ""  # Age for opportunistic expiry (e.g., "168h")
-    forced_age   = ""  # Age for forced expiry (e.g., "720h")
-    ondemand_age = ""  # Max age for on-demand instances
-  }
-
-  error_exit_jitter = {
-    min_delay = "10s"  # Min delay before exit on error
-    max_delay = "40s"  # Max delay before exit on error
-  }
+  # Nested objects matching ShardConfig structure
 
   bind = {
     health_addr       = "0.0.0.0:8990"  # HTTP health endpoint bind address
@@ -474,6 +461,29 @@ server_config = {
     registration_addr = ":8992"  # Advertised registration address
     operator_addr     = ":8993"  # Advertised operator address
     agent_addr        = ":8994"  # Advertised agent address
+  }
+  
+  shard_leader_election = {
+    frequent_interval   = "5s"  # Polling during shard leader transitions
+    infrequent_interval = "30s" # Polling during stable shard leadership
+    leader_timeout      = "15s" # Time before considering shard leader failed
+  }
+
+  garbage_collection = {
+    interval                 = "2m"   # How often to run GC
+    registration_timeout     = "5m"   # Wait for registration before terminating
+    deleted_record_retention = "30m"  # Keep deleted records for
+  }
+
+  expiry = {
+    eligible_age = ""  # Age for opportunistic expiry (e.g., "168h")
+    forced_age   = ""  # Age for forced expiry (e.g., "720h")
+    ondemand_age = ""  # Max age for on-demand instances
+  }
+
+  error_exit_jitter = {
+    min_delay = "10s"  # Min delay before exit on error
+    max_delay = "40s"  # Max delay before exit on error
   }
 }
 ```
