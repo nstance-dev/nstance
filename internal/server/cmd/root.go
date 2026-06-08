@@ -658,6 +658,7 @@ func NewRootCmd() *cobra.Command {
 			CAKeyPEM:     caKeyData,
 			Shard:        flagShard,
 			Provider:     infraProvider,
+			ImageGetter:  imageService,
 			Logger:       logger,
 			OnSpotTermination: func(instanceID string, notice *proto.TerminationNotice) error {
 				logger.Info("Enqueuing spot termination event", "instance_id", instanceID, "action", notice.Action)

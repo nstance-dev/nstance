@@ -32,6 +32,8 @@ type CertificateConfig struct {
 // InstanceData contains all data available for instance template processing
 type InstanceData struct {
 	ID       string
+	Kind     string
+	Arch     string
 	Type     string
 	Hostname string
 	FQDN     string
@@ -39,11 +41,35 @@ type InstanceData struct {
 	IP6      string
 }
 
+// ClusterData contains cluster data available for template processing.
+type ClusterData struct {
+	ID     string
+	CACert string
+}
+
+// ServerData contains nstance-server addresses available for template processing.
+type ServerData struct {
+	Shard            string
+	RegistrationAddr string
+	AgentAddr        string
+	OperatorAddr     string
+}
+
+// ProviderData contains provider data available for template processing.
+type ProviderData struct {
+	Kind   string
+	Region string
+	Zone   string
+}
+
 // CertificateTemplateData contains all data available for certificate template processing
 type CertificateTemplateData struct {
-	Instance  InstanceData
-	ClusterID string
-	Vars      map[string]string
+	Instance InstanceData
+	Cluster  ClusterData
+	Server   ServerData
+	Provider ProviderData
+	Vars     map[string]string
+	Image    map[string]string
 }
 
 // ProcessCertificateTemplate processes a certificate template with the given data
@@ -149,19 +175,15 @@ func processTemplate(name, templateStr string, data CertificateTemplateData) (st
 	return buf.String(), nil
 }
 
-// CreateCertificateTemplateData creates template data for certificates
-func CreateCertificateTemplateData(instanceID, instanceType, hostname, fqdn, ip4, ip6, clusterID string, vars map[string]string) CertificateTemplateData {
+// CreateCertificateTemplateData creates template data for certificates.
+func CreateCertificateTemplateData(instance InstanceData, cluster ClusterData, server ServerData, provider ProviderData, vars, images map[string]string) CertificateTemplateData {
 	return CertificateTemplateData{
-		Instance: InstanceData{
-			ID:       instanceID,
-			Type:     instanceType,
-			Hostname: hostname,
-			IP4:      ip4,
-			IP6:      ip6,
-			FQDN:     fqdn,
-		},
-		ClusterID: clusterID,
-		Vars:      vars,
+		Instance: instance,
+		Cluster:  cluster,
+		Server:   server,
+		Provider: provider,
+		Vars:     vars,
+		Image:    images,
 	}
 }
 

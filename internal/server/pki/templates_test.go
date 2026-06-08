@@ -294,18 +294,22 @@ func TestCertificateTemplateProcessing(t *testing.T) {
 		}
 
 		templateData := CreateCertificateTemplateData(
-			"knc0000000001r010000000000000",
-			"t4g.medium",
-			"master-node",
-			"master-node.test-cluster.example.com",
-			"172.16.0.10",
-			"",
-			"test-cluster-id",
+			InstanceData{
+				ID:       "knc0000000001r010000000000000",
+				Type:     "t4g.medium",
+				Hostname: "master-node",
+				FQDN:     "master-node.test-cluster.example.com",
+				IP4:      "172.16.0.10",
+			},
+			ClusterData{ID: "test-cluster-id"},
+			ServerData{},
+			ProviderData{},
 			map[string]string{
 				"environment": "production",
 				"ClusterSlug": "test-cluster",
 				"ClusterFQDN": "test-cluster.example.com",
 			},
+			nil,
 		)
 
 		pkiConfig := CertificateConfig{
@@ -414,18 +418,23 @@ func TestCertificateGeneration(t *testing.T) {
 		template := templates["client-with-org"]
 
 		templateData := CreateCertificateTemplateData(
-			"knc0000000001r010000000000000",
-			"t4g.large",
-			"worker-node-1",
-			"worker-node-1.production-cluster.example.com",
-			"172.16.0.50",
-			"2001:db8::50",
-			"production-cluster-id",
+			InstanceData{
+				ID:       "knc0000000001r010000000000000",
+				Type:     "t4g.large",
+				Hostname: "worker-node-1",
+				FQDN:     "worker-node-1.production-cluster.example.com",
+				IP4:      "172.16.0.50",
+				IP6:      "2001:db8::50",
+			},
+			ClusterData{ID: "production-cluster-id"},
+			ServerData{},
+			ProviderData{},
 			map[string]string{
 				"environment": "production",
 				"ClusterSlug": "production-cluster",
 				"ClusterFQDN": "production-cluster.example.com",
 			},
+			nil,
 		)
 
 		pkiConfig := CertificateConfig{
@@ -518,18 +527,22 @@ func TestCertificateGeneration(t *testing.T) {
 		template := templates["server-multi-dns"]
 
 		templateData := CreateCertificateTemplateData(
-			"knc0000000001r010000000000000",
-			"t4g.xlarge",
-			"master-node",
-			"master-node.production-cluster.example.com",
-			"172.16.0.10",
-			"",
-			"production-cluster-id",
+			InstanceData{
+				ID:       "knc0000000001r010000000000000",
+				Type:     "t4g.xlarge",
+				Hostname: "master-node",
+				FQDN:     "master-node.production-cluster.example.com",
+				IP4:      "172.16.0.10",
+			},
+			ClusterData{ID: "production-cluster-id"},
+			ServerData{},
+			ProviderData{},
 			map[string]string{
 				"environment": "production",
 				"ClusterSlug": "production-cluster",
 				"ClusterFQDN": "production-cluster.example.com",
 			},
+			nil,
 		)
 
 		pkiConfig := CertificateConfig{
@@ -607,11 +620,22 @@ func TestTemplateProcessing(t *testing.T) {
 	templateData := CertificateTemplateData{
 		Instance: InstanceData{
 			ID:       "test-instance",
+			Kind:     "knc",
+			Arch:     "arm64",
+			Type:     "t4g.medium",
 			Hostname: "test-hostname",
 			IP4:      "192.168.1.100",
 			IP6:      "2001:db8::100",
 		},
-		ClusterID: "test-cluster-id",
+		Cluster: ClusterData{ID: "test-cluster-id", CACert: "test-ca-cert"},
+		Server: ServerData{
+			Shard:            "us-west-2a-1",
+			RegistrationAddr: "10.0.0.1:8992",
+			AgentAddr:        "10.0.0.1:8994",
+			OperatorAddr:     "10.0.0.1:8993",
+		},
+		Provider: ProviderData{Kind: "aws", Region: "us-west-2", Zone: "us-west-2a"},
+		Image:    map[string]string{"debian_13_arm64": "ami-test123"},
 		Vars: map[string]string{
 			"environment": "development",
 			"ClusterSlug": "test-cluster",
@@ -625,9 +649,22 @@ func TestTemplateProcessing(t *testing.T) {
 	}{
 		{"simple-string", "simple-string"},
 		{"{{ .Instance.ID }}", "test-instance"},
+		{"{{ .Instance.Kind }}", "knc"},
+		{"{{ .Instance.Arch }}", "arm64"},
+		{"{{ .Instance.Type }}", "t4g.medium"},
 		{"system:node:{{ .Instance.ID }}", "system:node:test-instance"},
 		{"{{ .Instance.Hostname }}", "test-hostname"},
 		{"{{ .Instance.IP4 }}", "192.168.1.100"},
+		{"{{ .Cluster.ID }}", "test-cluster-id"},
+		{"{{ .Cluster.CACert }}", "test-ca-cert"},
+		{"{{ .Server.Shard }}", "us-west-2a-1"},
+		{"{{ .Server.RegistrationAddr }}", "10.0.0.1:8992"},
+		{"{{ .Server.AgentAddr }}", "10.0.0.1:8994"},
+		{"{{ .Server.OperatorAddr }}", "10.0.0.1:8993"},
+		{"{{ .Provider.Kind }}", "aws"},
+		{"{{ .Provider.Region }}", "us-west-2"},
+		{"{{ .Provider.Zone }}", "us-west-2a"},
+		{"{{ .Image.debian_13_arm64 }}", "ami-test123"},
 		{"{{ .Vars.ClusterSlug }}-registry", "test-cluster-registry"},
 		{"{{ .Vars.ClusterFQDN }}", "test-cluster.cluster.cool"},
 	}

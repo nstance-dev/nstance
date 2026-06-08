@@ -30,6 +30,7 @@ type Service struct {
 	secretsStore         secrets.Store
 	fileGenerator        *filegen.Generator
 	provider             infra.Provider
+	imageGetter          filegen.ImageGetter
 	logger               *slog.Logger
 	onSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
 	onReconcileRequested func(groupKey, reason string) error
@@ -54,6 +55,7 @@ type Options struct {
 	CAKeyPEM             []byte
 	Shard                string
 	Provider             infra.Provider
+	ImageGetter          filegen.ImageGetter
 	Logger               *slog.Logger
 	OnSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
 	OnReconcileRequested func(groupKey, reason string) error
@@ -93,6 +95,7 @@ func New(opts Options) (*Service, error) {
 		localDB:              opts.LocalDB,
 		secretsStore:         opts.SecretsStore,
 		provider:             opts.Provider,
+		imageGetter:          opts.ImageGetter,
 		logger:               opts.Logger,
 		onSpotTermination:    opts.OnSpotTermination,
 		onReconcileRequested: opts.OnReconcileRequested,
@@ -122,6 +125,8 @@ func (s *Service) initializeCertificateServices(caCertPEM, caKeyPEM []byte, shar
 		s.configLoader,
 		s.localDB,
 		certService,
+		caCertPEM,
+		s.imageGetter,
 		s.secretsStore,
 		s.storage,
 		s.logger,

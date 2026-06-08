@@ -21,10 +21,17 @@ type Generator struct {
 	configLoader     *config.Loader
 	localDB          *localdb.DB
 	certService      *pki.BatchCertificateGenerator
+	caCertPEM        []byte
+	imageGetter      ImageGetter
 	secretsStore     secrets.Store
 	storageBackend   storage.Storage
 	templateRenderer *TemplateRenderer
 	logger           *slog.Logger
+}
+
+// ImageGetter provides resolved image IDs for template rendering.
+type ImageGetter interface {
+	GetAll() map[string]string
 }
 
 // NewGenerator creates a new file generator
@@ -32,6 +39,8 @@ func NewGenerator(
 	configLoader *config.Loader,
 	localDB *localdb.DB,
 	certService *pki.BatchCertificateGenerator,
+	caCertPEM []byte,
+	imageGetter ImageGetter,
 	secretsStore secrets.Store,
 	storageBackend storage.Storage,
 	logger *slog.Logger,
@@ -44,6 +53,8 @@ func NewGenerator(
 		configLoader:     configLoader,
 		localDB:          localDB,
 		certService:      certService,
+		caCertPEM:        caCertPEM,
+		imageGetter:      imageGetter,
 		secretsStore:     secretsStore,
 		storageBackend:   storageBackend,
 		templateRenderer: NewTemplateRenderer(logger),
@@ -192,17 +203,40 @@ func (p *Generator) buildTemplateData(cfg *config.Config, instance *localdb.Inst
 	if err != nil {
 		return pki.CertificateTemplateData{}, fmt.Errorf("failed to get merged config: %w", err)
 	}
+	images := make(map[string]string)
+	if p.imageGetter != nil {
+		images = p.imageGetter.GetAll()
+	}
 
 	// Build template data
 	templateData := pki.CreateCertificateTemplateData(
-		instance.ID,
-		mergedConfig.InstanceType,
-		getStringValue(instance.Hostname),
-		getStringValue(instance.FQDN),
-		getStringValue(instance.IP4),
-		getStringValue(instance.IP6),
-		cfg.Cluster.ID,
+		pki.InstanceData{
+			ID:       instance.ID,
+			Kind:     mergedConfig.Kind,
+			Arch:     mergedConfig.Arch,
+			Type:     mergedConfig.InstanceType,
+			Hostname: getStringValue(instance.Hostname),
+			FQDN:     getStringValue(instance.FQDN),
+			IP4:      getStringValue(instance.IP4),
+			IP6:      getStringValue(instance.IP6),
+		},
+		pki.ClusterData{
+			ID:     cfg.Cluster.ID,
+			CACert: string(p.caCertPEM),
+		},
+		pki.ServerData{
+			Shard:            cfg.Shard.ID,
+			RegistrationAddr: cfg.Shard.Advertise.RegistrationAddr,
+			AgentAddr:        cfg.Shard.Advertise.AgentAddr,
+			OperatorAddr:     cfg.Shard.Advertise.OperatorAddr,
+		},
+		pki.ProviderData{
+			Kind:   cfg.Shard.Infra.Provider,
+			Region: cfg.Shard.Infra.Region,
+			Zone:   cfg.Shard.Infra.Zone,
+		},
 		mergedConfig.Vars,
+		images,
 	)
 
 	return templateData, nil

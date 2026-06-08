@@ -180,7 +180,28 @@ func (a *agentService) SubmitHealthReport(stream proto.AgentService_SubmitHealth
 func (a *agentService) generateFiles(ctx context.Context, inst *persistedInstance, tenant *TenantConfig) ([]pendingFile, error) {
 	now := time.Now()
 	var out []pendingFile
-	data := pki.CreateCertificateTemplateData(inst.InstanceID, tenant.InstanceType, inst.Hostname, inst.Hostname, inst.IPv4, inst.IPv6, a.s.cfg.ClusterID, tenant.Vars)
+	registrationAddr, agentAddr := a.s.Addr()
+	data := pki.CreateCertificateTemplateData(
+		pki.InstanceData{
+			ID:       inst.InstanceID,
+			Kind:     tenant.Kind,
+			Arch:     tenant.Arch,
+			Type:     tenant.InstanceType,
+			Hostname: inst.Hostname,
+			FQDN:     inst.Hostname,
+			IP4:      inst.IPv4,
+			IP6:      inst.IPv6,
+		},
+		pki.ClusterData{ID: a.s.cfg.ClusterID, CACert: string(a.s.caCertPEM)},
+		pki.ServerData{
+			Shard:            a.s.cfg.ShardID,
+			RegistrationAddr: registrationAddr,
+			AgentAddr:        agentAddr,
+		},
+		pki.ProviderData{},
+		tenant.Vars,
+		nil,
+	)
 	names := make([]string, 0, len(tenant.Files))
 	for name := range tenant.Files {
 		names = append(names, name)

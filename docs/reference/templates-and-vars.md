@@ -401,12 +401,12 @@ export ENV=production
 
 ## Template Data
 
-All template types have access to the same template data:
+File and certificate templates have access to:
 
-- **Instance**: `{{ .Instance.ID }}`, `{{ .Instance.Type }}`, `{{ .Instance.Hostname }}`, `{{ .Instance.IP4 }}`, `{{ .Instance.IP6 }}`
-- **Server**: `{{ .Server.Shard }}`, `{{ .Server.RegistrationAddr }}`, `{{ .Server.AgentAddr }}`
+- **Instance**: `{{ .Instance.ID }}`, `{{ .Instance.Kind }}`, `{{ .Instance.Arch }}`, `{{ .Instance.Type }}`, `{{ .Instance.Hostname }}`, `{{ .Instance.FQDN }}`, `{{ .Instance.IP4 }}`, `{{ .Instance.IP6 }}`
+- **Cluster**: `{{ .Cluster.ID }}`, `{{ .Cluster.CACert }}`
+- **Server**: `{{ .Server.Shard }}`, `{{ .Server.RegistrationAddr }}`, `{{ .Server.AgentAddr }}`, `{{ .Server.OperatorAddr }}`
 - **Provider**: `{{ .Provider.Kind }}`, `{{ .Provider.Region }}`, `{{ .Provider.Zone }}`
-- **Cluster**: `{{ .Cluster.Slug }}`, `{{ .Cluster.FQDN }}`
 - **Variables**: `{{ .Vars.ENVIRONMENT }}` - All merged variables from global → template → group hierarchy
 - **Images**: `{{ .Image.debian_13_arm64 }}` - Resolved image IDs from [Image Resolution](#image-resolution) configuration
 

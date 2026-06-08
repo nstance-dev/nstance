@@ -20,15 +20,20 @@ func TestTemplateRenderer_ProcessEnvTemplate(t *testing.T) {
 	templateData := pki.CertificateTemplateData{
 		Instance: pki.InstanceData{
 			ID:       "test-instance-123",
+			Kind:     "knc",
+			Arch:     "arm64",
 			Type:     "t4g.medium",
 			Hostname: "test-host",
 		},
+		Cluster:  pki.ClusterData{ID: "test-cluster-id", CACert: "test-ca-cert"},
+		Server:   pki.ServerData{Shard: "us-west-2a-1", RegistrationAddr: "10.0.0.1:8992", AgentAddr: "10.0.0.1:8994", OperatorAddr: "10.0.0.1:8993"},
+		Provider: pki.ProviderData{Kind: "aws", Region: "us-west-2", Zone: "us-west-2a"},
+		Image:    map[string]string{"debian_13_arm64": "ami-test123"},
 		Vars: map[string]string{
 			"Environment":         "production",
 			"KUBELET_NODE_LABELS": "controlplane",
 			"ClusterFQDN":         "test-cluster.example.com",
 		},
-		ClusterID: "test-cluster-id",
 	}
 
 	// Create file config for env template
@@ -39,6 +44,12 @@ func TestTemplateRenderer_ProcessEnvTemplate(t *testing.T) {
 			"ENVIRONMENT":     "{{ .Vars.Environment }}",
 			"K8S_NODE_LABELS": "{{ .Vars.KUBELET_NODE_LABELS }}",
 			"CLUSTER_FQDN":    "{{ .Vars.ClusterFQDN }}",
+			"CLUSTER_ID":      "{{ .Cluster.ID }}",
+			"PROVIDER_KIND":   "{{ .Provider.Kind }}",
+			"SERVER_AGENT":    "{{ .Server.AgentAddr }}",
+			"IMAGE_ID":        "{{ .Image.debian_13_arm64 }}",
+			"INSTANCE_ARCH":   "{{ .Instance.Arch }}",
+			"INSTANCE_KIND":   "{{ .Instance.Kind }}",
 			"INSTANCE_TYPE":   "{{ .Instance.Type }}",
 		},
 	}
@@ -51,10 +62,16 @@ func TestTemplateRenderer_ProcessEnvTemplate(t *testing.T) {
 	resultStr := string(result)
 	expectedLines := []string{
 		"CLUSTER_FQDN=test-cluster.example.com",
+		"CLUSTER_ID=test-cluster-id",
 		"ENVIRONMENT=production",
+		"IMAGE_ID=ami-test123",
+		"INSTANCE_ARCH=arm64",
 		"INSTANCE_ID=test-instance-123",
+		"INSTANCE_KIND=knc",
 		"INSTANCE_TYPE=t4g.medium",
 		"K8S_NODE_LABELS=controlplane",
+		"PROVIDER_KIND=aws",
+		"SERVER_AGENT=10.0.0.1:8994",
 	}
 
 	for _, expectedLine := range expectedLines {
