@@ -49,7 +49,7 @@ func (p *Generator) generateTemplates(ctx context.Context, instanceID string, cf
 		}
 
 		// Build template data
-		templateData, err := p.buildTemplateData(cfg, instance)
+		templateData, err := p.buildTemplateData(ctx, cfg, instance)
 		if err != nil {
 			p.logger.Error("Failed to build template data for templated file",
 				"instance_id", instanceID,

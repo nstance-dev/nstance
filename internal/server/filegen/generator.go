@@ -104,7 +104,7 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	processedFiles := make(map[string]bool)
 
 	// Build certificate requests for missing certificate files
-	certRequests, err := p.prepareCertificateRequests(cfg, instance, &template, files, processedFiles)
+	certRequests, err := p.prepareCertificateRequests(ctx, cfg, instance, &template, files, processedFiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build certificate requests: %w", err)
 	}
@@ -185,21 +185,16 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 }
 
 // buildTemplateData creates template data for certificate generation
-func (p *Generator) buildTemplateData(cfg *config.Config, instance *localdb.Instance) (pki.CertificateTemplateData, error) {
-	// Get merged configuration for this instance
-	tenantGroups := cfg.Groups[instance.Tenant]
-	if tenantGroups == nil {
-		return pki.CertificateTemplateData{}, fmt.Errorf("tenant %s not found in config", instance.Tenant)
-	}
-	group, exists := tenantGroups[instance.Group]
-	if !exists {
-		return pki.CertificateTemplateData{}, fmt.Errorf("group %s not found for tenant %s", instance.Group, instance.Tenant)
+func (p *Generator) buildTemplateData(ctx context.Context, cfg *config.Config, instance *localdb.Instance) (pki.CertificateTemplateData, error) {
+	// Resolve the instance's effective group, including dynamic group overrides
+	group, err := config.GetGroup(ctx, p.configLoader, instance.Tenant, instance.Group)
+	if err != nil {
+		return pki.CertificateTemplateData{}, err
 	}
 
-	// Derive template from group
+	// Merge group config over template config, over default config
 	templateName := group.Template
-
-	mergedConfig, err := cfg.GetMergedConfig(templateName, group)
+	mergedConfig, err := cfg.GetMergedConfig(templateName, *group)
 	if err != nil {
 		return pki.CertificateTemplateData{}, fmt.Errorf("failed to get merged config: %w", err)
 	}

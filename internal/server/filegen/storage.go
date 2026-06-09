@@ -50,7 +50,7 @@ func (p *Generator) generateStorageFiles(ctx context.Context, instanceID string,
 						"error", err)
 					continue
 				}
-				td, err := p.buildTemplateData(cfg, instance)
+				td, err := p.buildTemplateData(ctx, cfg, instance)
 				if err != nil {
 					p.logger.Error("Failed to build template data for source rendering",
 						"instance_id", instanceID,

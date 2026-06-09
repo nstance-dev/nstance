@@ -5,6 +5,7 @@
 package filegen
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/nstance-dev/nstance/internal/server/config"
@@ -14,6 +15,7 @@ import (
 
 // prepareCertificateRequests builds certificate generation requests from required files
 func (p *Generator) prepareCertificateRequests(
+	ctx context.Context,
 	cfg *config.Config,
 	instance *localdb.Instance,
 	template *config.TemplateConfig,
@@ -69,7 +71,7 @@ func (p *Generator) prepareCertificateRequests(
 		}
 
 		// Build template data for certificate generation
-		templateData, err := p.buildTemplateData(cfg, instance)
+		templateData, err := p.buildTemplateData(ctx, cfg, instance)
 		if err != nil {
 			p.logger.Error("Failed to build template data",
 				"instance_id", instance.ID,

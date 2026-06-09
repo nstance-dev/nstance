@@ -5,13 +5,25 @@
 package filegen
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/internal/server/storage"
 )
+
+type testImageGetter map[string]string
+
+func (g testImageGetter) GetAll() map[string]string {
+	return g
+}
 
 func TestTemplateRenderer_ProcessEnvTemplate(t *testing.T) {
 	renderer := NewTemplateRenderer(nil)
@@ -172,4 +184,160 @@ func TestTemplateRenderer_ProcessStringTemplate(t *testing.T) {
 	if string(result) != expected {
 		t.Errorf("Expected:\n%s\n\nGot:\n%s", expected, string(result))
 	}
+}
+
+func TestBuildTemplateDataUsesDynamicGroupVars(t *testing.T) {
+	ctx := context.Background()
+	cfg := testFilegenConfig()
+	cfg.Groups = map[string]map[string]config.GroupConfig{
+		"tenant1": {
+			"nodes": {
+				Template:     "worker",
+				InstanceType: "static-type",
+				Vars: map[string]string{
+					"Role":       "static",
+					"StaticOnly": "static-value",
+				},
+			},
+		},
+	}
+
+	generator, loader := newTemplateDataTestGenerator(t, cfg)
+	if err := loader.SetDynamicGroup(ctx, "tenant1", "nodes", config.GroupConfig{
+		InstanceType: "dynamic-type",
+		Vars: map[string]string{
+			"Role":        "dynamic",
+			"DynamicOnly": "dynamic-value",
+		},
+	}); err != nil {
+		t.Fatalf("failed to set dynamic group: %v", err)
+	}
+
+	templateData, err := generator.buildTemplateData(ctx, cfg, &localdb.Instance{
+		ID:        "knc_test123",
+		Tenant:    "tenant1",
+		Group:     "nodes",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("failed to build template data: %v", err)
+	}
+
+	if templateData.Instance.Type != "dynamic-type" {
+		t.Fatalf("expected dynamic instance type, got %q", templateData.Instance.Type)
+	}
+	expectedVars := map[string]string{
+		"DefaultOnly":  "default-value",
+		"TemplateOnly": "template-value",
+		"StaticOnly":   "static-value",
+		"DynamicOnly":  "dynamic-value",
+		"Role":         "dynamic",
+	}
+	for key, expected := range expectedVars {
+		if got := templateData.Vars[key]; got != expected {
+			t.Fatalf("expected var %s=%q, got %q", key, expected, got)
+		}
+	}
+}
+
+func TestBuildTemplateDataSupportsDynamicOnlyGroups(t *testing.T) {
+	ctx := context.Background()
+	cfg := testFilegenConfig()
+	generator, loader := newTemplateDataTestGenerator(t, cfg)
+	if err := loader.SetDynamicGroup(ctx, "tenant1", "dynamic", config.GroupConfig{
+		Template:     "worker",
+		InstanceType: "dynamic-only-type",
+		Vars: map[string]string{
+			"Role": "dynamic-only",
+		},
+	}); err != nil {
+		t.Fatalf("failed to set dynamic group: %v", err)
+	}
+
+	templateData, err := generator.buildTemplateData(ctx, cfg, &localdb.Instance{
+		ID:        "knc_test456",
+		Tenant:    "tenant1",
+		Group:     "dynamic",
+		CreatedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("failed to build template data: %v", err)
+	}
+
+	if templateData.Instance.Type != "dynamic-only-type" {
+		t.Fatalf("expected dynamic-only instance type, got %q", templateData.Instance.Type)
+	}
+	if got := templateData.Vars["Role"]; got != "dynamic-only" {
+		t.Fatalf("expected dynamic-only role var, got %q", got)
+	}
+}
+
+func testFilegenConfig() *config.Config {
+	return &config.Config{
+		Defaults: config.DefaultsConfig{
+			Vars: map[string]string{
+				"DefaultOnly": "default-value",
+				"Role":        "default",
+			},
+		},
+		Cluster: config.ClusterConfig{
+			ID: "cluster1",
+		},
+		Shard: config.ShardConfig{
+			ID: "shard1",
+			Advertise: config.AdvertiseConfig{
+				RegistrationAddr: "registration.example.com:8992",
+				AgentAddr:        "agent.example.com:8994",
+				OperatorAddr:     "operator.example.com:8993",
+			},
+			Infra: config.InfraConfig{
+				Provider: "mock",
+				Region:   "region1",
+				Zone:     "zone1",
+			},
+		},
+		Templates: map[string]config.TemplateConfig{
+			"worker": {
+				Kind:         "knc",
+				Arch:         "arm64",
+				InstanceType: "template-type",
+				Vars: map[string]string{
+					"TemplateOnly": "template-value",
+					"Role":         "template",
+				},
+			},
+		},
+		Groups: map[string]map[string]config.GroupConfig{
+			"tenant1": {},
+		},
+	}
+}
+
+func newTemplateDataTestGenerator(t *testing.T, cfg *config.Config) (*Generator, *config.Loader) {
+	t.Helper()
+
+	db, err := localdb.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	loader, err := config.NewLoader(config.LoaderOptions{
+		Storage:      storage.NewMock(),
+		CacheStorage: storage.NewMock(),
+		LocalDB:      db,
+		Logger:       slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("failed to create config loader: %v", err)
+	}
+	loader.SetConfig(cfg)
+
+	return &Generator{
+		configLoader: loader,
+		localDB:      db,
+		caCertPEM:    []byte("test-ca"),
+		imageGetter:  testImageGetter{"debian_13_arm64": "ami-test"},
+		logger:       slog.Default(),
+	}, loader
 }
