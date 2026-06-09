@@ -48,19 +48,16 @@ type PublicKeySubmission struct {
 	PublicKeyPEM string `json:"public_key_pem"`
 }
 
-// PublicKey represents a stored public key waiting for certificate generation
+// PublicKey represents public key material submitted by an agent.
 type PublicKey struct {
-	ID                  int64      `json:"id"`
-	InstanceID          string     `json:"instance_id"`
-	Filename            string     `json:"filename"`
-	PublicKeyPEM        string     `json:"public_key_pem"`
-	CertificateName     *string    `json:"certificate_name"`
-	SubmittedAt         time.Time  `json:"submitted_at"`
-	ProcessedAt         *time.Time `json:"processed_at"`
-	CertificateSerial   *string    `json:"certificate_serial"`
-	CertificateIssuedAt *time.Time `json:"certificate_issued_at"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           *time.Time `json:"updated_at"`
+	ID              int64      `json:"id"`
+	InstanceID      string     `json:"instance_id"`
+	Filename        string     `json:"filename"`
+	PublicKeyPEM    string     `json:"public_key_pem"`
+	CertificateName *string    `json:"certificate_name"`
+	SubmittedAt     time.Time  `json:"submitted_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       *time.Time `json:"updated_at"`
 }
 
 // DB manages local SQLite database operations
@@ -159,9 +156,6 @@ func (db *DB) createSchema() error {
 		public_key_pem TEXT NOT NULL,
 		certificate_name TEXT,
 		submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		processed_at DATETIME,
-		certificate_serial TEXT,
-		certificate_issued_at DATETIME,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME,
 		FOREIGN KEY (instance_id) REFERENCES instances (id),
@@ -219,7 +213,6 @@ func (db *DB) createSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_instances_provider_id ON instances (provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_instances_provider_at ON instances (provider_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_public_keys_instance_id ON public_keys (instance_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_public_keys_processed_at ON public_keys (processed_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_public_keys_filename ON public_keys (filename)`,
 		`CREATE INDEX IF NOT EXISTS idx_lb_instances_status ON lb_instances (status)`,
 		`CREATE INDEX IF NOT EXISTS idx_lb_instances_lb_key ON lb_instances (lb_key)`,

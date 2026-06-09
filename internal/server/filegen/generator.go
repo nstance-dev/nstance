@@ -125,13 +125,9 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 			return nil, fmt.Errorf("failed to generate certificate batch: %w", err)
 		}
 
-		// handleCertificateResults now returns the generated files
-		certFiles, err := p.handleCertificateResults(instanceID, results)
-		if err != nil {
-			return nil, fmt.Errorf("failed to handle certificate results: %w", err)
-		}
-		for k, v := range certFiles {
-			generatedFiles[k] = v
+		// Certificate issuance metadata is recorded by the PKI serial logger.
+		for _, result := range results {
+			generatedFiles[result.Filename] = result.CertPEM
 		}
 
 		p.logger.Info("Certificate batch processed successfully",

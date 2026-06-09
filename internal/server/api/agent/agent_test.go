@@ -352,17 +352,15 @@ func TestService(t *testing.T) {
 		}
 
 		// Verify public key was stored in database
-		storedKeys, err := localDB.GetPendingPublicKeys(instanceID)
+		storedKey, err := localDB.GetPublicKeyByFilename(instanceID, "kubelet.client")
 		if err != nil {
-			t.Fatalf("Failed to get pending public keys: %v", err)
+			t.Fatalf("Failed to get public key: %v", err)
 		}
-		if len(storedKeys) != 1 {
-			t.Errorf("Expected 1 stored public key, got %d", len(storedKeys))
+		if storedKey == nil {
+			t.Fatal("Expected stored public key")
 		}
-		if len(storedKeys) > 0 {
-			if storedKeys[0].Filename != "kubelet.client" {
-				t.Errorf("Expected filename 'kubelet.client', got '%s'", storedKeys[0].Filename)
-			}
+		if storedKey.Filename != "kubelet.client" {
+			t.Errorf("Expected filename 'kubelet.client', got '%s'", storedKey.Filename)
 		}
 	})
 

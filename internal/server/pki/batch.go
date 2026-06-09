@@ -15,7 +15,6 @@ type CertificateRequest struct {
 	InstanceID        string
 	Tenant            string
 	Filename          string
-	KeyName           string
 	PublicKeyPEM      []byte
 	CertificateConfig *CertificateConfig
 	TemplateData      CertificateTemplateData
@@ -24,7 +23,6 @@ type CertificateRequest struct {
 // CertificateResult represents the result of certificate generation
 type CertificateResult struct {
 	Filename     string
-	KeyName      string
 	CertPEM      []byte
 	ExpiresAt    time.Time
 	SerialNumber string
@@ -75,7 +73,7 @@ func (s *BatchCertificateGenerator) GenerateBatch(ctx context.Context, requests 
 			return nil, fmt.Errorf("failed to generate certificate for %s: %w", req.Filename, err)
 		}
 
-		// Extract the certificate serial for logging and SQLite metadata.
+		// Extract the certificate serial for the object storage issuance log.
 		serial, err := ExtractCertSerial(certPEM)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract serial number for %s: %w", req.Filename, err)
@@ -83,7 +81,6 @@ func (s *BatchCertificateGenerator) GenerateBatch(ctx context.Context, requests 
 
 		results = append(results, CertificateResult{
 			Filename:     req.Filename,
-			KeyName:      req.KeyName,
 			CertPEM:      certPEM,
 			ExpiresAt:    expiresAt,
 			SerialNumber: serial,

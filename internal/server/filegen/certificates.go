@@ -98,7 +98,6 @@ func (p *Generator) prepareCertificateRequests(
 			InstanceID:        instance.ID,
 			Tenant:            instance.Tenant,
 			Filename:          filename,
-			KeyName:           keyName,
 			PublicKeyPEM:      []byte(publicKey.PublicKeyPEM),
 			CertificateConfig: pkiCertConfig,
 			TemplateData:      templateData,
@@ -115,26 +114,4 @@ func (p *Generator) getKeyName(fileConfig *config.FileConfig, filename string) (
 	}
 
 	return strings.TrimSuffix(fileConfig.Key.Name, ".pub"), nil
-}
-
-// handleCertificateResults processes certificate generation results and returns generated files
-func (p *Generator) handleCertificateResults(instanceID string, results []pki.CertificateResult) (map[string][]byte, error) {
-	// Extract data for database update
-	var filenames []string
-	var serialNumbers []string
-	generatedFiles := make(map[string][]byte)
-
-	for _, result := range results {
-		generatedFiles[result.Filename] = result.CertPEM
-
-		filenames = append(filenames, result.KeyName)
-		serialNumbers = append(serialNumbers, result.SerialNumber)
-	}
-
-	// Mark public keys as processed in database
-	if err := p.localDB.MarkPublicKeysProcessed(instanceID, filenames, serialNumbers); err != nil {
-		return nil, fmt.Errorf("failed to mark public keys as processed: %w", err)
-	}
-
-	return generatedFiles, nil
 }
