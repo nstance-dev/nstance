@@ -13,11 +13,9 @@ import (
 )
 
 // generateSecrets handles secret file processing for required files
-func (p *Generator) generateSecrets(ctx context.Context, instanceID string, cfg *config.Config, template *config.TemplateConfig, filesRequired []string, processedFiles map[string]bool) (map[string][]byte, error) {
+func (p *Generator) generateSecrets(ctx context.Context, instanceID string, template *config.TemplateConfig, filesRequired []string, processedFiles map[string]bool, templateData pki.CertificateTemplateData) (map[string][]byte, error) {
 	generatedFiles := make(map[string][]byte)
 	var secretsProcessed int
-
-	var templateData *pki.CertificateTemplateData
 
 	for _, filename := range filesRequired {
 		// Check if this file is configured as a secret in the template
@@ -40,27 +38,7 @@ func (p *Generator) generateSecrets(ctx context.Context, instanceID string, cfg 
 
 		// Render source as a Go template if it contains template syntax
 		if strings.Contains(source, "{{") {
-			if templateData == nil {
-				instance, err := p.localDB.GetInstance(instanceID)
-				if err != nil {
-					p.logger.Error("Failed to get instance for template rendering",
-						"instance_id", instanceID,
-						"filename", filename,
-						"error", err)
-					continue
-				}
-				td, err := p.buildTemplateData(ctx, cfg, instance)
-				if err != nil {
-					p.logger.Error("Failed to build template data for source rendering",
-						"instance_id", instanceID,
-						"filename", filename,
-						"error", err)
-					continue
-				}
-				templateData = &td
-			}
-
-			rendered, err := p.templateRenderer.processTemplate(source, *templateData)
+			rendered, err := p.templateRenderer.processTemplate(source, templateData)
 			if err != nil {
 				p.logger.Error("Failed to render secret source template",
 					"instance_id", instanceID,

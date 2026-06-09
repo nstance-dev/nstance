@@ -175,18 +175,6 @@ func processTemplate(name, templateStr string, data CertificateTemplateData) (st
 	return buf.String(), nil
 }
 
-// CreateCertificateTemplateData creates template data for certificates.
-func CreateCertificateTemplateData(instance InstanceData, cluster ClusterData, server ServerData, provider ProviderData, vars, images map[string]string) CertificateTemplateData {
-	return CertificateTemplateData{
-		Instance: instance,
-		Cluster:  cluster,
-		Server:   server,
-		Provider: provider,
-		Vars:     vars,
-		Image:    images,
-	}
-}
-
 // ProcessTemplateString processes a single template string with the given data - exposed for testing
 func ProcessTemplateString(templateStr string, data CertificateTemplateData) (string, error) {
 	return processTemplate("test", templateStr, data)

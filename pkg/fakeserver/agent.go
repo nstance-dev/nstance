@@ -181,8 +181,8 @@ func (a *agentService) generateFiles(ctx context.Context, inst *persistedInstanc
 	now := time.Now()
 	var out []pendingFile
 	registrationAddr, agentAddr := a.s.Addr()
-	data := pki.CreateCertificateTemplateData(
-		pki.InstanceData{
+	data := pki.CertificateTemplateData{
+		Instance: pki.InstanceData{
 			ID:       inst.InstanceID,
 			Kind:     tenant.Kind,
 			Arch:     tenant.Arch,
@@ -192,16 +192,14 @@ func (a *agentService) generateFiles(ctx context.Context, inst *persistedInstanc
 			IP4:      inst.IPv4,
 			IP6:      inst.IPv6,
 		},
-		pki.ClusterData{ID: a.s.cfg.ClusterID, CACert: string(a.s.caCertPEM)},
-		pki.ServerData{
+		Cluster: pki.ClusterData{ID: a.s.cfg.ClusterID, CACert: string(a.s.caCertPEM)},
+		Server: pki.ServerData{
 			Shard:            a.s.cfg.ShardID,
 			RegistrationAddr: registrationAddr,
 			AgentAddr:        agentAddr,
 		},
-		pki.ProviderData{},
-		tenant.Vars,
-		nil,
-	)
+		Vars: tenant.Vars,
+	}
 	names := make([]string, 0, len(tenant.Files))
 	for name := range tenant.Files {
 		names = append(names, name)

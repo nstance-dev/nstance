@@ -293,24 +293,21 @@ func TestCertificateTemplateProcessing(t *testing.T) {
 			TTL: 8760,
 		}
 
-		templateData := CreateCertificateTemplateData(
-			InstanceData{
+		templateData := CertificateTemplateData{
+			Instance: InstanceData{
 				ID:       "knc0000000001r010000000000000",
 				Type:     "t4g.medium",
 				Hostname: "master-node",
 				FQDN:     "master-node.test-cluster.example.com",
 				IP4:      "172.16.0.10",
 			},
-			ClusterData{ID: "test-cluster-id"},
-			ServerData{},
-			ProviderData{},
-			map[string]string{
+			Cluster: ClusterData{ID: "test-cluster-id"},
+			Vars: map[string]string{
 				"environment": "production",
 				"ClusterSlug": "test-cluster",
 				"ClusterFQDN": "test-cluster.example.com",
 			},
-			nil,
-		)
+		}
 
 		pkiConfig := CertificateConfig{
 			Kind:         certConfig.Kind,
@@ -417,8 +414,8 @@ func TestCertificateGeneration(t *testing.T) {
 		templates := certTemplates
 		template := templates["client-with-org"]
 
-		templateData := CreateCertificateTemplateData(
-			InstanceData{
+		templateData := CertificateTemplateData{
+			Instance: InstanceData{
 				ID:       "knc0000000001r010000000000000",
 				Type:     "t4g.large",
 				Hostname: "worker-node-1",
@@ -426,16 +423,13 @@ func TestCertificateGeneration(t *testing.T) {
 				IP4:      "172.16.0.50",
 				IP6:      "2001:db8::50",
 			},
-			ClusterData{ID: "production-cluster-id"},
-			ServerData{},
-			ProviderData{},
-			map[string]string{
+			Cluster: ClusterData{ID: "production-cluster-id"},
+			Vars: map[string]string{
 				"environment": "production",
 				"ClusterSlug": "production-cluster",
 				"ClusterFQDN": "production-cluster.example.com",
 			},
-			nil,
-		)
+		}
 
 		pkiConfig := CertificateConfig{
 			Kind:         template.Kind,
@@ -526,24 +520,21 @@ func TestCertificateGeneration(t *testing.T) {
 		templates := certTemplates
 		template := templates["server-multi-dns"]
 
-		templateData := CreateCertificateTemplateData(
-			InstanceData{
+		templateData := CertificateTemplateData{
+			Instance: InstanceData{
 				ID:       "knc0000000001r010000000000000",
 				Type:     "t4g.xlarge",
 				Hostname: "master-node",
 				FQDN:     "master-node.production-cluster.example.com",
 				IP4:      "172.16.0.10",
 			},
-			ClusterData{ID: "production-cluster-id"},
-			ServerData{},
-			ProviderData{},
-			map[string]string{
+			Cluster: ClusterData{ID: "production-cluster-id"},
+			Vars: map[string]string{
 				"environment": "production",
 				"ClusterSlug": "production-cluster",
 				"ClusterFQDN": "production-cluster.example.com",
 			},
-			nil,
-		)
+		}
 
 		pkiConfig := CertificateConfig{
 			Kind:         template.Kind,

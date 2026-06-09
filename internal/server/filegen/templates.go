@@ -6,7 +6,6 @@ package filegen
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -19,7 +18,7 @@ import (
 )
 
 // generateTemplates handles templated file processing for required files
-func (p *Generator) generateTemplates(ctx context.Context, instanceID string, cfg *config.Config, template *config.TemplateConfig, filesRequired []string, processedFiles map[string]bool) (map[string][]byte, error) {
+func (p *Generator) generateTemplates(instanceID string, template *config.TemplateConfig, filesRequired []string, processedFiles map[string]bool, templateData pki.CertificateTemplateData) (map[string][]byte, error) {
 	generatedFiles := make(map[string][]byte)
 	var templatesProcessed int
 
@@ -37,26 +36,6 @@ func (p *Generator) generateTemplates(ctx context.Context, instanceID string, cf
 
 		// Mark this file as processed
 		processedFiles[filename] = true
-
-		// Get instance information
-		instance, err := p.localDB.GetInstance(instanceID)
-		if err != nil {
-			p.logger.Error("Failed to get instance for template processing",
-				"instance_id", instanceID,
-				"filename", filename,
-				"error", err)
-			continue
-		}
-
-		// Build template data
-		templateData, err := p.buildTemplateData(ctx, cfg, instance)
-		if err != nil {
-			p.logger.Error("Failed to build template data for templated file",
-				"instance_id", instanceID,
-				"filename", filename,
-				"error", err)
-			continue
-		}
 
 		// Process the templated file
 		content, err := p.templateRenderer.Render(&fileConfig, templateData)

@@ -94,17 +94,22 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	}
 	templateName := groupConfig.Template
 
-	// Get template config
+	// Get template config and build template data
 	template, exists := cfg.Templates[templateName]
 	if !exists {
 		return nil, fmt.Errorf("template %s not found", templateName)
 	}
+	mergedConfig, err := cfg.GetMergedConfig(templateName, groupConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merged config: %w", err)
+	}
+	templateData := p.buildTemplateData(cfg, instance, mergedConfig)
 
 	// Track which files have been processed by any handler
 	processedFiles := make(map[string]bool)
 
 	// Build certificate requests for missing certificate files
-	certRequests, err := p.prepareCertificateRequests(ctx, cfg, instance, &template, files, processedFiles)
+	certRequests, err := p.prepareCertificateRequests(cfg, instance, &template, files, processedFiles, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build certificate requests: %w", err)
 	}
@@ -135,7 +140,7 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	}
 
 	// Handle secret files
-	secretFiles, err := p.generateSecrets(ctx, instanceID, cfg, &template, files, processedFiles)
+	secretFiles, err := p.generateSecrets(ctx, instanceID, &template, files, processedFiles, templateData)
 	if err != nil {
 		p.logger.Error("Failed to generate secret files", "instance_id", instanceID, "error", err)
 		// Continue processing - don't fail the entire health report for secret errors
@@ -146,7 +151,7 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	}
 
 	// Handle storage files
-	storageFiles, err := p.generateStorageFiles(ctx, instanceID, cfg, &template, files, processedFiles)
+	storageFiles, err := p.generateStorageFiles(ctx, instanceID, &template, files, processedFiles, templateData)
 	if err != nil {
 		p.logger.Error("Failed to generate storage files", "instance_id", instanceID, "error", err)
 		// Continue processing - don't fail the entire health report for storage errors
@@ -157,7 +162,7 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	}
 
 	// Handle templated files
-	templateFiles, err := p.generateTemplates(ctx, instanceID, cfg, &template, files, processedFiles)
+	templateFiles, err := p.generateTemplates(instanceID, &template, files, processedFiles, templateData)
 	if err != nil {
 		p.logger.Error("Failed to generate templated files", "instance_id", instanceID, "error", err)
 		// Continue processing - don't fail the entire health report for template errors
@@ -184,28 +189,15 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	return generatedFiles, nil
 }
 
-// buildTemplateData creates template data for certificate generation
-func (p *Generator) buildTemplateData(ctx context.Context, cfg *config.Config, instance *localdb.Instance) (pki.CertificateTemplateData, error) {
-	// Resolve the instance's effective group, including dynamic group overrides
-	group, err := config.GetGroup(ctx, p.configLoader, instance.Tenant, instance.Group)
-	if err != nil {
-		return pki.CertificateTemplateData{}, err
-	}
-
-	// Merge group config over template config, over default config
-	templateName := group.Template
-	mergedConfig, err := cfg.GetMergedConfig(templateName, *group)
-	if err != nil {
-		return pki.CertificateTemplateData{}, fmt.Errorf("failed to get merged config: %w", err)
-	}
+// buildTemplateData creates template data for file/certificate generation
+func (p *Generator) buildTemplateData(cfg *config.Config, instance *localdb.Instance, mergedConfig *config.MergedConfig) pki.CertificateTemplateData {
 	images := make(map[string]string)
 	if p.imageGetter != nil {
 		images = p.imageGetter.GetAll()
 	}
 
-	// Build template data
-	templateData := pki.CreateCertificateTemplateData(
-		pki.InstanceData{
+	return pki.CertificateTemplateData{
+		Instance: pki.InstanceData{
 			ID:       instance.ID,
 			Kind:     mergedConfig.Kind,
 			Arch:     mergedConfig.Arch,
@@ -215,26 +207,24 @@ func (p *Generator) buildTemplateData(ctx context.Context, cfg *config.Config, i
 			IP4:      getStringValue(instance.IP4),
 			IP6:      getStringValue(instance.IP6),
 		},
-		pki.ClusterData{
+		Cluster: pki.ClusterData{
 			ID:     cfg.Cluster.ID,
 			CACert: string(p.caCertPEM),
 		},
-		pki.ServerData{
+		Server: pki.ServerData{
 			Shard:            cfg.Shard.ID,
 			RegistrationAddr: cfg.Shard.Advertise.RegistrationAddr,
 			AgentAddr:        cfg.Shard.Advertise.AgentAddr,
 			OperatorAddr:     cfg.Shard.Advertise.OperatorAddr,
 		},
-		pki.ProviderData{
+		Provider: pki.ProviderData{
 			Kind:   cfg.Shard.Infra.Provider,
 			Region: cfg.Shard.Infra.Region,
 			Zone:   cfg.Shard.Infra.Zone,
 		},
-		mergedConfig.Vars,
-		images,
-	)
-
-	return templateData, nil
+		Vars:  mergedConfig.Vars,
+		Image: images,
+	}
 }
 
 // getStringValue safely gets a string value from a pointer, returning empty string if nil

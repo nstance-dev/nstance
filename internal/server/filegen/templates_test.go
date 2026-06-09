@@ -213,15 +213,20 @@ func TestBuildTemplateDataUsesDynamicGroupVars(t *testing.T) {
 		t.Fatalf("failed to set dynamic group: %v", err)
 	}
 
-	templateData, err := generator.buildTemplateData(ctx, cfg, &localdb.Instance{
+	group, err := config.GetGroup(ctx, loader, "tenant1", "nodes")
+	if err != nil {
+		t.Fatalf("failed to get group: %v", err)
+	}
+	mergedConfig, err := cfg.GetMergedConfig(group.Template, *group)
+	if err != nil {
+		t.Fatalf("failed to get merged config: %v", err)
+	}
+	templateData := generator.buildTemplateData(cfg, &localdb.Instance{
 		ID:        "knc_test123",
 		Tenant:    "tenant1",
 		Group:     "nodes",
 		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		t.Fatalf("failed to build template data: %v", err)
-	}
+	}, mergedConfig)
 
 	if templateData.Instance.Type != "dynamic-type" {
 		t.Fatalf("expected dynamic instance type, got %q", templateData.Instance.Type)
@@ -254,15 +259,20 @@ func TestBuildTemplateDataSupportsDynamicOnlyGroups(t *testing.T) {
 		t.Fatalf("failed to set dynamic group: %v", err)
 	}
 
-	templateData, err := generator.buildTemplateData(ctx, cfg, &localdb.Instance{
+	group, err := config.GetGroup(ctx, loader, "tenant1", "dynamic")
+	if err != nil {
+		t.Fatalf("failed to get group: %v", err)
+	}
+	mergedConfig, err := cfg.GetMergedConfig(group.Template, *group)
+	if err != nil {
+		t.Fatalf("failed to get merged config: %v", err)
+	}
+	templateData := generator.buildTemplateData(cfg, &localdb.Instance{
 		ID:        "knc_test456",
 		Tenant:    "tenant1",
 		Group:     "dynamic",
 		CreatedAt: time.Now().UTC(),
-	})
-	if err != nil {
-		t.Fatalf("failed to build template data: %v", err)
-	}
+	}, mergedConfig)
 
 	if templateData.Instance.Type != "dynamic-only-type" {
 		t.Fatalf("expected dynamic-only instance type, got %q", templateData.Instance.Type)
