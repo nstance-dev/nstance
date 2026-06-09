@@ -282,6 +282,48 @@ func TestBuildTemplateDataSupportsDynamicOnlyGroups(t *testing.T) {
 	}
 }
 
+func TestGenerateFilesWithNilListGeneratesAllTemplateFiles(t *testing.T) {
+	ctx := context.Background()
+	cfg := testFilegenConfig()
+	workerTemplate := cfg.Templates["worker"]
+	workerTemplate.Files = map[string]config.FileConfig{
+		"worker.env": {
+			Kind: "env",
+			Template: map[string]interface{}{
+				"INSTANCE_ID": "{{ .Instance.ID }}",
+			},
+		},
+		"message.txt": {
+			Kind:     "string",
+			Template: "hello {{ .Instance.ID }}",
+		},
+	}
+	cfg.Templates["worker"] = workerTemplate
+	cfg.Groups["tenant1"]["nodes"] = config.GroupConfig{Template: "worker"}
+
+	generator, _ := newTemplateDataTestGenerator(t, cfg)
+	if err := generator.localDB.CreateInstance(&localdb.Instance{
+		ID:        "knc_test789",
+		Tenant:    "tenant1",
+		Group:     "nodes",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("failed to create instance: %v", err)
+	}
+
+	generatedFiles, err := generator.GenerateFiles(ctx, "knc_test789", nil)
+	if err != nil {
+		t.Fatalf("failed to generate files: %v", err)
+	}
+
+	if got := string(generatedFiles["worker.env"]); !strings.Contains(got, "INSTANCE_ID=knc_test789") {
+		t.Fatalf("expected worker.env to be generated, got %q", got)
+	}
+	if got := string(generatedFiles["message.txt"]); got != "hello knc_test789" {
+		t.Fatalf("expected message.txt to be generated, got %q", got)
+	}
+}
+
 func testFilegenConfig() *config.Config {
 	return &config.Config{
 		Defaults: config.DefaultsConfig{
@@ -344,10 +386,11 @@ func newTemplateDataTestGenerator(t *testing.T, cfg *config.Config) (*Generator,
 	loader.SetConfig(cfg)
 
 	return &Generator{
-		configLoader: loader,
-		localDB:      db,
-		caCertPEM:    []byte("test-ca"),
-		imageGetter:  testImageGetter{"debian_13_arm64": "ami-test"},
-		logger:       slog.Default(),
+		configLoader:     loader,
+		localDB:          db,
+		caCertPEM:        []byte("test-ca"),
+		imageGetter:      testImageGetter{"debian_13_arm64": "ami-test"},
+		templateRenderer: NewTemplateRenderer(slog.Default()),
+		logger:           slog.Default(),
 	}, loader
 }

@@ -62,12 +62,12 @@ func NewGenerator(
 	}
 }
 
-// GenerateFiles generates the specified files for an instance
+// GenerateFiles generates the specified files for an instance.
+// If files is nil, it generates every file configured by the instance template.
 func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files []string) (map[string][]byte, error) {
-	if len(files) == 0 {
+	if files != nil && len(files) == 0 {
 		return nil, nil
 	}
-	p.logger.Debug("Generating files", "instance_id", instanceID, "files", files)
 
 	generatedFiles := make(map[string][]byte)
 
@@ -104,6 +104,13 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 		return nil, fmt.Errorf("failed to get merged config: %w", err)
 	}
 	templateData := p.buildTemplateData(cfg, instance, mergedConfig)
+	if files == nil {
+		files = make([]string, 0, len(template.Files))
+		for filename := range template.Files {
+			files = append(files, filename)
+		}
+	}
+	p.logger.Debug("Generating files", "instance_id", instanceID, "files", files)
 
 	// Track which files have been processed by any handler
 	processedFiles := make(map[string]bool)
