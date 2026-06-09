@@ -75,10 +75,10 @@ func (s *BatchCertificateGenerator) GenerateBatch(ctx context.Context, requests 
 			return nil, fmt.Errorf("failed to generate certificate for %s: %w", req.Filename, err)
 		}
 
-		// Generate unique serial for logging
-		serial, err := GenerateSerialNumber()
+		// Extract the certificate serial for logging and SQLite metadata.
+		serial, err := ExtractCertSerial(certPEM)
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate serial number for %s: %w", req.Filename, err)
+			return nil, fmt.Errorf("failed to extract serial number for %s: %w", req.Filename, err)
 		}
 
 		results = append(results, CertificateResult{
