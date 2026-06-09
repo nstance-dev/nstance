@@ -55,7 +55,9 @@ In the above example structure, where `{storage-key}` is the UUID-prefix format 
 
 * `shard/{shard}/certlog/` contains the CA's certificate issuance log for this zone shard. Anytime the CA generates certificates for an Nstance Agent, it logs the certificate name, its serial number, and its expiry, in a single file keyed by tenant, a millisecond-precision UTC timestamp, and the instance ID.
 
-Both the `operator` and `instance` files capture the public keys and client certificate serials and expiration dates.
+Both the `operator` and `instance` files capture registration identity public keys and client certificate serials and expiration dates.
+
+Agent-generated workload public keys are not stored in object storage. They are cached in the shard leader's SQLite database and can be re-requested from the Agent, whose local key files are the source of truth. Generated workload certificate bodies are likewise delivered over the Agent file stream and are not persisted to object storage; object storage keeps only issuance logs under `certlog/`.
 
 The `instance` files also store special hashes of configuration, so that if configuration changes since the instance was provisioned, Nstance Server can either push configuration changes or begin rotating/updating instances - see [Push Updates & Instance Rotation](instance-lifecycle.md#push-updates--instance-rotation).
 
@@ -63,7 +65,7 @@ The `instance` files also store special hashes of configuration, so that if conf
 
 To improve performance and keep costs in-check by minimising object storage read operations, Nstance Server uses a local SQLite database which exclusively stores ephemeral data of three distinct types:
 
-1. **Object Storage-Restorable Data** (critical): Instance registration records (including public keys and certificate metadata), configuration hashes, etc.
+1. **Object Storage-Restorable Data** (critical): Instance registration records (including identity public keys and client certificate metadata), configuration hashes, etc.
 
 2. **Provider-Restorable Data** (infrastructure): Instance hostnames, IP addresses, current status from cloud provider APIs, load balancer group registrations
 

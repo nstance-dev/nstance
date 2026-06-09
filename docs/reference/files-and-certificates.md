@@ -14,7 +14,7 @@ The Nstance Server drives key generation requirements based on the instance temp
 
 When the Agent connects to the Agent gRPC service, it immediately opens a unidirectional stream to receive key generation requests from the Server. The Server analyzes the instance template to determine which certificates will be needed and sends the corresponding key names that should be generated.
 
-The Agent generates the requested keypairs asynchronously and idempotently, then submits the public keys to the Server. The Server generates certificates during health report processing and sends them back to the Agent via the file stream.
+The Agent generates the requested keypairs asynchronously and idempotently, then submits the public keys to the Server. If a requested key already exists on disk, the Agent reuses it and resubmits the existing public key. The Server generates certificates during health report processing and sends them back to the Agent via the file stream.
 
 Health reports include file status information (last write timestamp or error), allowing the Server to confirm successful file writes and retry sending certificates if needed. The Server can also send additional key generation requests (triggered during health report processing) if keys are still missing.
 
@@ -39,7 +39,9 @@ The agent accepts any filename with a valid extension from the server.
 
 Each instance template can specify a map of filenames (without extension) to a key from the certificate block.
 
-When public keys are sent from an Nstance Agent to a Nstance Server, they are stored in object storage and cached in the SQLite database. The SubmitPublicKeys request is only acknowledged after all public keys have been successfully written to the database.
+When public keys are sent from an Nstance Agent to a Nstance Server, they are cached in the Server's local SQLite database. They are not stored in object storage: the Agent's local key files are the source of truth for workload keys, and a new Server leader can rebuild its cache by requesting the public keys from the Agent again. The SubmitPublicKeys request is only acknowledged after all valid public keys have been successfully written to SQLite.
+
+Generated workload certificates are also delivered over the Agent file stream rather than persisted as objects. Object storage stores the certificate issuance log (`certlog/`) for auditability, not the certificate bodies.
 
 ## Certificate Generation During Health Reports
 
@@ -87,7 +89,7 @@ Files can be sourced directly from object storage using `kind: "storage"`. The `
           "kind": "certificate",
           "template": "kubelet-server-csr",
           "key": {
-            "from": "agent",
+            "source": "agent",
             "name": "kubelet.server.pub",
           },
         },
@@ -103,4 +105,4 @@ This process has two important security properties:
 
 1. Which certificates can be generated (and with what properties) is restricted by the Nstance Server config.
 
-2. Because key.from = `agent`, the private key for the generated certificate never leaves the instance the Nstance Agent is running on.
+2. Because `key.source = "agent"`, the private key for the generated certificate never leaves the instance the Nstance Agent is running on.

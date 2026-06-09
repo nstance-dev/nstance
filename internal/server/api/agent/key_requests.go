@@ -27,16 +27,24 @@ func (s *Service) ReceiveKeyRequests(req *emptypb.Empty, stream proto.AgentServi
 
 	instanceID := clientInfo.ClientID
 	s.logger.Info("Starting key generation request stream", "instance_id", instanceID)
+	notify := s.registerPendingKeyRequestsStream(instanceID)
+	defer s.unregisterPendingKeyRequestsStream(instanceID, notify)
 
-	// Send any pending key requests immediately
-	if err := s.sendPendingKeyRequests(instanceID, stream); err != nil {
-		return err
+	for {
+		// Send any pending key requests immediately, then wait to be notified about new work.
+		if err := s.sendPendingKeyRequests(instanceID, stream); err != nil {
+			return err
+		}
+
+		select {
+		case <-notify:
+			continue
+		case <-stream.Context().Done():
+			// Keep stream open until the client disconnects.
+			s.logger.Info("Key generation request stream closed", "instance_id", instanceID)
+			return nil
+		}
 	}
-
-	// Keep stream open and wait for context cancellation (client disconnect)
-	<-stream.Context().Done()
-	s.logger.Info("Key generation request stream closed", "instance_id", instanceID)
-	return nil
 }
 
 // sendPendingKeyRequests sends all pending key requests for an instance

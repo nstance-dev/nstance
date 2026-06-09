@@ -23,16 +23,24 @@ func (s *Service) ReceiveFiles(req *emptypb.Empty, stream proto.AgentService_Rec
 
 	instanceID := clientInfo.ClientID
 	s.logger.Info("Starting file transfer stream", "instance_id", instanceID)
+	notify := s.registerPendingFilesStream(instanceID)
+	defer s.unregisterPendingFilesStream(instanceID, notify)
 
-	// Send any pending files immediately
-	if err := s.sendPendingFiles(instanceID, stream); err != nil {
-		return err
+	for {
+		// Send any pending files immediately, then wait to be notified about new work.
+		if err := s.sendPendingFiles(instanceID, stream); err != nil {
+			return err
+		}
+
+		select {
+		case <-notify:
+			continue
+		case <-stream.Context().Done():
+			// Keep stream open until the client disconnects.
+			s.logger.Info("File transfer stream closed", "instance_id", instanceID)
+			return nil
+		}
 	}
-
-	// Keep stream open and wait for context cancellation (client disconnect)
-	<-stream.Context().Done()
-	s.logger.Info("File transfer stream closed", "instance_id", instanceID)
-	return nil
 }
 
 // sendPendingFiles sends all pending files for an instance

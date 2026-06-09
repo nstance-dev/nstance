@@ -37,12 +37,14 @@ type Service struct {
 	onInstanceDisconnect func(instanceID string, graceful bool) error
 
 	// In-memory pending key requests with mutex for thread safety
-	pendingKeyRequestsMu sync.RWMutex
-	pendingKeyRequests   map[string][]*PendingKeyRequest // instanceID -> key requests
+	pendingKeyRequestsMu     sync.RWMutex
+	pendingKeyRequests       map[string][]*PendingKeyRequest // instanceID -> key requests
+	pendingKeyRequestsNotify map[string]chan struct{}        // instanceID to process requests for
 
 	// In-memory pending files with mutex for thread safety
-	pendingFilesMu sync.RWMutex
-	pendingFiles   map[string][]*PendingFile // instanceID -> files
+	pendingFilesMu     sync.RWMutex
+	pendingFiles       map[string][]*PendingFile // instanceID -> files
+	pendingFilesNotify map[string]chan struct{}  // instanceID to process files for
 }
 
 // Options contains options for creating an AgentService
@@ -90,18 +92,20 @@ func New(opts Options) (*Service, error) {
 	}
 
 	service := &Service{
-		storage:              opts.Storage,
-		configLoader:         opts.ConfigLoader,
-		localDB:              opts.LocalDB,
-		secretsStore:         opts.SecretsStore,
-		provider:             opts.Provider,
-		imageGetter:          opts.ImageGetter,
-		logger:               opts.Logger,
-		onSpotTermination:    opts.OnSpotTermination,
-		onReconcileRequested: opts.OnReconcileRequested,
-		onInstanceDisconnect: opts.OnInstanceDisconnect,
-		pendingFiles:         make(map[string][]*PendingFile),
-		pendingKeyRequests:   make(map[string][]*PendingKeyRequest),
+		storage:                  opts.Storage,
+		configLoader:             opts.ConfigLoader,
+		localDB:                  opts.LocalDB,
+		secretsStore:             opts.SecretsStore,
+		provider:                 opts.Provider,
+		imageGetter:              opts.ImageGetter,
+		logger:                   opts.Logger,
+		onSpotTermination:        opts.OnSpotTermination,
+		onReconcileRequested:     opts.OnReconcileRequested,
+		onInstanceDisconnect:     opts.OnInstanceDisconnect,
+		pendingFiles:             make(map[string][]*PendingFile),
+		pendingFilesNotify:       make(map[string]chan struct{}),
+		pendingKeyRequests:       make(map[string][]*PendingKeyRequest),
+		pendingKeyRequestsNotify: make(map[string]chan struct{}),
 	}
 
 	// Initialize certificate services

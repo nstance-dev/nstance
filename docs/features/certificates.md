@@ -11,13 +11,15 @@ TLS certificate issuance, renewal, and management for instances.
 
 ## File Sending
 
-Each instance template has a list of files the Nstance Server can expect to send. For any given file, if the `.kind = certificate` and `.key.from = agent` then Nstance Server will request Nstance Agent generate a corresponding keypair and publish the public key to Nstance Server.
+Each instance template has a list of files the Nstance Server can expect to send. For any given file, if the `.kind = certificate` and `.key.source = agent` then Nstance Server will request Nstance Agent generate a corresponding keypair and publish the public key to Nstance Server.
 
-Once Nstance Server has the public key, it will generate and send a certificate back to Nstance Server for writing to disk.
+Once Nstance Server has received the public key, it will generate and send a certificate back to Nstance Agent for writing to disk.
 
 From there, any script/process on the VM itself can handle correctly distributing the certificate (this is typically set up in userdata when the server is provisioned).
 
 This workflow is extremely fast, and secure because Nstance Agent has established a secure channel during its bootstrap.
+
+Nstance Agent is the source of truth for agent-generated keypairs. It stores the private key and public key locally on the instance. Nstance Server only caches submitted public keys in its local SQLite database; it does not persist workload public keys or generated workload certificates to object storage. If a new server leader has an empty cache, it can re-request the key from the agent, and the agent will submit the existing public key rather than generating a replacement.
 
 ## Example Configuration
 
@@ -50,7 +52,7 @@ Example Nstance Server configuration:
           "kind": "certificate",
           "template": "kubelet-server-csr",
           "key": {
-            "from": "agent",
+            "source": "agent",
             "name": "kubelet.server.pub",
           },
         },

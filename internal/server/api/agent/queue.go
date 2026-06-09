@@ -11,7 +11,6 @@ import (
 // QueueFile implements FileDelivery interface
 func (s *Service) QueueFile(instanceID, filename string, content []byte) {
 	s.pendingFilesMu.Lock()
-	defer s.pendingFilesMu.Unlock()
 
 	file := &PendingFile{
 		Filename:     filename,
@@ -20,6 +19,10 @@ func (s *Service) QueueFile(instanceID, filename string, content []byte) {
 	}
 
 	s.pendingFiles[instanceID] = append(s.pendingFiles[instanceID], file)
+	notify := s.pendingFilesNotify[instanceID]
+	s.pendingFilesMu.Unlock()
+
+	notifyStream(notify)
 
 	s.logger.Debug("Queued pending file",
 		"instance_id", instanceID,
@@ -50,10 +53,29 @@ func (s *Service) clearPendingFiles(instanceID string) {
 	s.logger.Debug("Cleared pending files", "instance_id", instanceID)
 }
 
+// registerPendingFilesStream records the wakeup channel for an instance's active file stream.
+func (s *Service) registerPendingFilesStream(instanceID string) chan struct{} {
+	s.pendingFilesMu.Lock()
+	defer s.pendingFilesMu.Unlock()
+
+	ch := make(chan struct{}, 1)
+	s.pendingFilesNotify[instanceID] = ch
+	return ch
+}
+
+// unregisterPendingFilesStream removes the wakeup channel if it still belongs to this stream.
+func (s *Service) unregisterPendingFilesStream(instanceID string, ch chan struct{}) {
+	s.pendingFilesMu.Lock()
+	defer s.pendingFilesMu.Unlock()
+
+	if s.pendingFilesNotify[instanceID] == ch {
+		delete(s.pendingFilesNotify, instanceID)
+	}
+}
+
 // queueKeyRequest adds a key generation request to the pending queue for an instance
 func (s *Service) queueKeyRequest(instanceID string, keyNames []string) {
 	s.pendingKeyRequestsMu.Lock()
-	defer s.pendingKeyRequestsMu.Unlock()
 
 	request := &PendingKeyRequest{
 		KeyNames: keyNames,
@@ -61,6 +83,11 @@ func (s *Service) queueKeyRequest(instanceID string, keyNames []string) {
 	}
 
 	s.pendingKeyRequests[instanceID] = append(s.pendingKeyRequests[instanceID], request)
+	notify := s.pendingKeyRequestsNotify[instanceID]
+	s.pendingKeyRequestsMu.Unlock()
+
+	notifyStream(notify)
+
 	s.logger.Debug("Queued key generation request", "instance_id", instanceID, "key_count", len(keyNames))
 }
 
@@ -82,4 +109,35 @@ func (s *Service) getPendingKeyRequests(instanceID string) []*PendingKeyRequest 
 	result := make([]*PendingKeyRequest, len(requests))
 	copy(result, requests)
 	return result
+}
+
+// registerPendingKeyRequestsStream records the wakeup channel for an instance's active key request stream.
+func (s *Service) registerPendingKeyRequestsStream(instanceID string) chan struct{} {
+	s.pendingKeyRequestsMu.Lock()
+	defer s.pendingKeyRequestsMu.Unlock()
+
+	ch := make(chan struct{}, 1)
+	s.pendingKeyRequestsNotify[instanceID] = ch
+	return ch
+}
+
+// unregisterPendingKeyRequestsStream removes the wakeup channel if it still belongs to this stream.
+func (s *Service) unregisterPendingKeyRequestsStream(instanceID string, ch chan struct{}) {
+	s.pendingKeyRequestsMu.Lock()
+	defer s.pendingKeyRequestsMu.Unlock()
+
+	if s.pendingKeyRequestsNotify[instanceID] == ch {
+		delete(s.pendingKeyRequestsNotify, instanceID)
+	}
+}
+
+// notifyStream wakes an active stream without blocking the producer if it is already awake.
+func notifyStream(ch chan struct{}) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -459,6 +460,61 @@ func TestService(t *testing.T) {
 		}
 	})
 
+	t.Run("ReceiveFilesPushesQueuedFilesToOpenStream", func(t *testing.T) {
+		agentService.clearPendingFiles(instanceID)
+		stream := newMockReceiveFilesStream(instanceID)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- agentService.ReceiveFiles(&emptypb.Empty{}, stream)
+		}()
+
+		defer func() {
+			stream.cancel()
+			if err := <-done; err != nil {
+				t.Fatalf("ReceiveFiles failed: %v", err)
+			}
+		}()
+
+		agentService.QueueFile(instanceID, "live.crt", []byte("live certificate"))
+
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			if stream.sentFileCount() == 1 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("Expected live queued file to be streamed, got %d", stream.sentFileCount())
+	})
+
+	t.Run("ReceiveKeyRequestsPushesQueuedRequestsToOpenStream", func(t *testing.T) {
+		stream := newMockReceiveKeyRequestsStream(instanceID)
+
+		done := make(chan error, 1)
+		go func() {
+			done <- agentService.ReceiveKeyRequests(&emptypb.Empty{}, stream)
+		}()
+
+		defer func() {
+			stream.cancel()
+			if err := <-done; err != nil {
+				t.Fatalf("ReceiveKeyRequests failed: %v", err)
+			}
+		}()
+
+		agentService.queueKeyRequest(instanceID, []string{"live.key"})
+
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			if stream.sentRequestCount() == 1 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("Expected live queued key request to be streamed, got %d", stream.sentRequestCount())
+	})
+
 	t.Run("SubmitPublicKeysWrongInstance", func(t *testing.T) {
 		// Create context with different client info
 		clientInfo := &api.ClientInfo{
@@ -488,6 +544,7 @@ func TestService(t *testing.T) {
 
 // mockReceiveFilesStream implements a mock for streaming files
 type mockReceiveFilesStream struct {
+	mu         sync.Mutex
 	sentFiles  []*proto.FileTransfer
 	instanceID string
 	ctx        context.Context
@@ -509,8 +566,18 @@ func newMockReceiveFilesStream(instanceID string) *mockReceiveFilesStream {
 }
 
 func (m *mockReceiveFilesStream) Send(file *proto.FileTransfer) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.sentFiles = append(m.sentFiles, file)
 	return nil
+}
+
+func (m *mockReceiveFilesStream) sentFileCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return len(m.sentFiles)
 }
 
 func (m *mockReceiveFilesStream) Context() context.Context {
@@ -526,6 +593,7 @@ func (m *mockReceiveFilesStream) RecvMsg(interface{}) error    { return nil }
 
 // mockReceiveKeyRequestsStream implements a mock for streaming key requests
 type mockReceiveKeyRequestsStream struct {
+	mu           sync.Mutex
 	sentRequests []*proto.KeyGenerationRequest
 	instanceID   string
 	ctx          context.Context
@@ -547,8 +615,18 @@ func newMockReceiveKeyRequestsStream(instanceID string) *mockReceiveKeyRequestsS
 }
 
 func (m *mockReceiveKeyRequestsStream) Send(req *proto.KeyGenerationRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.sentRequests = append(m.sentRequests, req)
 	return nil
+}
+
+func (m *mockReceiveKeyRequestsStream) sentRequestCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return len(m.sentRequests)
 }
 
 func (m *mockReceiveKeyRequestsStream) Context() context.Context {
