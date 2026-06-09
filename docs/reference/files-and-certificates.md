@@ -37,7 +37,7 @@ The agent accepts any filename with a valid extension from the server.
 
 ## Public Key Submission and Storage
 
-Each instance template can specify a map of filenames (without extension) to a key from the certificate block.
+Each instance template certificate file entry explicitly names the agent-supplied public key file to use via `key.name`.
 
 When public keys are sent from an Nstance Agent to a Nstance Server, they are cached in the Server's local SQLite database. They are not stored in object storage: the Agent's local key files are the source of truth for workload keys, and a new Server leader can rebuild its cache by requesting the public keys from the Agent again. The SubmitPublicKeys request is only acknowledged after all valid public keys have been successfully written to SQLite.
 
@@ -48,13 +48,13 @@ Generated workload certificates are also delivered over the Agent file stream ra
 Certificate generation occurs asynchronously during health report processing:
 
 1. **Health Report Analysis**: When a health report is received, the server examines the file status map for missing files or files with errors
-2. **Key Mapping**: For each missing/error file, check if it maps to a public key (same filename without extension) that was previously submitted
+2. **Key Mapping**: For each missing/error certificate file, use that file's explicit `key.name` from the server configuration to identify the public key file. In the example configuration, `key.name = "kubelet.server.pub"`, the server requests keypair `kubelet.server` from the Agent, and the Agent submits that keypair's public key under the name `kubelet.server` (on disk, the agent stores this as `kubelet.server.pub`).
 3. **Template Lookup**: Verify that a certificate template exists in the server configuration for the mapped certificate name
 4. **Batch Generation**: Generate certificates in batch for all eligible files to improve efficiency
 5. **Serial Recording**: Record certificate serials and write them to a single object storage file per batch to reduce costs
 6. **File Queuing**: Queue generated certificates for delivery to the agent via the ReceiveFiles stream
 
-For example, if Nstance Agent sends a public key with name `kubelet.server` and later reports that `kubelet.server.crt` is missing or has an error, the server will generate a certificate using the configuration mapping and deliver it to the agent.
+For example, the file entry for `kubelet.server.crt` explicitly names `kubelet.server.pub` as its public key. When that certificate is missing or has an error, the server uses the previously submitted key for that configured public key file to generate and deliver `kubelet.server.crt` to the Agent.
 
 ## Storage Files
 

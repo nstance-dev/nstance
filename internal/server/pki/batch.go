@@ -15,6 +15,7 @@ type CertificateRequest struct {
 	InstanceID        string
 	Tenant            string
 	Filename          string
+	KeyName           string
 	PublicKeyPEM      []byte
 	CertificateConfig *CertificateConfig
 	TemplateData      CertificateTemplateData
@@ -23,6 +24,7 @@ type CertificateRequest struct {
 // CertificateResult represents the result of certificate generation
 type CertificateResult struct {
 	Filename     string
+	KeyName      string
 	CertPEM      []byte
 	ExpiresAt    time.Time
 	SerialNumber string
@@ -81,6 +83,7 @@ func (s *BatchCertificateGenerator) GenerateBatch(ctx context.Context, requests 
 
 		results = append(results, CertificateResult{
 			Filename:     req.Filename,
+			KeyName:      req.KeyName,
 			CertPEM:      certPEM,
 			ExpiresAt:    expiresAt,
 			SerialNumber: serial,

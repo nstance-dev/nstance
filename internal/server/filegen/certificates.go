@@ -6,6 +6,7 @@ package filegen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
@@ -37,7 +38,14 @@ func (p *Generator) prepareCertificateRequests(
 		processedFiles[filename] = true
 
 		// Get the public key for this certificate
-		keyName := p.getKeyName(&fileConfig, filename)
+		keyName, err := p.getKeyName(&fileConfig, filename)
+		if err != nil {
+			p.logger.Error("Failed to get key name for certificate",
+				"instance_id", instance.ID,
+				"filename", filename,
+				"error", err)
+			continue
+		}
 		publicKey, err := p.localDB.GetPublicKeyByFilename(instance.ID, keyName)
 		if err != nil {
 			p.logger.Error("Failed to get public key",
@@ -90,6 +98,7 @@ func (p *Generator) prepareCertificateRequests(
 			InstanceID:        instance.ID,
 			Tenant:            instance.Tenant,
 			Filename:          filename,
+			KeyName:           keyName,
 			PublicKeyPEM:      []byte(publicKey.PublicKeyPEM),
 			CertificateConfig: pkiCertConfig,
 			TemplateData:      templateData,
@@ -99,13 +108,13 @@ func (p *Generator) prepareCertificateRequests(
 	return requests, nil
 }
 
-// getKeyName determines the key name for a certificate file
-func (p *Generator) getKeyName(fileConfig *config.FileConfig, filename string) string {
-	if fileConfig.Key != nil && fileConfig.Key.Name != "" {
-		return fileConfig.Key.Name
+// getKeyName returns the keypair base name for the explicitly configured public key file.
+func (p *Generator) getKeyName(fileConfig *config.FileConfig, filename string) (string, error) {
+	if fileConfig.Key == nil || fileConfig.Key.Name == "" {
+		return "", fmt.Errorf("certificate file %s requires key.name", filename)
 	}
-	// Default to filename without extension
-	return filename
+
+	return strings.TrimSuffix(fileConfig.Key.Name, ".pub"), nil
 }
 
 // handleCertificateResults processes certificate generation results and returns generated files
@@ -116,10 +125,9 @@ func (p *Generator) handleCertificateResults(instanceID string, results []pki.Ce
 	generatedFiles := make(map[string][]byte)
 
 	for _, result := range results {
-		certFilename := result.Filename + ".crt"
-		generatedFiles[certFilename] = result.CertPEM
+		generatedFiles[result.Filename] = result.CertPEM
 
-		filenames = append(filenames, result.Filename)
+		filenames = append(filenames, result.KeyName)
 		serialNumbers = append(serialNumbers, result.SerialNumber)
 	}
 

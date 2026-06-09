@@ -93,9 +93,8 @@ func (s *Service) analyzeRequiredKeys(templateConfig config.TemplateConfig) []st
 		if fileConfig.Kind == "certificate" && fileConfig.Key != nil {
 			// Check if the key source is from agent
 			if fileConfig.Key.Source == "agent" {
-				// Remove .pub extension if present to get the base key name
-				baseKeyName := strings.TrimSuffix(fileConfig.Key.Name, ".pub")
-				requiredKeys = append(requiredKeys, baseKeyName)
+				// The config names the public key file; the agent receives the keypair base name.
+				requiredKeys = append(requiredKeys, strings.TrimSuffix(fileConfig.Key.Name, ".pub"))
 			}
 		}
 	}

@@ -480,7 +480,7 @@ GCP load balancers use:
 
 Template `files` support these kinds:
 
-* `certificate` - generate a certificate from a named certificate template. The `key` can reference a public key sent from the agent.
+* `certificate` - generate a certificate from a named certificate template. The `key` must explicitly name a public key sent from the agent.
 * `secret` - fetch a secret by `source` from the configured secrets store.
 * `storage` - fetch an object by `source` from object storage. The `source` supports Go template variables.
 * `env` - render a `.env` file from a string-valued template object.
