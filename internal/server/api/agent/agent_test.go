@@ -423,6 +423,24 @@ func TestService(t *testing.T) {
 		}
 	})
 
+	t.Run("QueueFileReplacesPendingFile", func(t *testing.T) {
+		agentService.clearPendingFiles(instanceID)
+
+		agentService.QueueFile(instanceID, "test.crt", []byte("old certificate"))
+		agentService.QueueFile(instanceID, "test.crt", []byte("new certificate"))
+
+		pendingFiles := agentService.getPendingFiles(instanceID)
+		if len(pendingFiles) != 1 {
+			t.Fatalf("Expected 1 pending file, got %d", len(pendingFiles))
+		}
+		if pendingFiles[0].Filename != "test.crt" {
+			t.Fatalf("Expected pending file test.crt, got %s", pendingFiles[0].Filename)
+		}
+		if string(pendingFiles[0].Content) != "new certificate" {
+			t.Fatalf("Expected replacement content, got %q", string(pendingFiles[0].Content))
+		}
+	})
+
 	t.Run("ReceiveKeyRequests", func(t *testing.T) {
 		// Queue some test key requests
 		agentService.queueKeyRequest(instanceID, []string{"kubelet.server", "kubelet.client"})

@@ -149,24 +149,45 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 		}
 	}
 
-	// Process missing files asynchronously with proper context
-	go func() {
-		// Use background context with timeout for async processing
-		processCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		generatedFiles, err := s.fileGenerator.GenerateFiles(processCtx, req.InstanceId, filesRequired)
-		if err != nil {
-			s.logger.Error("Failed to generate files",
-				"instance_id", req.InstanceId,
-				"error", err)
-		} else if len(generatedFiles) > 0 {
-			// Queue files for delivery
-			for filename, content := range generatedFiles {
-				s.QueueFile(req.InstanceId, filename, content)
+	// Do not regenerate files that are already queued for delivery.
+	if len(filesRequired) > 0 {
+		pendingFiles := s.getPendingFiles(req.InstanceId)
+		if len(pendingFiles) > 0 {
+			pendingByName := make(map[string]bool, len(pendingFiles))
+			for _, file := range pendingFiles {
+				pendingByName[file.Filename] = true
 			}
+
+			filteredFiles := filesRequired[:0]
+			for _, filename := range filesRequired {
+				if !pendingByName[filename] {
+					filteredFiles = append(filteredFiles, filename)
+				}
+			}
+			filesRequired = filteredFiles
 		}
-	}()
+	}
+
+	// Process missing files asynchronously with proper context
+	if len(filesRequired) > 0 {
+		go func() {
+			// Use background context with timeout for async processing
+			processCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			generatedFiles, err := s.fileGenerator.GenerateFiles(processCtx, req.InstanceId, filesRequired)
+			if err != nil {
+				s.logger.Error("Failed to generate files",
+					"instance_id", req.InstanceId,
+					"error", err)
+			} else if len(generatedFiles) > 0 {
+				// Queue files for delivery
+				for filename, content := range generatedFiles {
+					s.QueueFile(req.InstanceId, filename, content)
+				}
+			}
+		}()
+	}
 
 	// Check for missing keys and send additional key requests if needed
 	go func() {

@@ -18,6 +18,25 @@ func (s *Service) QueueFile(instanceID, filename string, content []byte) {
 		LastModified: time.Now().UTC(),
 	}
 
+	// Keep at most one pending delivery per filename for an instance.
+	files := s.pendingFiles[instanceID]
+	for i, pending := range files {
+		if pending.Filename == filename {
+			files[i] = file
+			s.pendingFiles[instanceID] = files
+			notify := s.pendingFilesNotify[instanceID]
+			s.pendingFilesMu.Unlock()
+
+			notifyStream(notify)
+
+			s.logger.Debug("Replaced pending file",
+				"instance_id", instanceID,
+				"filename", filename,
+				"size", len(content))
+			return
+		}
+	}
+
 	s.pendingFiles[instanceID] = append(s.pendingFiles[instanceID], file)
 	notify := s.pendingFilesNotify[instanceID]
 	s.pendingFilesMu.Unlock()
