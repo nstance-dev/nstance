@@ -6,6 +6,7 @@ package config
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -302,6 +303,67 @@ func TestConfigValidation(t *testing.T) {
 			t.Error("Expected validation error for unknown certificate reference")
 		}
 	})
+}
+
+func TestLoadBalancerValidation(t *testing.T) {
+	gcpInstanceGroup := "example-ingress-ig"
+
+	tests := []struct {
+		name          string
+		loadBalancers map[string]LoadBalancerConfig
+		wantErr       string
+	}{
+		{
+			name: "gcp requires only instance group name",
+			loadBalancers: map[string]LoadBalancerConfig{
+				"ingress": {
+					Provider:          "gcp",
+					InstanceGroupName: &gcpInstanceGroup,
+				},
+			},
+		},
+		{
+			name: "gcp requires instance group name",
+			loadBalancers: map[string]LoadBalancerConfig{
+				"ingress": {
+					Provider: "gcp",
+				},
+			},
+			wantErr: "must specify instance_group_name",
+		},
+		{
+			name: "aws requires target group arns",
+			loadBalancers: map[string]LoadBalancerConfig{
+				"ingress": {
+					Provider: "aws",
+				},
+			},
+			wantErr: "must specify at least one target_group_arns entry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := newTestConfig()
+			config.LoadBalancers = tt.loadBalancers
+			config.SetDefaults()
+
+			err := config.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() error = %v", err)
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("Validate() error = nil, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Validate() error = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
 }
 
 func TestConfigDefaults(t *testing.T) {

@@ -720,10 +720,9 @@ func (m *Manager) deregisterInstanceFromLB(ctx context.Context, instance *locald
 		req := infra.DeregisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
 			LBConfig: infra.LoadBalancerConfig{
-				Provider:           lbConfig.Provider,
-				TargetGroupArns:    lbConfig.TargetGroupArns,
-				BackendServiceName: lbConfig.BackendServiceName,
-				InstanceGroupName:  lbConfig.InstanceGroupName,
+				Provider:          lbConfig.Provider,
+				TargetGroupArns:   lbConfig.TargetGroupArns,
+				InstanceGroupName: lbConfig.InstanceGroupName,
 			},
 			Zone: cfg.Shard.Infra.Zone,
 		}

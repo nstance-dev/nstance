@@ -25,10 +25,9 @@ func ValidateLoadBalancers(ctx context.Context, cfg *config.Config, localDB *loc
 
 		req := ListLBInstancesRequest{
 			LBConfig: LoadBalancerConfig{
-				Provider:           lbConfig.Provider,
-				TargetGroupArns:    lbConfig.TargetGroupArns,
-				BackendServiceName: lbConfig.BackendServiceName,
-				InstanceGroupName:  lbConfig.InstanceGroupName,
+				Provider:          lbConfig.Provider,
+				TargetGroupArns:   lbConfig.TargetGroupArns,
+				InstanceGroupName: lbConfig.InstanceGroupName,
 			},
 			Zone: cfg.Shard.Infra.Zone,
 		}

@@ -219,8 +219,7 @@ type LoadBalancerConfig struct {
 	TargetGroupArns []string `json:"target_group_arns,omitempty"` // Multiple ARNs for multi-port NLBs
 
 	// GCP-specific fields
-	BackendServiceName *string `json:"backend_service_name,omitempty"`
-	InstanceGroupName  *string `json:"instance_group_name,omitempty"`
+	InstanceGroupName *string `json:"instance_group_name,omitempty"`
 }
 
 // CertConfig defines certificate template configuration
@@ -438,9 +437,6 @@ func (c *Config) Validate() error {
 				}
 			}
 		case "gcp":
-			if lbConfig.BackendServiceName == nil || *lbConfig.BackendServiceName == "" {
-				return fmt.Errorf("load balancer %s with provider gcp must specify backend_service_name", lbKey)
-			}
 			if lbConfig.InstanceGroupName == nil || *lbConfig.InstanceGroupName == "" {
 				return fmt.Errorf("load balancer %s with provider gcp must specify instance_group_name", lbKey)
 			}

@@ -364,8 +364,8 @@ func (p *Provider) getLBKey(cfg provider.LoadBalancerConfig) string {
 	if len(cfg.TargetGroupArns) > 0 {
 		return cfg.TargetGroupArns[0]
 	}
-	if cfg.BackendServiceName != nil {
-		return *cfg.BackendServiceName
+	if cfg.InstanceGroupName != nil {
+		return *cfg.InstanceGroupName
 	}
 	return "default"
 }

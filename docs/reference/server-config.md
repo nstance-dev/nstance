@@ -127,7 +127,8 @@ Below is an example/reference configuration file for Nstance Server, using examp
       "max_delay": "40s"
     }
   },
-  // Optional: load balancers that groups can reference by key.
+  // Optional: logical backend registration targets that groups can reference by key.
+  // AWS targets use target group ARNs; GCP targets use unmanaged instance groups.
   "load_balancers": {
     "www": {
       "provider": "aws",
@@ -454,7 +455,7 @@ The `shard` block defines the Nstance Server process and shard-local infrastruct
 
 ## `load_balancers`
 
-Load balancers are defined at the top level and referenced by group `load_balancers` lists.
+Load balancers are defined at the top level and referenced by group `load_balancers` lists. Each entry is a logical backend registration target, not necessarily a distinct physical load balancer. For example, separate `ingress` and `controlplane` entries may point at different listener backends on the same provider load balancer, or at different load balancers.
 
 AWS load balancers use:
 
@@ -473,6 +474,8 @@ GCP load balancers use:
   "instance_group_name": "example-instance-group"
 }
 ```
+
+For GCP, Nstance adds and removes instances from the unmanaged instance group. Infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
 
 ## `certificates` and template files
 

@@ -407,10 +407,9 @@ func (s *Service) registerInstanceWithLB(ctx context.Context, instance *localdb.
 		req := infra.RegisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
 			LBConfig: infra.LoadBalancerConfig{
-				Provider:           lbConfig.Provider,
-				TargetGroupArns:    lbConfig.TargetGroupArns,
-				BackendServiceName: lbConfig.BackendServiceName,
-				InstanceGroupName:  lbConfig.InstanceGroupName,
+				Provider:          lbConfig.Provider,
+				TargetGroupArns:   lbConfig.TargetGroupArns,
+				InstanceGroupName: lbConfig.InstanceGroupName,
 			},
 			Zone: cfg.Shard.Infra.Zone,
 		}
@@ -492,10 +491,9 @@ func (s *Service) reconcilePendingLBRegistrations(ctx context.Context, cfg *conf
 		req := infra.RegisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
 			LBConfig: infra.LoadBalancerConfig{
-				Provider:           lbConfig.Provider,
-				TargetGroupArns:    lbConfig.TargetGroupArns,
-				BackendServiceName: lbConfig.BackendServiceName,
-				InstanceGroupName:  lbConfig.InstanceGroupName,
+				Provider:          lbConfig.Provider,
+				TargetGroupArns:   lbConfig.TargetGroupArns,
+				InstanceGroupName: lbConfig.InstanceGroupName,
 			},
 			Zone: cfg.Shard.Infra.Zone,
 		}

@@ -109,10 +109,9 @@ type ListInstancesResponse struct {
 
 // LoadBalancerConfig mirrors config.LoadBalancerConfig to avoid circular imports
 type LoadBalancerConfig struct {
-	Provider           string
-	TargetGroupArns    []string // AWS: multiple ARNs for multi-port NLBs
-	BackendServiceName *string  // GCP
-	InstanceGroupName  *string  // GCP
+	Provider          string
+	TargetGroupArns   []string // AWS: multiple ARNs for multi-port NLBs
+	InstanceGroupName *string  // GCP
 }
 
 // RegisterLBRequest contains parameters for registering an instance with a load balancer

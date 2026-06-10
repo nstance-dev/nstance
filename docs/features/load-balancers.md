@@ -10,7 +10,7 @@ Nstance supports automatic registration/de-registration of instances with cloud 
 
 ## Configuration
 
-Load balancers are defined in the `load_balancers` configuration section:
+Load balancers are defined in the `load_balancers` configuration section. Each entry is a logical registration target: an AWS target group set or a GCP unmanaged instance group that is already attached to the provider load balancer topology.
 
 ```jsonc
 {
@@ -24,7 +24,6 @@ Load balancers are defined in the `load_balancers` configuration section:
     },
     "internal": {
       "provider": "gcp",
-      "backend_service_name": "internal-backend",
       "instance_group_name": "internal-ig"
     }
   },
@@ -45,7 +44,9 @@ Load balancers are defined in the `load_balancers` configuration section:
 
 **Provider-Specific Fields:**
 - **AWS**: `target_group_arns` (required) - Array of NLB target group ARNs. For multi-port NLBs, include one ARN per port/listener. The server registers instances with all specified target groups.
-- **GCP**: `backend_service_name` (required), `instance_group_name` (required) - Backend service and unmanaged instance group names. Instances are added to the instance group once (GCP instance groups are not port-specific).
+- **GCP**: `instance_group_name` (required) - Unmanaged instance group name. Nstance adds and removes instances from the unmanaged instance group; infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
+
+For example, a Kubernetes deployment may define an `ingress` registration target for ports 80/443 and a `controlplane` registration target for port 6443. Those targets can sit behind separate provider load balancers or share one load balancer with different listeners; Nstance only needs the backend membership instance group handles. 
 
 ## Lifecycle Integration
 
