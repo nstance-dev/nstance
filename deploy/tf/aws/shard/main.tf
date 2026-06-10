@@ -11,7 +11,7 @@
 data "aws_region" "current" {}
 
 locals {
-  region      = data.aws_region.current.id
+  region      = data.aws_region.current.region
   name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
   shards      = var.cluster.shards
 

@@ -90,17 +90,17 @@ resource "null_resource" "encryption_key_init" {
       set -e
       if ! aws secretsmanager get-secret-value \
         --secret-id "${aws_secretsmanager_secret.encryption_key[0].id}" \
-        --region "${data.aws_region.current.id}" ${local.profile_flag} 2>/dev/null; then
+        --region "${data.aws_region.current.region}" ${local.profile_flag} 2>/dev/null; then
         PASSWORD=$(aws secretsmanager get-random-password \
           --password-length 32 \
           --exclude-punctuation \
-          --region "${data.aws_region.current.id}" ${local.profile_flag} \
+          --region "${data.aws_region.current.region}" ${local.profile_flag} \
           --query RandomPassword \
           --output text)
         aws secretsmanager put-secret-value \
           --secret-id "${aws_secretsmanager_secret.encryption_key[0].id}" \
           --secret-string "$PASSWORD" \
-          --region "${data.aws_region.current.id}" ${local.profile_flag}
+          --region "${data.aws_region.current.region}" ${local.profile_flag}
         echo "Encryption key initialized"
       else
         echo "Encryption key already exists, skipping initialization"
