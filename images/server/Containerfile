@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build stage - using alpine with musl for static CGO build
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26.2-alpine AS builder
 
 # Install build dependencies for CGO/SQLite
 RUN apk add --no-cache gcc musl-dev
