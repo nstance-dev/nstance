@@ -53,13 +53,13 @@ resource "terraform_data" "validate_public_lb_subnets" {
 resource "aws_lb" "nstance" {
   for_each = var.load_balancers
 
-  name               = "${var.name_prefix}-${each.key}"
+  name               = "${local.name_prefix}-${each.key}"
   internal           = !each.value.public
   load_balancer_type = "network"
   subnets            = local.subnets_by_role[each.value.subnets]
 
   tags = merge(var.tags, {
-    Name = "${var.name_prefix}-${each.key}"
+    Name = "${local.name_prefix}-${each.key}"
   })
 }
 
@@ -71,14 +71,14 @@ resource "aws_lb_target_group" "nstance" {
   for_each = local.lb_ports
 
   # AWS target group names have a 32-char limit
-  name        = substr("${var.name_prefix}-${each.value.lb_key}-${each.value.port}", 0, 32)
+  name        = substr("${local.name_prefix}-${each.value.lb_key}-${each.value.port}", 0, 32)
   port        = each.value.port
   protocol    = "TCP"
   vpc_id      = local.vpc_id
   target_type = "instance"
 
   tags = merge(var.tags, {
-    Name = "${var.name_prefix}-${each.value.lb_key}-${each.value.port}"
+    Name = "${local.name_prefix}-${each.value.lb_key}-${each.value.port}"
   })
 }
 

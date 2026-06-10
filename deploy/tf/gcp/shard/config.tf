@@ -13,18 +13,18 @@ locals {
   # Agent userdata template - read as-is, uses Go text/template syntax
   # This gets stored in GCS config and interpolated by nstance-server at instance creation
   agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", {
-    nstance_version        = local.nstance_version
-    github_repo            = local.github_repo
-    binary_url             = var.nstance_agent_binary_url
-    provider               = "gcp"
-    enable_ssm             = false
-    agent_debug            = var.agent_debug
-    agent_environment      = var.agent_environment
-    agent_identity_mode    = "0600"
-    agent_keys_mode        = "0640"
-    agent_recv_mode        = "0640"
-    agent_metrics_interval = coalesce(var.cluster.server_config.health_check_interval, "")
-    agent_spot_poll        = var.agent_spot_poll_interval
+    nstance_version       = local.nstance_version
+    github_repo           = local.github_repo
+    binary_url            = var.nstance_agent_binary_url
+    provider              = "gcp"
+    enable_ssm            = false
+    agent_debug           = var.agent_debug
+    agent_environment     = var.agent_environment
+    agent_identity_mode   = "0600"
+    agent_keys_mode       = "0640"
+    agent_recv_mode       = "0640"
+    agent_report_interval = var.cluster.server_config.health_check_interval != null ? var.cluster.server_config.health_check_interval : ""
+    agent_spot_poll       = var.agent_spot_poll_interval
   })
 
   cluster_leader_election_config = merge(

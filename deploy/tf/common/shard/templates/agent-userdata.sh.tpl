@@ -160,7 +160,7 @@ NSTANCE_KEYS_MODE=${agent_keys_mode}
 NSTANCE_RECV_MODE=${agent_recv_mode}
 NSTANCE_INSTANCE_KIND={{ .Instance.Kind }}
 NSTANCE_INSTANCE_ID={{ .Instance.ID }}
-NSTANCE_METRICS_INTERVAL=${agent_metrics_interval}
+NSTANCE_METRICS_INTERVAL=${agent_report_interval}
 NSTANCE_SPOT_POLL_INTERVAL=${agent_spot_poll}
 ENVFILE
 
