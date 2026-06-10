@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/tidwall/jsonc"
+	"github.com/tailscale/hujson"
 )
 
 // ValidateFile validates a local configuration file
@@ -31,7 +31,10 @@ func ValidateFile(filePath string) (*Config, error) {
 // ParseBytes parses and validates configuration from bytes
 func ParseBytes(data []byte) (*Config, error) {
 	// Convert JSONC to standard JSON
-	jsonData := jsonc.ToJSON(data)
+	jsonData, err := hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse configuration JSONC: %w", err)
+	}
 
 	// Parse into Config struct
 	var config Config

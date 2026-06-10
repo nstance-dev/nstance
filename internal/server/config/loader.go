@@ -17,7 +17,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/storage"
-	"github.com/tidwall/jsonc"
+	"github.com/tailscale/hujson"
 )
 
 const (
@@ -200,7 +200,10 @@ func (l *Loader) SetConfig(config *Config) {
 // parseAndValidate parses and validates configuration data
 func (l *Loader) parseAndValidate(data []byte) (*Config, error) {
 	// Convert JSONC to standard JSON
-	jsonData := jsonc.ToJSON(data)
+	jsonData, err := hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse configuration JSONC: %w", err)
+	}
 
 	var config Config
 	if err := json.Unmarshal(jsonData, &config); err != nil {
@@ -461,7 +464,10 @@ func (l *Loader) loadGroupsFromCache(ctx context.Context, cacheKey string) (map[
 // Groups are nested by tenant: map[tenant]map[groupKey]GroupConfig
 func (l *Loader) parseGroups(data []byte) (map[string]map[string]GroupConfig, error) {
 	// Convert JSONC to standard JSON
-	jsonData := jsonc.ToJSON(data)
+	jsonData, err := hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse dynamic groups JSONC: %w", err)
+	}
 
 	// Parse into nested map: tenant -> group key -> config
 	var groups map[string]map[string]GroupConfig

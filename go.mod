@@ -26,7 +26,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
-	github.com/tidwall/jsonc v0.3.2
+	github.com/tailscale/hujson v0.0.0-20260302212456-ecc657c15afd
 	golang.org/x/sys v0.43.0
 	google.golang.org/api v0.264.0
 	google.golang.org/grpc v1.79.3
