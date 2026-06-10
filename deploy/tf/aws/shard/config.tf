@@ -81,12 +81,17 @@ locals {
     }
   }
 
-  # Use default template if none specified, otherwise use provided templates as-is
+  # Use default template if none specified. Custom templates inherit the default
+  # userdata and image args unless explicitly overridden.
   templates = length(var.templates) == 0 ? local.default_template : {
     for name, tmpl in var.templates : name => merge(
       {
-        kind = tmpl.kind
-        arch = tmpl.arch
+        kind     = tmpl.kind
+        arch     = tmpl.arch
+        userdata = { content = local.agent_userdata_template }
+        args = {
+          ImageId = tmpl.arch == "amd64" ? "{{ .Image.debian_13_amd64 }}" : "{{ .Image.debian_13_arm64 }}"
+        }
       },
       tmpl.instance_type != "" ? { instance_type = tmpl.instance_type } : {},
       length(tmpl.args) > 0 ? { args = tmpl.args } : {},

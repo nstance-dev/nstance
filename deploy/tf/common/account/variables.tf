@@ -5,11 +5,11 @@
 variable "cluster" {
   description = "Cluster configuration from cluster module output"
   type = object({
-    name_prefix        = optional(string, "nstance")
-    bucket_arn         = optional(string, "")
-    bucket_name        = optional(string, "")
+    name_prefix           = optional(string, "nstance")
+    bucket_arn            = optional(string, "")
+    bucket_name           = optional(string, "")
     encryption_key_source = optional(string, "")
-    project_id         = optional(string, "")
+    project_id            = optional(string, "")
   })
 }
 

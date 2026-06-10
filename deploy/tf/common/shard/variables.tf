@@ -249,7 +249,7 @@ variable "agent_spot_poll_interval" {
 ################################################################################
 
 variable "templates" {
-  description = "Instance templates. If empty, a default template is used. If specified, these templates are used as-is (no default merging)."
+  description = "Instance templates. If empty, a default template is used. Custom templates inherit default userdata and image args unless explicitly overridden."
   type = map(object({
     kind          = string
     arch          = string
