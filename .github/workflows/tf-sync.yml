@@ -16,6 +16,10 @@ on:
       - 'docs/reference/opentofu-terraform.md'
   workflow_dispatch: {}
 
+concurrency:
+  group: terraform-module-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -97,14 +101,21 @@ jobs:
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          cd /tmp/aws
-          git init -b main
+          git clone --branch main --single-branch git@github.com:nstance-dev/terraform-aws-nstance.git /tmp/aws-repo
+          rsync -a --delete --exclude .git /tmp/aws/ /tmp/aws-repo/
+
+          cd /tmp/aws-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add origin git@github.com:nstance-dev/terraform-aws-nstance.git
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to sync to terraform-aws-nstance"
+            rm ~/.ssh/id_ed25519
+            exit 0
+          fi
+
           git add .
           git commit -m "Sync from nstance-dev/nstance@${GITHUB_SHA::8}"
-          git push -f origin main
+          git push origin main
 
           rm ~/.ssh/id_ed25519
           echo "Synced terraform-aws-nstance"
@@ -116,13 +127,21 @@ jobs:
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          cd /tmp/gcp
-          git init -b main
+          git clone --branch main --single-branch git@github.com:nstance-dev/terraform-gcp-nstance.git /tmp/gcp-repo
+          rsync -a --delete --exclude .git /tmp/gcp/ /tmp/gcp-repo/
+
+          cd /tmp/gcp-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add origin git@github.com:nstance-dev/terraform-gcp-nstance.git
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to sync to terraform-gcp-nstance"
+            rm ~/.ssh/id_ed25519
+            exit 0
+          fi
+
           git add .
           git commit -m "Sync from nstance-dev/nstance@${GITHUB_SHA::8}"
-          git push -f origin main
+          git push origin main
 
+          rm ~/.ssh/id_ed25519
           echo "Synced terraform-gcp-nstance"
