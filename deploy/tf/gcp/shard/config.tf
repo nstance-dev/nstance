@@ -69,30 +69,24 @@ locals {
     length(local.error_exit_jitter_config) > 0 ? { error_exit_jitter = local.error_exit_jitter_config } : {}
   )
 
-  # Default template used when no templates are specified
-  default_template = {
-    default = {
-      kind     = "dft"
-      arch     = "amd64"
-      userdata = { content = local.agent_userdata_template }
-      args = {
-        SourceImage = "projects/debian-cloud/global/images/family/debian-13"
-      }
-    }
-  }
-
-  # Use default template if none specified, otherwise use provided templates as-is
-  templates = length(var.templates) == 0 ? local.default_template : {
-    for name, tmpl in var.templates : name => merge(
+  # Use default template if none specified. Custom templates inherit the default
+  # userdata and image args unless explicitly overridden.
+  template_names = length(var.templates) == 0 ? toset(["default"]) : toset(keys(var.templates))
+  templates = {
+    for name in local.template_names : name => merge(
       {
-        kind = tmpl.kind
-        arch = tmpl.arch
+        kind     = try(var.templates[name].kind, "dft")
+        arch     = try(var.templates[name].arch, "amd64")
+        userdata = { content = local.agent_userdata_template }
+        args = {
+          SourceImage = "projects/debian-cloud/global/images/family/debian-13"
+        }
       },
-      tmpl.machine_type != "" ? { instance_type = tmpl.machine_type } : {},
-      length(tmpl.args) > 0 ? { args = tmpl.args } : {},
-      length(tmpl.vars) > 0 ? { vars = tmpl.vars } : {},
-      length(tmpl.files) > 0 ? { files = tmpl.files } : {},
-      tmpl.userdata != null ? { userdata = tmpl.userdata } : {}
+      try(var.templates[name].machine_type, "") != "" ? { instance_type = var.templates[name].machine_type } : {},
+      length(try(var.templates[name].args, {})) > 0 ? { args = var.templates[name].args } : {},
+      length(try(var.templates[name].vars, {})) > 0 ? { vars = var.templates[name].vars } : {},
+      length(try(var.templates[name].files, {})) > 0 ? { files = var.templates[name].files } : {},
+      try(var.templates[name].userdata, null) != null ? { userdata = var.templates[name].userdata } : {}
     )
   }
 }
