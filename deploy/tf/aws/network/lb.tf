@@ -17,6 +17,26 @@ locals {
     }
   ]...)
 
+  # AWS load balancer names have a 32-character limit. Preserve readability
+  # while appending a hash when truncation is required to avoid collisions.
+  lb_names = {
+    for lb_key in keys(var.load_balancers) : lb_key => (
+      length("${local.name_prefix}-${lb_key}") <= 32
+      ? "${local.name_prefix}-${lb_key}"
+      : "${substr("${local.name_prefix}-${lb_key}", 0, 23)}-${substr(sha1("${local.name_prefix}-${lb_key}"), 0, 8)}"
+    )
+  }
+
+  # AWS target group names also have a 32-character limit; use the same
+  # collision-resistant truncation pattern as load balancer names.
+  target_group_names = {
+    for lb_port_key, lb_port in local.lb_ports : lb_port_key => (
+      length("${local.name_prefix}-${lb_port.lb_key}-${lb_port.port}") <= 32
+      ? "${local.name_prefix}-${lb_port.lb_key}-${lb_port.port}"
+      : "${substr("${local.name_prefix}-${lb_port.lb_key}-${lb_port.port}", 0, 23)}-${substr(sha1("${local.name_prefix}-${lb_port.lb_key}-${lb_port.port}"), 0, 8)}"
+    )
+  }
+
   # Build subnet IDs per role (first subnet per zone in each role)
   subnets_by_role = {
     for role in distinct([for k, v in local.subnet_definitions : v.role]) : role => distinct([
@@ -53,7 +73,7 @@ resource "terraform_data" "validate_public_lb_subnets" {
 resource "aws_lb" "nstance" {
   for_each = var.load_balancers
 
-  name               = "${local.name_prefix}-${each.key}"
+  name               = local.lb_names[each.key]
   internal           = !each.value.public
   load_balancer_type = "network"
   subnets            = local.subnets_by_role[each.value.subnets]
@@ -70,8 +90,7 @@ resource "aws_lb" "nstance" {
 resource "aws_lb_target_group" "nstance" {
   for_each = local.lb_ports
 
-  # AWS target group names have a 32-char limit
-  name        = substr("${local.name_prefix}-${each.value.lb_key}-${each.value.port}", 0, 32)
+  name        = local.target_group_names[each.key]
   port        = each.value.port
   protocol    = "TCP"
   vpc_id      = local.vpc_id
