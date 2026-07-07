@@ -153,7 +153,8 @@ resource "aws_s3_object" "shard_config" {
         },
         local.shard_optional_config
       )
-      templates = local.templates
+      certificates = var.certificates
+      templates    = local.templates
       load_balancers = {
         for lb_key, lb in var.network.load_balancers : lb_key => {
           provider          = "aws"

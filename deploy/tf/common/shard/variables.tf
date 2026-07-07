@@ -263,6 +263,12 @@ variable "templates" {
   default = {}
 }
 
+variable "certificates" {
+  description = "Certificate templates available to instance template files."
+  type        = map(any)
+  default     = {}
+}
+
 ################################################################################
 # Resource Tags
 ################################################################################
