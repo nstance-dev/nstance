@@ -107,7 +107,7 @@ variable "shard" {
 }
 
 variable "zone" {
-  description = "Availability zone (AWS) or zone (GCP) for this shard"
+  description = "Availability zone (AWS) or zone (Google Cloud) for this shard"
   type        = string
 }
 
@@ -124,7 +124,7 @@ variable "server_instance_type" {
 }
 
 variable "server_machine_type" {
-  description = "Machine type for server (GCP)"
+  description = "Machine type for server (Google Cloud)"
   type        = string
   default     = "e2-micro"
 }
@@ -136,7 +136,7 @@ variable "server_count" {
 }
 
 variable "server_arch" {
-  description = "CPU architecture for server instances: arm64 or amd64. Defaults to arm64 on AWS (Graviton) and amd64 on GCP."
+  description = "CPU architecture for server instances: arm64 or amd64. Defaults to arm64 on AWS (Graviton) and amd64 on Google Cloud."
   type        = string
   default     = null # Provider-specific default applied in submodules
 
@@ -199,7 +199,7 @@ variable "ssh_key_name" {
 }
 
 variable "ssh_keys" {
-  description = "SSH public keys for instances (GCP)"
+  description = "SSH public keys for instances (Google Cloud)"
   type        = list(string)
   default     = []
 }
@@ -211,13 +211,13 @@ variable "enable_ssm" {
 }
 
 variable "enable_os_login" {
-  description = "Enable OS Login for IAM-based SSH (GCP)"
+  description = "Enable OS Login for IAM-based SSH (Google Cloud)"
   type        = bool
   default     = true
 }
 
 variable "enable_iap" {
-  description = "Enable IAP TCP tunneling for SSH (GCP)"
+  description = "Enable IAP TCP tunneling for SSH (Google Cloud)"
   type        = bool
   default     = true
 }

@@ -1,4 +1,4 @@
-# Nstance Account Module (GCP)
+# Nstance Account Module (Google Cloud)
 
 Creates service accounts for Nstance server and agent instances with least-privilege IAM bindings for Compute, Storage, and Secret Manager access.
 
@@ -6,7 +6,7 @@ Creates service accounts for Nstance server and agent instances with least-privi
 
 ```hcl
 module "account" {
-  source  = "nstance-dev/nstance/gcp//modules/account"
+  source  = "nstance-dev/nstance/google//modules/account"
   version = "~> 1.0"
 
   cluster = module.cluster

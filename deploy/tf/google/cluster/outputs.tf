@@ -28,7 +28,7 @@ output "bucket_name" {
 }
 
 output "project_id" {
-  description = "GCP project ID"
+  description = "Google Cloud project ID"
   value       = data.google_client_config.current.project
 }
 

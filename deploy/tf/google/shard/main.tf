@@ -2,8 +2,8 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# GCP Shard Module
-# This module creates a single shard on GCP including:
+# Google Cloud Shard Module
+# This module creates a single shard on Google Cloud including:
 # - Server subnet and group subnets
 # - Firewall rules for server and agents
 # - Server instances

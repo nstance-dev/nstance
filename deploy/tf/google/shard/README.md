@@ -1,4 +1,4 @@
-# Nstance Shard Module (GCP)
+# Nstance Shard Module (Google Cloud)
 
 Deploys a single Nstance shard including firewall rules, server instances (via Managed Instance Groups), shard configuration, and group definitions for agent instance pools.
 
@@ -6,7 +6,7 @@ Deploys a single Nstance shard including firewall rules, server instances (via M
 
 ```hcl
 module "shard" {
-  source  = "nstance-dev/nstance/gcp//modules/shard"
+  source  = "nstance-dev/nstance/google//modules/shard"
   version = "~> 1.0"
 
   cluster = module.cluster

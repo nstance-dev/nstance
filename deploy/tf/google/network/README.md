@@ -1,4 +1,4 @@
-# Nstance Network Module (GCP)
+# Nstance Network Module (Google Cloud)
 
 Creates VPC network infrastructure including subnets, Cloud NAT, Cloud Router, firewall rules, and optional regional load balancers.
 
@@ -6,7 +6,7 @@ Creates VPC network infrastructure including subnets, Cloud NAT, Cloud Router, f
 
 ```hcl
 module "network" {
-  source  = "nstance-dev/nstance/gcp//modules/network"
+  source  = "nstance-dev/nstance/google//modules/network"
   version = "~> 1.0"
 
   cluster       = module.cluster

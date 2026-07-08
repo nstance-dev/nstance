@@ -60,7 +60,7 @@ resource "google_service_account" "agent" {
 }
 
 # Minimal permissions for agent - mainly just needs to describe itself
-# Agents communicate with server via gRPC, not directly with GCP services
+# Agents communicate with server via gRPC, not directly with Google Cloud services
 resource "google_project_iam_member" "agent_compute_viewer" {
   project = var.cluster.project_id
   role    = "roles/compute.viewer"

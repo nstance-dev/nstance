@@ -65,7 +65,7 @@ export GCP_PROJECT=
 export GCP_REGION=us-central1
 gcloud auth application-default login # or set GOOGLE_APPLICATION_CREDENTIALS
 
-curl -O https://raw.githubusercontent.com/nstance-dev/terraform-gcp-nstance/refs/heads/main/examples/single-shard/main.tf
+curl -O https://raw.githubusercontent.com/nstance-dev/terraform-google-nstance/refs/heads/main/examples/single-shard/main.tf
 
 tofu init
 

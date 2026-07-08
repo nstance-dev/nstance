@@ -68,7 +68,7 @@ variable "secrets_provider" {
 }
 
 variable "encryption_key" {
-  description = "Existing encryption key secret (AWS: ARN, GCP: secret name). Only used when secrets_provider='object-storage'. If empty, a new secret is created."
+  description = "Existing encryption key secret (AWS: ARN, Google Cloud: secret name). Only used when secrets_provider='object-storage'. If empty, a new secret is created."
   type        = string
   default     = ""
 }

@@ -6,11 +6,11 @@ description: "OpenTofu/Terraform modules for deploying Nstance infrastructure ac
 
 # Nstance OpenTofu/Terraform Modules
 
-Nstance provides OpenTofu/Terraform modules with a unified, cloud-agnostic interface for deploying Nstance in Amazon Web Services (AWS) and/or Google Cloud (GCP). Each module has a consistent variable interface with cloud-specific implementations underneath:
+Nstance provides OpenTofu/Terraform modules with a unified, cloud-agnostic interface for deploying Nstance in Amazon Web Services (AWS) and/or Google Cloud (Google Cloud). Each module has a consistent variable interface with cloud-specific implementations underneath:
 
 - `cluster` generates a cluster ID, a baseline configuration, and provisions or links cluster-wide resources: a S3/GCS bucket, and encrypted secrets.
 
-- `account` creates IAM roles/instance profiles per AWS account/GCP project.
+- `account` creates IAM roles/instance profiles per AWS account/Google Cloud project.
 
 - `network` VPC/network setup per account/project & region.
 
@@ -49,8 +49,8 @@ Each cloud provider has its own published module repository:
 
 - **AWS**: `nstance-dev/nstance/aws//modules/{module}`
   - Source: `github.com/nstance-dev/terraform-aws-nstance//{module}`
-- **GCP**: `nstance-dev/nstance/gcp//modules/{module}`
-  - Source: `github.com/nstance-dev/terraform-gcp-nstance//{module}`
+- **Google Cloud**: `nstance-dev/nstance/google//modules/{module}`
+  - Source: `github.com/nstance-dev/terraform-google-nstance//{module}`
 
 Region and project are inferred from the provider configuration via data sources (`data.aws_region.current` or `data.google_client_config.current`), to minimise the number of required variables per module.
 
@@ -80,7 +80,7 @@ deploy/tf/
 │   ├── network/
 │   └── shard/
 │
-├── gcp/                # GCP-specific implementations → synced to terraform-gcp-nstance
+├── google/             # Google Cloud-specific implementations → synced to terraform-google-nstance
 │   ├── cluster/
 │   │   ├── main.tf
 │   │   ├── outputs.tf
@@ -94,7 +94,7 @@ deploy/tf/
     ├── aws/
     │   ├── single-shard/
     │   └── multi-az/
-    ├── gcp/
+    ├── google/
     │   ├── single-shard/
     │   └── multi-az/
     └── multi-cloud/
@@ -106,7 +106,7 @@ deploy/tf/
 - Cloud provider CLI (`aws` or `gcloud`) configured with appropriate credentials.
 - GitHub releases available for nstance-server and nstance-agent (or custom binary URLs).
 
-**GCP Note:** The cluster module automatically enables required GCP APIs (Compute, Secret Manager, Storage, IAM, IAP) on first apply, if not already enabled. If all services need to be enabled it adds ~30-60 seconds to the initial deployment but eliminates manual `gcloud services enable` commands.
+**Google Cloud Note:** The cluster module automatically enables required Google Cloud APIs (Compute, Secret Manager, Storage, IAM, IAP) on first apply, if not already enabled. If all services need to be enabled it adds ~30-60 seconds to the initial deployment but eliminates manual `gcloud services enable` commands.
 
 ## Security
 
@@ -121,11 +121,11 @@ deploy/tf/
 
 ## IPv4+IPv6 Dual-Stack Support
 
-Both AWS and GCP support IPv4+IPv6 dual-stack networking. IPv6 is enabled by default, but can be disabled by setting `enable_ipv6 = false` for the network module.
+Both AWS and Google Cloud support IPv4+IPv6 dual-stack networking. IPv6 is enabled by default, but can be disabled by setting `enable_ipv6 = false` for the network module.
 
 ### Provider Differences
 
-|                | AWS                                          | GCP                            |
+|                | AWS                                          | Google Cloud                            |
 |----------------|----------------------------------------------|--------------------------------|
 | IPv6 type      | Amazon-provided public /56                   | Internal ULA /48 (private)     |
 | Address scope  | Globally routable                            | VPC-internal only              |
@@ -137,7 +137,7 @@ Both AWS and GCP support IPv4+IPv6 dual-stack networking. IPv6 is enabled by def
 
 When `enable_ipv6 = true` (the default), each subnet needs an IPv6 CIDR. You can specify this in two ways:
 
-- **`ipv6_netnum`** (recommended) - Subnet number that auto-computes a /64 from the VPC's cloud-assigned block (AWS: 0-255 from /56, GCP: 0-65535 from /48)
+- **`ipv6_netnum`** (recommended) - Subnet number that auto-computes a /64 from the VPC's cloud-assigned block (AWS: 0-255 from /56, Google Cloud: 0-65535 from /48)
 - **`ipv6_cidr`** - Explicit IPv6 CIDR block
 
 ```hcl
@@ -411,7 +411,7 @@ module "shard_1c" {
 }
 ```
 
-See the `examples/` directory for additional configurations including GCP deployments and multi-cloud setups.
+See the `examples/` directory for additional configurations including Google Cloud deployments and multi-cloud setups.
 
 ## Module Documentation
 
@@ -493,7 +493,7 @@ server_config = {
 Generates shared cluster resources:
 - Cluster ID (user-provided, lowercase alphanumeric with hyphens not leading/trailing/repeating, max 32 chars)
 - S3/GCS bucket for config and state
-- Encryption key in AWS/GCP Secrets Manager (only when `secrets_provider="object-storage"`)
+- Encryption key in AWS/Google Cloud Secrets Manager (only when `secrets_provider="object-storage"`)
 
 **Key Variables:**
 | Name | Description | Default |
@@ -504,7 +504,7 @@ Generates shared cluster resources:
 | `bucket` | Existing S3/GCS bucket (if empty, a new bucket is created) | `""` |
 | `versioning` | Enable object versioning on the bucket (increases storage costs) | `false` |
 | `secrets_provider` | Secrets storage provider: `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `gcp-secret-manager` | `"object-storage"` |
-| `encryption_key` | Existing encryption key secret (AWS: ARN, GCP: secret name). Only used when `secrets_provider="object-storage"`. If empty, created. | `""` |
+| `encryption_key` | Existing encryption key secret (AWS: ARN, Google Cloud: secret name). Only used when `secrets_provider="object-storage"`. If empty, created. | `""` |
 | `server_config` | Server configuration (if specified, merged over defaults) | `{}` |
 
 **Outputs:**
@@ -513,7 +513,7 @@ Generates shared cluster resources:
 | `id` | Cluster ID |
 | `name_prefix` | Name prefix for resources |
 | `shards` | List of valid shard IDs |
-| `bucket` | S3 bucket name (AWS) or GCS bucket name (GCP) |
+| `bucket` | S3 bucket name (AWS) or GCS bucket name (Google Cloud) |
 | `bucket_arn` | S3 bucket ARN (AWS only) |
 | `secrets_provider` | Secrets storage provider |
 | `encryption_key_source` | Encryption key source identifier for the secrets store |
@@ -536,8 +536,8 @@ Creates IAM roles/service accounts:
 **Outputs:**
 | Name | Description |
 |------|-------------|
-| `server_iam_role_arn` | Server IAM role ARN (AWS) or service account email (GCP) |
-| `agent_iam_role_arn` | Agent IAM role ARN (AWS) or service account email (GCP) |
+| `server_iam_role_arn` | Server IAM role ARN (AWS) or service account email (Google Cloud) |
+| `agent_iam_role_arn` | Agent IAM role ARN (AWS) or service account email (Google Cloud) |
 | `server_instance_profile_arn` | Server instance profile ARN (AWS only) |
 | `agent_instance_profile_arn` | Agent instance profile ARN (AWS only) |
 
@@ -572,7 +572,7 @@ Each subnet definition supports the following attributes:
 | Attribute | Description |
 |-----------|-------------|
 | `ipv4_cidr` | IPv4 CIDR block to create a new subnet |
-| `ipv6_netnum` | Subnet number for auto-computed IPv6 /64 (AWS: 0-255, GCP: 0-65535) |
+| `ipv6_netnum` | Subnet number for auto-computed IPv6 /64 (AWS: 0-255, Google Cloud: 0-65535) |
 | `ipv6_cidr` | Explicit IPv6 CIDR block (alternative to `ipv6_netnum`) |
 | `existing` | Reference an existing subnet by ID (mutually exclusive with `ipv4_cidr`) |
 | `public` | (bool) Route via Internet Gateway, assign public IPs |
@@ -662,7 +662,7 @@ Instances are registered with load balancers via the shard module's `load_balanc
 
 **Provider Differences:**
 
-| Feature | AWS | GCP |
+| Feature | AWS | Google Cloud |
 |---------|-----|-----|
 | NAT Gateway | Per-AZ (one NAT gateway per AZ for HA) | Regional (Cloud NAT covers all subnets) |
 | Route Tables | Per-AZ private route tables | Not applicable (Cloud Router handles) |
@@ -671,15 +671,15 @@ Instances are registered with load balancers via the shard module's `load_balanc
 **Outputs:**
 | Name | Description |
 |------|-------------|
-| `vpc_id` | VPC ID (AWS) or network self_link (GCP) |
+| `vpc_id` | VPC ID (AWS) or network self_link (Google Cloud) |
 | `vpc_cidr_ipv4` | VPC IPv4 CIDR block |
 | `vpc_cidr_ipv6` | VPC IPv6 CIDR block (null if disabled) |
 | `public_subnet_ids` | Map of AZ/zone → subnet ID/name for public subnets |
-| `nat_gateway_ids` | Map of AZ → NAT gateway ID (AWS) or `{"regional": name}` (GCP) |
-| `private_route_table_ids` | Map of AZ → route table ID (AWS only, empty for GCP) |
+| `nat_gateway_ids` | Map of AZ → NAT gateway ID (AWS) or `{"regional": name}` (Google Cloud) |
+| `private_route_table_ids` | Map of AZ → route table ID (AWS only, empty for Google Cloud) |
 | `subnet_ids` | Map of all managed subnet IDs by key (role key/zone/index) |
 | `subnets` | Subnet metadata by role/zone with {id, shards, public} for each subnet |
-| `load_balancers` | Map of LB name → {dns_name, arn, target_group_arns} (AWS) or {ip_address, instance_groups} (GCP) |
+| `load_balancers` | Map of LB name → {dns_name, arn, target_group_arns} (AWS) or {ip_address, instance_groups} (Google Cloud) |
 
 ### Shard Module
 
@@ -780,7 +780,7 @@ S3/GCS buckets are protected from accidental deletion. With `force_destroy` unse
 # 1. Destroy the nstance-server instances to stop them from managing instances
 # AWS:
 tofu destroy -target=module.shard.aws_autoscaling_group.server
-# GCP:
+# Google Cloud:
 tofu destroy -target=module.shard.google_compute_instance_group_manager.server
 
 # 2. Terminate any remaining Nstance-managed instances (nstance-server provisions these outside of OpenTofu)
@@ -794,7 +794,7 @@ if [ -n "$INSTANCE_IDS" ]; then
   aws ec2 wait instance-terminated --instance-ids $INSTANCE_IDS
 fi
 
-# GCP:
+# Google Cloud:
 gcloud compute instances list \
   --filter="labels.nstance-managed=true AND labels.nstance-cluster-id=<cluster-id>" \
   --format="value(name,zone)" | while read NAME ZONE; do
@@ -811,7 +811,7 @@ tofu destroy -target=module.account -target=module.network
 # 1. Destroy the nstance-server instances to stop them from managing instances
 # AWS:
 tofu destroy -target=module.shard.aws_autoscaling_group.server
-# GCP:
+# Google Cloud:
 tofu destroy -target=module.shard.google_compute_instance_group_manager.server
 
 # 2. Terminate any remaining Nstance-managed instances
@@ -825,7 +825,7 @@ if [ -n "$INSTANCE_IDS" ]; then
   aws ec2 wait instance-terminated --instance-ids $INSTANCE_IDS
 fi
 
-# GCP:
+# Google Cloud:
 gcloud compute instances list \
   --filter="labels.nstance-managed=true AND labels.nstance-cluster-id=<cluster-id>" \
   --format="value(name,zone)" | while read NAME ZONE; do
@@ -842,7 +842,7 @@ BUCKET_NAME=$(tofu state show 'module.cluster.aws_s3_bucket.nstance[0]' | awk -F
 aws s3 rb "s3://${BUCKET_NAME}" --force
 tofu state rm 'module.cluster.aws_s3_bucket.nstance[0]'
 
-# GCP:
+# Google Cloud:
 BUCKET_NAME=$(tofu state show 'module.cluster.google_storage_bucket.nstance[0]' | awk -F'"' '/^[[:space:]]*name[[:space:]]*=/ { print $2 }')
 gcloud storage rm -r "gs://${BUCKET_NAME}"
 tofu state rm 'module.cluster.google_storage_bucket.nstance[0]'

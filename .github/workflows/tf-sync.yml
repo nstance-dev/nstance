@@ -43,7 +43,7 @@ jobs:
           find /tmp/aws/examples -name "*.tf" -exec sed -i'' \
             -e 's|source *= *"\.\./\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
             -e 's|source *= *"\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
-            -e 's|source *= *"\.\./\.\./gcp/\([^"]*\)"|source  = "nstance-dev/nstance/gcp//modules/\1"|g' \
+            -e 's|source *= *"\.\./\.\./google/\([^"]*\)"|source  = "nstance-dev/nstance/google//modules/\1"|g' \
             -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 1.0"' \
             {} \;
 
@@ -58,36 +58,36 @@ jobs:
           ls -la /tmp/aws/modules/
           ls -la /tmp/aws/examples/
 
-      - name: Resolve symlinks and prepare GCP modules
+      - name: Resolve symlinks and prepare Google modules
         run: |
-          mkdir -p /tmp/gcp/modules
-          cp -rL deploy/tf/gcp/* /tmp/gcp/modules/
+          mkdir -p /tmp/google/modules
+          cp -rL deploy/tf/google/* /tmp/google/modules/
 
           # Copy README without Hugo frontmatter
-          sed '1{/^---$/!b};1,/^---$/d' docs/reference/opentofu-terraform.md > /tmp/gcp/README.md
+          sed '1{/^---$/!b};1,/^---$/d' docs/reference/opentofu-terraform.md > /tmp/google/README.md
 
           # Copy examples and rewrite relative sources to registry syntax
-          mkdir -p /tmp/gcp/examples
-          cp -rL deploy/tf/examples/gcp/* /tmp/gcp/examples/
-          cp -rL deploy/tf/examples/multi-cloud /tmp/gcp/examples/
+          mkdir -p /tmp/google/examples
+          cp -rL deploy/tf/examples/google/* /tmp/google/examples/
+          cp -rL deploy/tf/examples/multi-cloud /tmp/google/examples/
 
           # Rewrite relative module sources to registry sources and add version pinning
-          find /tmp/gcp/examples -name "*.tf" -exec sed -i'' \
-            -e 's|source *= *"\.\./\.\./\.\./gcp/\([^"]*\)"|source  = "nstance-dev/nstance/gcp//modules/\1"|g' \
-            -e 's|source *= *"\.\./\.\./gcp/\([^"]*\)"|source  = "nstance-dev/nstance/gcp//modules/\1"|g' \
+          find /tmp/google/examples -name "*.tf" -exec sed -i'' \
+            -e 's|source *= *"\.\./\.\./\.\./google/\([^"]*\)"|source  = "nstance-dev/nstance/google//modules/\1"|g' \
+            -e 's|source *= *"\.\./\.\./google/\([^"]*\)"|source  = "nstance-dev/nstance/google//modules/\1"|g' \
             -e 's|source *= *"\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
             -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 1.0"' \
             {} \;
 
-          if find /tmp/gcp -type l | grep -q .; then
-            echo "Error: Unresolved symlinks in GCP modules"
-            find /tmp/gcp -type l
+          if find /tmp/google -type l | grep -q .; then
+            echo "Error: Unresolved symlinks in Google modules"
+            find /tmp/google -type l
             exit 1
           fi
 
-          echo "GCP modules prepared successfully"
-          ls -la /tmp/gcp/modules/
-          ls -la /tmp/gcp/examples/
+          echo "Google modules prepared successfully"
+          ls -la /tmp/google/modules/
+          ls -la /tmp/google/examples/
 
       - name: Setup SSH for deploy keys
         run: |
@@ -120,21 +120,21 @@ jobs:
           rm ~/.ssh/id_ed25519
           echo "Synced terraform-aws-nstance"
 
-      - name: Push to terraform-gcp-nstance
+      - name: Push to terraform-google-nstance
         env:
-          SSH_KEY: ${{ secrets.GCP_REPO_DEPLOY_KEY }}
+          SSH_KEY: ${{ secrets.GOOGLE_REPO_DEPLOY_KEY }}
         run: |
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          git clone --branch main --single-branch git@github.com:nstance-dev/terraform-gcp-nstance.git /tmp/gcp-repo
-          rsync -a --delete --exclude .git /tmp/gcp/ /tmp/gcp-repo/
+          git clone --branch main --single-branch git@github.com:nstance-dev/terraform-google-nstance.git /tmp/google-repo
+          rsync -a --delete --exclude .git /tmp/google/ /tmp/google-repo/
 
-          cd /tmp/gcp-repo
+          cd /tmp/google-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes to sync to terraform-gcp-nstance"
+            echo "No changes to sync to terraform-google-nstance"
             rm ~/.ssh/id_ed25519
             exit 0
           fi
@@ -144,4 +144,4 @@ jobs:
           git push origin main
 
           rm ~/.ssh/id_ed25519
-          echo "Synced terraform-gcp-nstance"
+          echo "Synced terraform-google-nstance"

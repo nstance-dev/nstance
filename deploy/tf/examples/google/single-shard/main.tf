@@ -2,7 +2,7 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Minimal Single-Shard Deployment (GCP)
+# Minimal Single-Shard Deployment (Google Cloud)
 #
 # This example demonstrates a minimal single-shard deployment with:
 # - New VPC with public and private subnets
@@ -10,12 +10,12 @@
 # - Single shard with worker group
 
 variable "project" {
-  description = "GCP project ID"
+  description = "Google Cloud project ID"
   type        = string
 }
 
 variable "region" {
-  description = "GCP region"
+  description = "Google Cloud region"
   type        = string
 }
 
@@ -30,25 +30,25 @@ provider "google" {
 }
 
 module "cluster" {
-  source = "../../../gcp/cluster"
+  source = "../../../google/cluster"
 
   cluster_id = var.cluster_id
 }
 
 module "account" {
-  source = "../../../gcp/account"
+  source = "../../../google/account"
 
   cluster = module.cluster
 }
 
 module "network" {
-  source = "../../../gcp/network"
+  source = "../../../google/network"
 
   cluster       = module.cluster
   vpc_cidr_ipv4 = "172.18.0.0/16"
 
   # Define subnets by role and zone
-  # ipv6_netnum (0-65535) auto-computes /64 from VPC's GCP-assigned /48
+  # ipv6_netnum (0-65535) auto-computes /64 from VPC's Google Cloud-assigned /48
   subnets = {
     # Public subnet with Cloud NAT for outbound traffic
     "public" = {
@@ -79,7 +79,7 @@ module "network" {
 }
 
 module "shard" {
-  source = "../../../gcp/shard"
+  source = "../../../google/shard"
 
   cluster = module.cluster
   account = module.account

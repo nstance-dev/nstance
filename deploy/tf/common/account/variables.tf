@@ -26,13 +26,13 @@ variable "enable_ssm" {
 }
 
 variable "enable_os_login" {
-  description = "Enable OS Login for IAM-based SSH identity (GCP only)"
+  description = "Enable OS Login for IAM-based SSH identity (Google Cloud only)"
   type        = bool
   default     = true
 }
 
 variable "enable_iap" {
-  description = "Enable IAP TCP tunneling for SSH access (GCP only)"
+  description = "Enable IAP TCP tunneling for SSH access (Google Cloud only)"
   type        = bool
   default     = true
 }

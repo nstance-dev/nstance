@@ -55,13 +55,13 @@ variable "tags" {
 }
 
 variable "project_id" {
-  description = "GCP project ID (optional, uses provider default if not set)"
+  description = "Google Cloud project ID (optional, uses provider default if not set)"
   type        = string
   default     = ""
 }
 
 variable "region" {
-  description = "GCP region (optional, uses provider default if not set)"
+  description = "Google Cloud region (optional, uses provider default if not set)"
   type        = string
   default     = ""
 }
@@ -108,7 +108,7 @@ variable "subnets" {
 variable "load_balancers" {
   description = <<-EOT
     Map of load balancer configurations. Each entry creates one regional NLB (AWS) or regional 
-    load balancer (GCP) with listeners for all specified ports.
+    load balancer (Google Cloud) with listeners for all specified ports.
     
     The 'subnets' field references a role key from the subnets variable. The LB will be placed
     in all subnets matching that role (one per zone).

@@ -70,7 +70,7 @@ locals {
   public_subnets = { for k, v in local.subnet_definitions : k => v if v.public }
 
   # Subnets with nat_gateway = true (triggers Cloud NAT creation)
-  # Note: GCP Cloud NAT is regional, so we only need one per region
+  # Note: Google Cloud Cloud NAT is regional, so we only need one per region
   nat_gateway_subnets = { for k, v in local.subnet_definitions : k => v if v.nat_gateway }
   has_nat_gateway     = length(local.nat_gateway_subnets) > 0
 
@@ -105,7 +105,7 @@ locals {
   ] : []
 
   # Build subnets output: role -> zone -> list of {id, shards, public}
-  # Note: GCP uses subnet names as identifiers
+  # Note: Google Cloud uses subnet names as identifiers
   subnets_output = {
     for role, zones in var.subnets : role => {
       for zone, defs in zones : zone => [
@@ -217,7 +217,7 @@ resource "google_compute_router" "main" {
 }
 
 # Cloud NAT (provides outbound internet access) - created when any subnet has nat_gateway = true
-# Note: GCP Cloud NAT is regional, unlike AWS which is per-AZ
+# Note: Google Cloud Cloud NAT is regional, unlike AWS which is per-AZ
 resource "google_compute_router_nat" "main" {
   count = local.use_existing_vpc ? 0 : (local.has_nat_gateway ? 1 : 0)
 

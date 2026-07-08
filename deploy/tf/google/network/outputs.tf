@@ -8,7 +8,7 @@ output "vpc_id" {
 }
 
 output "vpc_cidr" {
-  description = "VPC IPv4 CIDR block (reference value, GCP manages per-subnet)"
+  description = "VPC IPv4 CIDR block (reference value, Google Cloud manages per-subnet)"
   value       = var.vpc_cidr_ipv4
 }
 
@@ -43,7 +43,7 @@ output "subnet_names" {
 }
 
 output "subnets" {
-  description = "Subnet metadata by role and zone. Structure: role -> zone -> list of {id, shards, public}. Note: id is the subnet name for GCP."
+  description = "Subnet metadata by role and zone. Structure: role -> zone -> list of {id, shards, public}. Note: id is the subnet name for Google Cloud."
   value       = local.subnets_output
 }
 

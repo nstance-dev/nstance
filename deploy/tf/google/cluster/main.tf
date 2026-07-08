@@ -4,7 +4,7 @@
 
 data "google_client_config" "current" {}
 
-# Required GCP APIs - auto-enabled on first apply
+# Required Google Cloud APIs - auto-enabled on first apply
 resource "google_project_service" "required" {
   for_each = toset([
     "compute.googleapis.com",       # VMs, networks, firewalls
