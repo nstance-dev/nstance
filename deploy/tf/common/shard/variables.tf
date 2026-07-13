@@ -258,9 +258,9 @@ variable "templates" {
     arch          = string
     instance_type = optional(string, "")
     machine_type  = optional(string, "")
-    args          = optional(map(any), {})
+    args          = optional(any, {})
     vars          = optional(map(string), {})
-    files         = optional(map(any), {})
+    files         = optional(any, {})
     userdata      = optional(any, null)
   }))
   default = {}
@@ -268,7 +268,7 @@ variable "templates" {
 
 variable "certificates" {
   description = "Certificate templates available to instance template files."
-  type        = map(any)
+  type        = any
   default     = {}
 }
 
