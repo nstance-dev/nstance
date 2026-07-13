@@ -28,11 +28,12 @@ output "config_key" {
 }
 
 output "load_balancers" {
-  description = "Map of load balancer DNS names"
+  description = "Map of load balancer DNS names and canonical hosted zone IDs"
   value = {
     for lb_key, lb in var.network.load_balancers : lb_key => {
       dns_name = lb.dns_name
       arn      = lb.arn
+      zone_id  = lb.zone_id
     }
   }
 }

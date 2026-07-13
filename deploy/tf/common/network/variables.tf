@@ -108,7 +108,8 @@ variable "subnets" {
 variable "load_balancers" {
   description = <<-EOT
     Map of load balancer configurations. Each entry creates one regional NLB (AWS) or regional 
-    load balancer (Google Cloud) with listeners for all specified ports.
+    load balancer (Google Cloud) with all specified listeners. Each listener has
+    an external port and an optional VM target port, which defaults to the external port.
     
     The 'subnets' field references a role key from the subnets variable. The LB will be placed
     in all subnets matching that role (one per zone).
@@ -118,14 +119,30 @@ variable "load_balancers" {
     
     Example:
     load_balancers = {
-      "www" = { ports = [80, 443], subnets = "ingress", public = true }
-      "api" = { ports = [8080], subnets = "workers", public = false }
+      "www" = { listeners = [{ port = 80, target_port = 8080 }, { port = 443, target_port = 8443 }], subnets = "ingress", public = true }
+      "api" = { listeners = [{ port = 8080 }], subnets = "workers", public = false }
     }
   EOT
   type = map(object({
-    ports   = list(number)
+    listeners = list(object({
+      port        = number
+      target_port = optional(number)
+    }))
     subnets = string
     public  = bool
   }))
   default = {}
+
+  validation {
+    condition = alltrue([
+      for lb in values(var.load_balancers) :
+      length(distinct([for listener in lb.listeners : listener.port])) == length(lb.listeners) &&
+      alltrue([
+        for listener in lb.listeners :
+        listener.port >= 1 && listener.port <= 65535 && floor(listener.port) == listener.port &&
+        (listener.target_port == null ? true : listener.target_port >= 1 && listener.target_port <= 65535 && floor(listener.target_port) == listener.target_port)
+      ])
+    ])
+    error_message = "Load-balancer listener ports must be unique, and listener and target ports must be whole numbers from 1 through 65535."
+  }
 }

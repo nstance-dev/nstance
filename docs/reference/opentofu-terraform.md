@@ -345,7 +345,7 @@ module "network" {
 
   # Public load balancer on ports 80 and 443, placed in ingress subnets
   load_balancers = {
-    www = { ports = [80, 443], subnets = "ingress", public = true }
+    www = { listeners = [{ port = 80 }, { port = 443 }], subnets = "ingress", public = true }
   }
 }
 
@@ -364,7 +364,7 @@ module "shard_1a" {
   groups = {
     "default" = {
       "control-plane" = { size = 3, subnets = "control-plane" }
-      "ingress"       = { size = 2, subnets = "ingress", load_balancers = ["www"] }
+      "ingress"       = { size = 2, subnets = "ingress", load_balancers = { "www" = [] } }
       "workers"       = { size = 10, subnets = "workers" }
     }
   }
@@ -384,7 +384,7 @@ module "shard_1b" {
   groups = {
     "default" = {
       "control-plane" = { size = 3, subnets = "control-plane" }
-      "ingress"       = { size = 2, subnets = "ingress", load_balancers = ["www"] }
+      "ingress"       = { size = 2, subnets = "ingress", load_balancers = { "www" = [] } }
       "workers"       = { size = 10, subnets = "workers" }
     }
   }
@@ -404,7 +404,7 @@ module "shard_1c" {
   groups = {
     "default" = {
       "control-plane" = { size = 3, subnets = "control-plane" }
-      "ingress"       = { size = 2, subnets = "ingress", load_balancers = ["www"] }
+      "ingress"       = { size = 2, subnets = "ingress", load_balancers = { "www" = [] } }
       "workers"       = { size = 10, subnets = "workers" }
     }
   }
@@ -635,7 +635,7 @@ Each load balancer definition supports the following attributes:
 
 | Attribute | Description |
 |-----------|-------------|
-| `ports` | (list of numbers) Ports to expose on the load balancer |
+| `listeners` | (list of objects) External `port` and optional `target_port`, which defaults to `port` |
 | `subnets` | (string) Subnet role key from the `subnets` variable |
 | `public` | (bool, required) Whether the LB is internet-facing (`true`) or internal (`false`) |
 
@@ -645,20 +645,22 @@ On AWS, public load balancers require public subnets (with IGW routes). The modu
 load_balancers = {
   # Public load balancer on ports 80 and 443, placed in ingress subnets
   "www" = {
-    ports   = [80, 443]
+    listeners = [{ port = 80 }, { port = 443 }]
     subnets = "ingress"
     public  = true
   }
   # Internal load balancer for API traffic
   "api" = {
-    ports   = [8080]
+    listeners = [{ port = 8080, target_port = 8081 }]
     subnets = "workers"
     public  = false
   }
 }
 ```
 
-Instances are registered with load balancers via the shard module's `load_balancers` field on groups.
+Instances are registered with load-balancer listeners through the shard module's group `load_balancers` map. Keys select named load balancers; values select listener ports, and an empty list selects all listeners.
+
+For example, `{ "www" = [] }` selects every `www` listener, while `{ "www" = [443] }` selects only its port 443 listener.
 
 **Provider Differences:**
 

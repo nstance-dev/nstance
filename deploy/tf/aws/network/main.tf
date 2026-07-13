@@ -8,6 +8,11 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+data "aws_vpc" "existing" {
+  count = var.vpc_id != "" ? 1 : 0
+  id    = var.vpc_id
+}
+
 locals {
   region      = data.aws_region.current.region
   name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
@@ -16,8 +21,11 @@ locals {
   # Use existing VPC or create new one
   use_existing_vpc = var.vpc_id != ""
   vpc_id           = local.use_existing_vpc ? var.vpc_id : aws_vpc.main[0].id
-  vpc_cidr_block   = local.use_existing_vpc ? var.vpc_cidr_ipv4 : aws_vpc.main[0].cidr_block
-  vpc_ipv6_cidr    = local.use_existing_vpc ? null : (var.enable_ipv6 ? aws_vpc.main[0].ipv6_cidr_block : null)
+  vpc_cidr_block   = local.use_existing_vpc ? data.aws_vpc.existing[0].cidr_block : aws_vpc.main[0].cidr_block
+  vpc_cidr_blocks = local.use_existing_vpc ? [
+    for association in data.aws_vpc.existing[0].cidr_block_associations : association.cidr_block
+  ] : [aws_vpc.main[0].cidr_block]
+  vpc_ipv6_cidr = local.use_existing_vpc ? null : (var.enable_ipv6 ? aws_vpc.main[0].ipv6_cidr_block : null)
 }
 
 # VPC with optional dual-stack (IPv4 + IPv6) - only when not using existing VPC

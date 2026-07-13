@@ -90,7 +90,10 @@ variable "network" {
     load_balancers = optional(map(object({
       dns_name          = optional(string, "")
       arn               = optional(string, "")
-      target_group_arns = optional(list(string), [])
+      zone_id           = optional(string, "")
+      security_group_id = optional(string, "")
+      target_ports      = optional(list(number), [])
+      target_group_arns = optional(map(string), {})
       ip_address        = optional(string, "")
       instance_groups   = optional(map(string), {})
     })), {})
@@ -153,14 +156,14 @@ variable "dynamic_subnet_pools" {
 }
 
 variable "groups" {
-  description = "Map of group configurations by tenant. Structure: tenant -> group_name -> config"
+  description = "Map of group configurations by tenant. load_balancers maps each load balancer name to the listener ports this group serves; an empty list selects all listeners."
   type = map(map(object({
     size           = number
     subnet_pool    = string # References a subnet pool ID from server config
     instance_type  = optional(string, "t4g.nano")
     machine_type   = optional(string, "e2-micro")
     template       = optional(string, "default")
-    load_balancers = optional(list(string), [])
+    load_balancers = optional(map(list(number)), {})
     vars           = optional(map(string), {})
     drain_timeout  = optional(string, null)
   })))

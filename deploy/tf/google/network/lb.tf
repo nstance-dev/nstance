@@ -7,13 +7,14 @@
 # ============================================================================
 
 locals {
-  # Flatten load balancers into per-port entries for health checks and forwarding rules
+  # Flatten load balancers into per-listener entries for health checks and forwarding rules
   lb_ports = merge([
     for lb_key, lb in var.load_balancers : {
-      for port in lb.ports : "${lb_key}:${port}" => {
-        lb_key = lb_key
-        port   = port
-        public = lb.public
+      for listener in lb.listeners : "${lb_key}:${listener.port}" => {
+        lb_key        = lb_key
+        listener_port = listener.port
+        target_port   = coalesce(listener.target_port, listener.port)
+        public        = lb.public
       }
     }
   ]...)
@@ -28,9 +29,9 @@ locals {
   lb_instance_groups = merge([
     for lb_key, lb in var.load_balancers : {
       for zone in local.lb_zones_by_role[lb.subnets] : "${lb_key}:${zone}" => {
-        lb_key = lb_key
-        zone   = zone
-        ports  = lb.ports
+        lb_key    = lb_key
+        zone      = zone
+        listeners = lb.listeners
       }
     }
   ]...)
@@ -54,11 +55,11 @@ resource "google_compute_address" "lb" {
 resource "google_compute_region_health_check" "nstance" {
   for_each = local.lb_ports
 
-  name   = "${var.name_prefix}-${each.value.lb_key}-${each.value.port}-health"
+  name   = "${var.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-health"
   region = local.region
 
   tcp_health_check {
-    port = each.value.port
+    port = each.value.target_port
   }
 
   check_interval_sec  = 10
@@ -79,12 +80,12 @@ resource "google_compute_instance_group" "nstance" {
   zone    = each.value.zone
   network = local.vpc_id
 
-  # Add named ports for all ports in this LB
+  # Name ports by listener while directing them to the corresponding VM target port.
   dynamic "named_port" {
-    for_each = each.value.ports
+    for_each = each.value.listeners
     content {
-      name = "port-${named_port.value}"
-      port = named_port.value
+      name = "port-${named_port.value.port}"
+      port = coalesce(named_port.value.target_port, named_port.value.port)
     }
   }
 }
@@ -96,7 +97,7 @@ resource "google_compute_instance_group" "nstance" {
 resource "google_compute_region_backend_service" "nstance" {
   for_each = local.lb_ports
 
-  name                  = "${var.name_prefix}-${each.value.lb_key}-${each.value.port}-backend"
+  name                  = "${var.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-backend"
   region                = local.region
   protocol              = "TCP"
   load_balancing_scheme = each.value.public ? "EXTERNAL" : "INTERNAL"
@@ -118,10 +119,10 @@ resource "google_compute_region_backend_service" "nstance" {
 resource "google_compute_forwarding_rule" "nstance" {
   for_each = local.lb_ports
 
-  name                  = "${var.name_prefix}-${each.value.lb_key}-${each.value.port}-fwd"
+  name                  = "${var.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-fwd"
   region                = local.region
   load_balancing_scheme = each.value.public ? "EXTERNAL" : "INTERNAL"
-  port_range            = each.value.port
+  port_range            = each.value.listener_port
   ip_protocol           = "TCP"
   ip_address            = google_compute_address.lb[each.value.lb_key].address
   backend_service       = google_compute_region_backend_service.nstance[each.key].id

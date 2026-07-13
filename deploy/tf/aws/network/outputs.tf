@@ -58,7 +58,12 @@ output "load_balancers" {
     for lb_key, lb in var.load_balancers : lb_key => {
       dns_name          = aws_lb.nstance[lb_key].dns_name
       arn               = aws_lb.nstance[lb_key].arn
-      target_group_arns = [for port in lb.ports : aws_lb_target_group.nstance["${lb_key}:${port}"].arn]
+      zone_id           = aws_lb.nstance[lb_key].zone_id
+      security_group_id = aws_security_group.load_balancer[lb_key].id
+      target_ports      = distinct([for listener in lb.listeners : coalesce(listener.target_port, listener.port)])
+      target_group_arns = {
+        for listener in lb.listeners : tostring(listener.port) => aws_lb_target_group.nstance["${lb_key}:${listener.port}"].arn
+      }
     }
   }
 }

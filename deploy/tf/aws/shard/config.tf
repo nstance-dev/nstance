@@ -155,22 +155,29 @@ resource "aws_s3_object" "shard_config" {
       )
       certificates = var.certificates
       templates    = local.templates
-      load_balancers = {
-        for lb_key, lb in var.network.load_balancers : lb_key => {
-          provider          = "aws"
-          target_group_arns = lb.target_group_arns
+      load_balancers = merge([
+        for lb_key, lb in var.network.load_balancers : {
+          for listener_port, target_group_arn in lb.target_group_arns : "${lb_key}:${listener_port}" => {
+            provider          = "aws"
+            target_group_arns = [target_group_arn]
+          }
         }
-      }
+      ]...)
       groups = {
         # Groups are nested by tenant: { tenant -> { group_name -> GroupConfig } }
         for tenant, tenant_groups in var.groups : tenant => {
           for group_name, group in tenant_groups : group_name => merge(
             {
-              template       = group.template
-              size           = group.size
-              instance_type  = group.instance_type
-              subnet_pool    = group.subnet_pool
-              load_balancers = group.load_balancers
+              template      = group.template
+              size          = group.size
+              instance_type = group.instance_type
+              subnet_pool   = group.subnet_pool
+              load_balancers = flatten([
+                for lb_key, listener_ports in group.load_balancers : [
+                  for listener_port in length(listener_ports) == 0 ? keys(var.network.load_balancers[lb_key].target_group_arns) : [for port in listener_ports : tostring(port)] :
+                  "${lb_key}:${listener_port}"
+                ]
+              ])
               args = {
                 IamInstanceProfile = {
                   Arn = var.account.agent_instance_profile_arn

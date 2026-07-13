@@ -81,6 +81,29 @@ resource "aws_security_group" "agent" {
   })
 }
 
+locals {
+  load_balancer_target_ports = merge([
+    for lb_key, lb in var.network.load_balancers : {
+      for target_port in lb.target_ports : "${lb_key}:${target_port}" => {
+        security_group_id = lb.security_group_id
+        target_port       = target_port
+      }
+    }
+  ]...)
+}
+
+# Permit only traffic forwarded by an attached NLB security group.
+resource "aws_vpc_security_group_ingress_rule" "agent_load_balancer" {
+  for_each = local.load_balancer_target_ports
+
+  security_group_id            = aws_security_group.agent.id
+  description                  = "Load balancer traffic on target port ${each.value.target_port}"
+  from_port                    = each.value.target_port
+  to_port                      = each.value.target_port
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = each.value.security_group_id
+}
+
 # All outbound for agents
 resource "aws_vpc_security_group_egress_rule" "agent_all" {
   security_group_id = aws_security_group.agent.id

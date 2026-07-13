@@ -179,7 +179,7 @@ resource "google_storage_bucket_object" "shard_config" {
               size           = group.size
               instance_type  = group.machine_type
               subnet_pool    = group.subnet_pool
-              load_balancers = group.load_balancers
+              load_balancers = keys(group.load_balancers)
               args = {
                 ServiceAccount = var.account.agent_iam_role_arn
                 NetworkTags    = ["nstance-agent-${var.shard}"]
