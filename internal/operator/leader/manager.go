@@ -38,7 +38,10 @@ import (
 	"github.com/nstance-dev/nstance/pkg/client/registration"
 )
 
-const componentName = "nstance-operator"
+const (
+	componentName             = "nstance-operator"
+	kubeconfigRefreshInterval = 5 * time.Minute
+)
 
 // Manager handles operator leader runtime: registration, connections, and subsystem orchestration
 type Manager struct {
@@ -293,6 +296,13 @@ func (m *Manager) startServices(ctx context.Context, operatorEndpoints map[strin
 	if err := m.ensureCAPICluster(ctx, logger); err != nil {
 		logger.Error(err, "failed to ensure CAPI Cluster resource")
 		return err
+	}
+	if config.GetEnv("NSTANCE_CAPI_ENDPOINT", "") == "" {
+		go func() {
+			ticker := time.NewTicker(kubeconfigRefreshInterval)
+			defer ticker.Stop()
+			m.refreshKubeconfig(ctx, logger.WithName("kubeconfig-refresh"), ticker.C)
+		}()
 	}
 
 	// Step 7: Start sync manager for bidirectional sync
@@ -581,6 +591,20 @@ func (m *Manager) ensureKubeconfigSecret(ctx context.Context, logger logr.Logger
 	}
 
 	return nil
+}
+
+// refreshKubeconfig periodically refreshes the self-managed CAPI kubeconfig until the context is canceled.
+func (m *Manager) refreshKubeconfig(ctx context.Context, logger logr.Logger, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			if err := m.ensureKubeconfigSecret(ctx, logger); err != nil {
+				logger.Error(err, "failed to refresh CAPI kubeconfig")
+			}
+		}
+	}
 }
 
 // parseAPIServerEndpoint extracts the host and port from a REST config Host

@@ -2,12 +2,12 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if .Values.deployment.create }}
+{{- if .Values.deployment.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "nstance-operator.fullname" . }}
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "nstance-operator.labels" . | nindent 4 }}
 spec:
@@ -19,6 +19,15 @@ spec:
     metadata:
       labels:
         {{- include "nstance-operator.selectorLabels" . | nindent 8 }}
+      {{- if or .Values.operatorConfigMap.enabled .Values.registrationSecret.enabled }}
+      annotations:
+        {{- if .Values.operatorConfigMap.enabled }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.registrationSecret.enabled }}
+        checksum/registration-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+      {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -37,13 +46,18 @@ spec:
         - /nstance-operator
         args:
         - --leader-elect={{ .Values.leaderElection.enabled }}
-        - --metrics-bind-address={{ .Values.metricsAddr }}
-        - --health-probe-bind-address={{ .Values.healthProbeAddr }}
+        - --metrics-bind-address={{ ternary (printf ":%v" .Values.metrics.port) "0" .Values.metrics.enabled }}
+        - --health-probe-bind-address=:{{ .Values.healthProbe.port }}
         - --zap-log-level={{ .Values.logLevel }}
         - --config=/etc/nstance/operator/config.yaml
+        {{- if not .Values.webhooks.enabled }}
+        - --disable-webhooks
+        {{- end }}
         env:
         - name: NSTANCE_NAMESPACE
-          value: {{ .Values.namespace }}
+          value: {{ .Release.Namespace }}
+        - name: NSTANCE_CA_CONFIGMAP
+          value: {{ .Values.clusterCA.name }}
         - name: NSTANCE_NONCE_SECRET
           value: {{ .Values.registrationSecret.name }}
         - name: NSTANCE_KEY_SECRET
@@ -51,14 +65,29 @@ spec:
         - name: NSTANCE_CERT_SECRET
           value: {{ .Values.managedSecretNames.clientCert }}
         - name: NSTANCE_CAPI_SERVICEACCOUNT
-          value: nstance-capi-workload
+          value: {{ include "nstance-operator.capiServiceAccountName" . }}
+        {{- with .Values.capi.endpoint }}
+        - name: NSTANCE_CAPI_ENDPOINT
+          value: {{ . | quote }}
+        {{- end }}
+        {{- if .Values.kubernetesJSON }}
+        - name: NSTANCE_K8S_JSON
+          value: "true"
+        {{- end }}
         ports:
+        {{- if .Values.metrics.enabled }}
         - name: metrics
-          containerPort: 8080
+          containerPort: {{ .Values.metrics.port }}
           protocol: TCP
+        {{- end }}
         - name: health
-          containerPort: 8081
+          containerPort: {{ .Values.healthProbe.port }}
           protocol: TCP
+        {{- if .Values.webhooks.enabled }}
+        - name: webhook
+          containerPort: 9443
+          protocol: TCP
+        {{- end }}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -79,12 +108,22 @@ spec:
         - name: config
           mountPath: /etc/nstance/operator
           readOnly: true
+        {{- if .Values.webhooks.enabled }}
+        - name: webhook-cert
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+        {{- end }}
       volumes:
       - name: tmp
         emptyDir: {}
       - name: config
         configMap:
-          name: {{ .Values.operatorConfigMap.name }}
+          name: {{ include "nstance-operator.configMapName" . }}
+      {{- if .Values.webhooks.enabled }}
+      - name: webhook-cert
+        secret:
+          secretName: {{ include "nstance-operator.webhookSecretName" . }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

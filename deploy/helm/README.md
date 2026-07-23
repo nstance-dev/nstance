@@ -1,90 +1,79 @@
 # Nstance Operator Helm Chart
 
-This Helm chart deploys the Nstance Kubernetes Operator with support for Cluster API integration.
+This chart installs the Nstance Kubernetes operator, its CRDs, RBAC, metrics
+Service, and validating webhook.
 
 ## Prerequisites
 
 - Kubernetes 1.24+
-- Cluster API CRDs installed
 - Helm 3.8+
-- A running nstance-server deployment with at least one shard
+- cert-manager (for the operator validating webhook)
+- Cluster API core CRDs, controllers, and webhooks
+- Reachable nstance-server registration and operator endpoints
+- A cluster CA certificate and an operator registration nonce
 
-## Installation
+## Full installation
 
-### Installing Only CRDs
-
-To install only the CRDs (useful for GitOps workflows or when managing the operator separately):
-
-```bash
-helm template nstance-operator ./helm \
-  --show-only templates/crds.yaml | kubectl apply -f -
-```
-
-Or install with Helm but skip all other resources:
-
-```yaml
-# crds-only.yaml
-installCRDs: true
-# disable everything else...
-deployment:
-  create: false
-operatorConfigMap:
-  create: false
-rbac:
-  create: false
-serviceAccount:
-  create: false
-```
+Create the namespace and bootstrap resources. The key names are fixed by the
+operator and must be `ca.crt` and `nonce.jwt`:
 
 ```bash
-# This will only install CRDs
-helm install nstance-crds ./helm -f crds-only.yaml
-```
-
-### Full Installation
-
-#### 1. Create Namespace and Registration Secret
-
-First, create the namespace and generate a registration nonce using the nstance CLI:
-
-```bash
-# Create namespace
 kubectl create namespace nstance-system
-
-# Generate nonce using the nstance CLI
-NONCE=$(nstance nonce --bucket my-bucket --shard us-west-2a)
-
-# Create secret in Kubernetes
-kubectl create secret generic nstance-registration \
+kubectl create configmap nstance-cluster-ca \
   --namespace nstance-system \
-  --from-literal=nonce="$NONCE"
+  --from-file=ca.crt=./cluster-ca.crt
+kubectl create secret generic nstance-operator-nonce \
+  --namespace nstance-system \
+  --from-file=nonce.jwt=./nonce.jwt
 ```
 
-#### 2. Configure Values
+Generate `nonce.jwt` with `nstance-admin cluster nonce --expiry="3h"`.
 
-Create a `values.yaml` file with your configuration:
+Create an operator values file:
 
 ```yaml
-# Shard endpoints (map of shard name to endpoint)
 config:
+  clusterID: example-cluster
+  tenant: default
   shards:
-    us-east-1a: "nstance-server-us-east-1a.example.com:8443"
-    us-east-1b: "nstance-server-us-east-1b.example.com:8443"
+    us-east-1a:
+      registration_addr: "nstance-server.example.com:8992"
+      operator_addr: "nstance-server.example.com:8993"
+```
 
-# Optional: use different namespace
-namespace: nstance-system
+Install into the same namespace as the bootstrap resources:
 
-# Optional: reference different registration secret
+```bash
+helm install nstance-operator ./deploy/helm \
+  --namespace nstance-system \
+  --create-namespace \
+  --values operator-values.yaml
+```
+
+The chart can manage the bootstrap resources instead, although putting secret
+material in a Helm values file may be inappropriate for some environments:
+
+```yaml
+clusterCA:
+  enabled: true
+  certificate: |
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
 registrationSecret:
-  name: nstance-registration
-  key: nonce
+  enabled: true
+  nonceJWT: "..."
+```
 
-# Optional: customize image
+After successful registration, the nonce is no longer used. The operator
+creates and maintains its key and client-certificate Secrets.
+
+Image and resource settings can be customized in the same values file:
+
+```yaml
 image:
   repository: ghcr.io/nstance-dev/nstance-operator
-  tag: "0.1.0"
-
-# Optional: resource limits
+  tag: "1.0.0"
 resources:
   limits:
     cpu: 500m
@@ -94,72 +83,108 @@ resources:
     memory: 128Mi
 ```
 
-#### 3. Install the Chart
+## Installing only CRDs
+
+CRDs are regular chart templates controlled by `installCRDs`; this chart does
+not use Helm's special `crds/` directory. There are two supported approaches.
+
+For GitOps workflows, render only the CRD template:
 
 ```bash
-helm install nstance-operator ./helm \
-  -f values.yaml
+helm template nstance-operator ./deploy/helm \
+  --show-only templates/crds.yaml \
+  --set deployment.enabled=false \
+  --set operatorConfigMap.enabled=false | kubectl apply -f -
 ```
 
-## Configuration
+Alternatively, install a CRD-only Helm release:
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
+```yaml
+installCRDs: true
+deployment:
+  enabled: false
+operatorConfigMap:
+  enabled: false
+serviceAccount:
+  enabled: false
+rbac:
+  enabled: false
+capi:
+  serviceAccount:
+    enabled: false
+webhooks:
+  enabled: false
+```
+
+```bash
+helm install nstance-crds ./deploy/helm --values crds-only.yaml
+```
+
+Set `installCRDs: false` in the operator release when CRDs have a separate
+owner.
+
+## External workload cluster
+
+For a separate workload cluster, set its API endpoint and disable the local
+CAPI workload ServiceAccount:
+
+```yaml
+capi:
+  endpoint: "https://workload-api.example.com:6443"
+  serviceAccount:
+    enabled: false
+```
+
+Pre-provision `<clusterID>--<tenant>-kubeconfig` in the operator namespace with
+the kubeconfig stored under the `value` key.
+
+## Existing resources
+
+- `operatorConfigMap.enabled: false` uses the ConfigMap named by
+  `operatorConfigMap.name` instead of creating it.
+- `serviceAccount.enabled: false` uses `serviceAccount.name` (or `default`).
+- `rbac.enabled: false` expects all operator and CAPI workload RBAC to exist.
+- `capi.serviceAccount.enabled: false` uses `capi.serviceAccount.name` instead
+  of creating it.
+- `webhooks.enabled: false` disables the operator webhook and its resources.
+
+## Important values
+
+| Value | Description | Default |
+|---|---|---|
 | `image.repository` | Operator image repository | `ghcr.io/nstance-dev/nstance-operator` |
 | `image.tag` | Operator image tag | Chart appVersion |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
-| `replicaCount` | Number of replicas (leader election ensures only one active) | `2` |
-| `namespace` | Namespace for operator resources | `nstance-system` |
-| `config.shards` | Map of shard name to endpoint | `{}` |
-| `registrationSecret.name` | Name of existing secret with registration nonce | `nstance-registration` |
-| `registrationSecret.key` | Key in secret containing nonce | `nonce` |
-| `managedSecretNames.privateKey` | Secret name for operator private key (auto-created) | `nstance-operator-key` |
-| `managedSecretNames.clientCert` | Secret name for operator client certificate (auto-created) | `nstance-operator-cert` |
-| `operatorConfigMap.name` | ConfigMap name for operator configuration | `nstance-operator-config` |
-| `operatorConfigMap.create` | Create ConfigMap for operator configuration | `true` |
-| `deployment.create` | Create operator Deployment resource | `true` |
+| `replicaCount` | Operator replicas | `2` |
+| `installCRDs` | Render the five Nstance CRDs | `true` |
+| `config.clusterID` | Required Nstance cluster ID | `""` |
+| `config.tenant` | Required tenant ID | `""` |
+| `config.shards` | Required shard endpoint map | `{}` |
+| `clusterCA.name` | Existing or managed CA ConfigMap | `nstance-cluster-ca` |
+| `registrationSecret.name` | Existing or managed nonce Secret | `nstance-operator-nonce` |
+| `managedSecretNames.privateKey` | Auto-managed operator key Secret | `nstance-operator-key` |
+| `managedSecretNames.clientCert` | Auto-managed client certificate Secret | `nstance-operator-cert` |
+| `operatorConfigMap.enabled` | Create the operator ConfigMap | `true` |
+| `deployment.enabled` | Create the operator Deployment | `true` |
 | `leaderElection.enabled` | Enable leader election | `true` |
-| `metricsAddr` | Metrics server bind address | `:8080` |
-| `healthProbeAddr` | Health probe bind address | `:8081` |
-| `logLevel` | Log level (debug, info, warn, error) | `info` |
-| `serviceAccount.create` | Create ServiceAccount | `true` |
-| `rbac.create` | Create RBAC resources | `true` |
-| `resources` | Resource limits and requests | See `values.yaml` |
-| `installCRDs` | Install CRDs | `true` |
+| `metrics.enabled` | Enable the metrics endpoint | `true` |
+| `metrics.service.enabled` | Create the metrics Service | `true` |
+| `healthProbe.port` | Health and readiness port | `8081` |
+| `webhooks.enabled` | Install and enable the validating webhook | `true` |
+| `logLevel` | Log level (`debug`, `info`, `warn`, or `error`) | `info` |
+| `serviceAccount.enabled` | Create the operator ServiceAccount | `true` |
+| `rbac.enabled` | Create operator and CAPI workload RBAC | `true` |
+| `capi.endpoint` | External workload API endpoint | `""` |
+| `kubernetesJSON` | Use JSON for Kubernetes API calls | `false` |
+| `resources` | Resource requests and limits | See `values.yaml` |
+
+See `values.yaml` for image, resources, scheduling, security, and naming values.
 
 ## Usage
 
-### Creating a Machine Pool
+### On-demand nodes
 
-Once installed, you can create a MachinePool that will be synchronized with nstance-server groups:
-
-```yaml
-apiVersion: cluster.x-k8s.io/v1beta1
-kind: MachinePool
-metadata:
-  name: worker-pool
-  namespace: default
-spec:
-  replicas: 3
-  template:
-    spec:
-      infrastructureRef:
-        kind: NstanceMachinePool
-        name: worker-pool
----
-apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-kind: NstanceMachinePool
-metadata:
-  name: worker-pool
-  namespace: default
-spec:
-  group: workers
-  instanceType: t3.medium
-```
-
-### On-Demand Nodes
-
-Request dedicated nodes for specific pods using annotations:
+Request a dedicated node for a Pod using Nstance annotations:
 
 ```yaml
 apiVersion: v1
@@ -175,47 +200,53 @@ spec:
     image: my-gpu-app:latest
 ```
 
-Note that a group with key `gpu-workers` must exist on an Nstance Server for this to work.
-
-## Uninstallation
-
-```bash
-helm uninstall nstance-operator
-```
-
-Note: CRDs are not automatically removed. To remove them:
-
-```bash
-kubectl delete crd nstancemachinepools.infrastructure.cluster.x-k8s.io
-kubectl delete crd nstancemachines.infrastructure.cluster.x-k8s.io
-kubectl delete crd nstancemachinetemplates.infrastructure.cluster.x-k8s.io
-```
+The referenced group must exist on an Nstance Server.
 
 ## Troubleshooting
 
-### Check Operator Logs
+### Check operator logs
 
 ```bash
 kubectl logs -n nstance-system -l app.kubernetes.io/name=nstance-operator
 ```
 
-### Verify Registration
+### Verify registration
 
-Check if operator successfully registered by looking for the certificate secret:
+Successful registration creates the operator key and certificate Secrets:
 
 ```bash
-# Check for operator certificate (created after successful registration)
-kubectl get secret -n nstance-system nstance-operator-cert
-
-# If it exists, registration was successful
-# The operator also creates nstance-operator-key for its private key
-kubectl get secret -n nstance-system nstance-operator-key
+kubectl get secret -n nstance-system nstance-operator-key nstance-operator-cert
 ```
 
-### Check Shard Connections
-
-Look for connection logs:
+### Check shard connections
 
 ```bash
-kubectl logs -n nstance-system -l app.kubernetes.io/name=nstance-operator | grep "connected to shard"
+kubectl logs -n nstance-system -l app.kubernetes.io/name=nstance-operator | \
+  grep "connected to shard"
+```
+
+### Check synchronized resources
+
+```bash
+kubectl get clusters,nstanceclusters,machinepools,nstancemachinepools \
+  -n nstance-system
+```
+
+## Uninstallation
+
+```bash
+helm uninstall nstance-operator --namespace nstance-system
+```
+
+CRDs carry `helm.sh/resource-policy: keep`, so uninstalling a release does not
+delete custom resources. Remove them explicitly only when their data is no
+longer needed:
+
+```bash
+kubectl delete crd \
+  nstanceclusters.infrastructure.cluster.x-k8s.io \
+  nstancemachinepools.infrastructure.cluster.x-k8s.io \
+  nstancemachines.infrastructure.cluster.x-k8s.io \
+  nstancemachinetemplates.infrastructure.cluster.x-k8s.io \
+  nstanceshardgroups.infrastructure.cluster.x-k8s.io
 ```

@@ -1,0 +1,33 @@
+# Nstance <https://nstance.dev>
+# Copyright The Nstance Authors
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.deployment.enabled .Values.webhooks.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "nstance-operator.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nstance-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nstance-operator.fullname" . }}-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nstance-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "nstance-operator.webhookSecretName" . }}
+  duration: {{ .Values.webhooks.certificate.duration }}
+  renewBefore: {{ .Values.webhooks.certificate.renewBefore }}
+  dnsNames:
+  - {{ include "nstance-operator.webhookServiceName" . }}.{{ .Release.Namespace }}.svc
+  - {{ include "nstance-operator.webhookServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ include "nstance-operator.fullname" . }}-selfsigned
+    kind: Issuer
+{{- end }}

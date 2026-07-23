@@ -2,7 +2,7 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if .Values.rbac.create }}
+{{- if .Values.rbac.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -16,5 +16,5 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ include "nstance-operator.serviceAccountName" . }}
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 {{- end }}

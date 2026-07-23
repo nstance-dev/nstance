@@ -56,9 +56,29 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "nstance-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
+{{- if .Values.serviceAccount.enabled }}
 {{- default (include "nstance-operator.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
+{{- end }}
+
+{{/* Name of the operator configuration ConfigMap. */}}
+{{- define "nstance-operator.configMapName" -}}
+{{- default (printf "%s-config" (include "nstance-operator.fullname" .)) .Values.operatorConfigMap.name }}
+{{- end }}
+
+{{/* Name of the CAPI workload ServiceAccount. */}}
+{{- define "nstance-operator.capiServiceAccountName" -}}
+{{- default (printf "%s-capi-workload" (include "nstance-operator.fullname" .)) .Values.capi.serviceAccount.name }}
+{{- end }}
+
+{{/* Name of the webhook Service. */}}
+{{- define "nstance-operator.webhookServiceName" -}}
+{{- printf "%s-webhook" (include "nstance-operator.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* Name of the webhook serving certificate Secret. */}}
+{{- define "nstance-operator.webhookSecretName" -}}
+{{- printf "%s-webhook-cert" (include "nstance-operator.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}

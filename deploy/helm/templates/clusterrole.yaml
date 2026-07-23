@@ -2,7 +2,7 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if .Values.rbac.create }}
+{{- if .Values.rbac.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -11,11 +11,18 @@ metadata:
     {{- include "nstance-operator.labels" . | nindent 4 }}
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
+  - nstanceclusters
   - nstancemachinepools
   - nstancemachines
-  - nstancemachinetemplates
   verbs:
   - get
   - list
@@ -27,6 +34,7 @@ rules:
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
+  - nstanceclusters/status
   - nstancemachinepools/status
   - nstancemachines/status
   verbs:
@@ -67,8 +75,17 @@ rules:
   verbs:
   - update
 - apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - nstancemachinetemplates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - cluster.x-k8s.io
   resources:
+  - clusters
   - machinepools
   - machines
   verbs:

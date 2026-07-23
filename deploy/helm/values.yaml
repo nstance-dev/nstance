@@ -8,23 +8,26 @@
 image:
   repository: ghcr.io/nstance-dev/nstance-operator
   pullPolicy: IfNotPresent
-  tag: ""  # defaults to chart appVersion
+  # Defaults to the chart appVersion.
+  tag: ""
 imagePullSecrets: []
 
 # Number of replicas (leader election ensures only one is active at any given time)
 replicaCount: 2
 
-# Namespace where operator will run
-namespace: nstance
+# Cluster CA used to authenticate nstance-server. When enabled is false, an
+# existing ConfigMap with a ca.crt key must be supplied.
+clusterCA:
+  enabled: false
+  name: nstance-cluster-ca
+  certificate: ""
 
-# Secret containing operator registration nonce JWT
-# You must create this secret before installing the chart:
-#   kubectl create secret generic nstance-registration \
-#     --from-literal=nonce=<JWT-from-nstance-server>
-# Once the operator has registered, this will no longer be used
+# Registration nonce used only for the operator's initial registration. When
+# enabled is false, an existing Secret with a nonce.jwt key must be supplied.
 registrationSecret:
-  name: nstance-registration
-  key: nonce
+  enabled: false
+  name: nstance-operator-nonce
+  nonceJWT: ""
 
 # Names for secrets that will be auto-created by the operator
 managedSecretNames:
@@ -35,13 +38,13 @@ managedSecretNames:
 
 # Configuration for the operator ConfigMap
 operatorConfigMap:
-  name: nstance-operator-config
-  create: true
+  enabled: true
+  name: ""
 
-# Operator configuration
-# These values are rendered into the operator's config.yaml
-# provided that operatorConfigMap.create is set to true
+# Operator configuration rendered into config.yaml when the ConfigMap is enabled
 config:
+  clusterID: ""
+  tenant: ""
   shards: {}
   # Example:
   #   us-east-1a:
@@ -53,30 +56,56 @@ config:
 
 # Deployment configuration
 deployment:
-  create: true
+  enabled: true
 
 # Leader election settings
 leaderElection:
   enabled: true
 
 # Metrics server configuration
-metricsAddr: ":8080"
+metrics:
+  enabled: true
+  port: 8080
+  service:
+    enabled: true
+    annotations: {}
 
 # Health probe configuration
-healthProbeAddr: ":8081"
+healthProbe:
+  port: 8081
+
+# The operator's validating webhook requires cert-manager when enabled.
+webhooks:
+  enabled: true
+  failurePolicy: Fail
+  certificate:
+    duration: 8760h
+    renewBefore: 720h
 
 # Log level (debug, info, warn, error)
 logLevel: info
 
 # Service account configuration
 serviceAccount:
-  create: true
+  enabled: true
   annotations: {}
   name: ""
 
 # RBAC configuration
 rbac:
-  create: true
+  enabled: true
+
+# CAPI workload-cluster access. For self-managed clusters, the operator mints
+# tokens for this ServiceAccount. For an external workload cluster, set
+# endpoint and pre-provision the <clusterID>--<tenant>-kubeconfig Secret.
+capi:
+  endpoint: ""
+  serviceAccount:
+    enabled: true
+    name: ""
+
+# Use JSON rather than protobuf when talking to the Kubernetes API.
+kubernetesJSON: false
 
 # Pod resource limits
 resources:
@@ -112,5 +141,5 @@ containerSecurityContext:
     - ALL
   readOnlyRootFilesystem: true
 
-# Install CRDs
+# CRDs are normal Helm templates and are controlled solely by this value.
 installCRDs: true

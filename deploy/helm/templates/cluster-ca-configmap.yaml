@@ -2,12 +2,15 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if and (not .Values.capi.endpoint) .Values.capi.serviceAccount.enabled }}
+{{- if .Values.clusterCA.enabled }}
 apiVersion: v1
-kind: ServiceAccount
+kind: ConfigMap
 metadata:
-  name: {{ include "nstance-operator.capiServiceAccountName" . }}
+  name: {{ .Values.clusterCA.name }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "nstance-operator.labels" . | nindent 4 }}
+data:
+  ca.crt: |
+    {{- required "clusterCA.certificate is required when clusterCA.enabled=true" .Values.clusterCA.certificate | nindent 4 }}
 {{- end }}

@@ -2,20 +2,25 @@
 # Copyright The Nstance Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if .Values.operatorConfigMap.create }}
+{{- if .Values.operatorConfigMap.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.operatorConfigMap.name }}
-  namespace: {{ .Values.namespace }}
+  name: {{ include "nstance-operator.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "nstance-operator.labels" . | nindent 4 }}
 data:
   config.yaml: |
+    cluster_id: {{ required "config.clusterID is required" .Values.config.clusterID | quote }}
+    tenant: {{ required "config.tenant is required" .Values.config.tenant | quote }}
+    {{- if not .Values.config.shards }}
+    {{- fail "at least one config.shards entry is required" }}
+    {{- end }}
     shards:
       {{- range $shard, $config := .Values.config.shards }}
       {{ $shard }}:
-        registration_addr: {{ $config.registration_addr | quote }}
-        operator_addr: {{ $config.operator_addr | quote }}
+        registration_addr: {{ required (printf "config.shards.%s.registration_addr is required" $shard) $config.registration_addr | quote }}
+        operator_addr: {{ required (printf "config.shards.%s.operator_addr is required" $shard) $config.operator_addr | quote }}
       {{- end }}
 {{- end }}

@@ -3,14 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 {{- if .Values.installCRDs }}
----
-{{ .Files.Get "crds/nstanceclusters.infrastructure.cluster.x-k8s.io.yaml" }}
----
-{{ .Files.Get "crds/nstancemachinepools.infrastructure.cluster.x-k8s.io.yaml" }}
----
-{{ .Files.Get "crds/nstancemachines.infrastructure.cluster.x-k8s.io.yaml" }}
----
-{{ .Files.Get "crds/nstancemachinetemplates.infrastructure.cluster.x-k8s.io.yaml" }}
----
-{{ .Files.Get "crds/nstanceshardgroups.infrastructure.cluster.x-k8s.io.yaml" }}
+{{ .Files.Get "files/crds/nstanceclusters.infrastructure.cluster.x-k8s.io.yaml" }}
+{{ .Files.Get "files/crds/nstancemachinepools.infrastructure.cluster.x-k8s.io.yaml" }}
+{{ .Files.Get "files/crds/nstancemachines.infrastructure.cluster.x-k8s.io.yaml" }}
+{{ .Files.Get "files/crds/nstancemachinetemplates.infrastructure.cluster.x-k8s.io.yaml" }}
+{{ .Files.Get "files/crds/nstanceshardgroups.infrastructure.cluster.x-k8s.io.yaml" }}
 {{- end }}
