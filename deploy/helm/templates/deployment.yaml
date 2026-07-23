@@ -78,10 +78,7 @@ spec:
           mountPath: /tmp
         - name: config
           mountPath: /etc/nstance/operator
-        - name: config
-          mountPath: /etc/nstance/operator
           readOnly: true
-        {{- end }}
       volumes:
       - name: tmp
         emptyDir: {}

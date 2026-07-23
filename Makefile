@@ -46,7 +46,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup git-hooks proto fmt lint precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
+.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
 
 help: ## Show available targets
 	@echo "Usage: make <target>"
@@ -54,13 +54,15 @@ help: ## Show available targets
 
 ##@ Setup
 
-setup: git-hooks ## Verify required tools and install git hooks
+setup: ## Verify required tools and install git hooks
 	@command -v go >/dev/null 2>&1 || { echo "Error: go is not installed. Please install it first."; exit 1; }
 	@command -v tmux >/dev/null 2>&1 || { echo "Error: tmux is not installed. Please install it first."; exit 1; }
 	@command -v air >/dev/null 2>&1 || { echo "Error: air is not installed. Please install it first."; exit 1; }
 	@command -v overmind >/dev/null 2>&1 || { echo "Error: overmind is not installed. Please install it first."; exit 1; }
 	@command -v shellcheck >/dev/null 2>&1 || { echo "Error: shellcheck is not installed. Please install it first."; exit 1; }
+	@command -v helm >/dev/null 2>&1 || { echo "Error: helm is not installed. Please install it first."; exit 1; }
 	@go tool golangci-lint version >/dev/null 2>&1 || { echo "Error: golangci-lint is not installed as a Go tool. Run 'go get -tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest'"; exit 1; }
+	@$(MAKE) git-hooks
 	@echo "Setup complete. All dependencies are installed."
 
 git-hooks: ## Install git pre-commit and commit-msg hooks
@@ -92,6 +94,14 @@ lint: ## Run golangci-lint and shellcheck
 	@echo "Running shellcheck..."
 	shellcheck $(CURRENT)scripts/*.sh
 
+helm-lint: ## Quickly lint the Helm chart
+	@command -v helm >/dev/null 2>&1 || { echo "Error: helm is not installed."; exit 1; }
+	helm lint --strict $(CURRENT)deploy/helm
+
+helm-validate: helm-lint ## Render and validate all Helm chart manifests
+	@command -v kubeconform >/dev/null 2>&1 || { echo "Error: kubeconform is not installed."; exit 1; }
+	helm template nstance-operator $(CURRENT)deploy/helm | kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.34.0
+
 precommit: ## Check formatting and run linters (read-only)
 	@echo "Checking formatting..."
 	@UNFORMATTED=$$(gofmt -l . 2>&1); \
@@ -100,6 +110,7 @@ precommit: ## Check formatting and run linters (read-only)
 		echo "$$UNFORMATTED"; \
 		exit 1; \
 	fi
+	@$(MAKE) helm-lint
 	@$(MAKE) lint
 
 test: ## Run tests
