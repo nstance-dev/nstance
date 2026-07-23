@@ -33,7 +33,7 @@ type Service struct {
 	imageGetter          filegen.ImageGetter
 	logger               *slog.Logger
 	onSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
-	onReconcileRequested func(groupKey, reason string) error
+	onReconcileRequested func(tenant, groupKey, reason string) error
 	onInstanceDisconnect func(instanceID string, graceful bool) error
 
 	// In-memory pending key requests with mutex for thread safety
@@ -60,7 +60,7 @@ type Options struct {
 	ImageGetter          filegen.ImageGetter
 	Logger               *slog.Logger
 	OnSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
-	OnReconcileRequested func(groupKey, reason string) error
+	OnReconcileRequested func(tenant, groupKey, reason string) error
 	OnInstanceDisconnect func(instanceID string, graceful bool) error
 }
 

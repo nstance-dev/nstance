@@ -47,6 +47,9 @@ func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest
 		Vars:         req.Config.Vars,
 	}
 
+	s.groupMutationMu.Lock()
+	defer s.groupMutationMu.Unlock()
+
 	if err := serverconfig.UpsertGroup(ctx, s.configLoader, tenant, req.Key, groupConfig); err != nil {
 		s.logger.Error("Failed to upsert group", "client_id", clientInfo.ClientID, "tenant", tenant, "group", req.Key, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to upsert group: %v", err)
@@ -62,34 +65,12 @@ func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest
 	}
 
 	// Determine if this is a static group
-	staticGroups := s.configLoader.GetCurrent().Groups
+	staticGroups := s.configLoader.GetCurrent().Groups[tenant]
 	_, isStatic := staticGroups[req.Key]
 
-	groupSize := int32(0)
-	if mergedGroup.Size != nil {
-		groupSize = int32(*mergedGroup.Size)
-	}
+	groupStatus := s.buildGroupStatus(tenant, req.Key, *mergedGroup, isStatic)
 
-	groupStatus := &proto.GroupStatus{
-		Key:          req.Key,
-		Tenant:       tenant,
-		Template:     mergedGroup.Template,
-		Size:         groupSize,
-		InstanceType: mergedGroup.InstanceType,
-		SubnetPool:   mergedGroup.SubnetPool,
-		Vars:         mergedGroup.Vars,
-		IsStatic:     isStatic,
-	}
-	providerIDs, err := s.localDB.GetProviderIDsByGroup(req.Key, true)
-	if err != nil {
-		s.logger.Warn("Failed to get provider IDs for group", "group", req.Key, "error", err)
-	} else {
-		groupStatus.ActualSize = int32(len(providerIDs))
-		groupStatus.ProviderIds = providerIDs
-	}
-	groupStatus.Etag = computeGroupEtag(groupStatus)
-
-	s.NotifyGroupEvent(&proto.GroupEvent{
+	s.NotifyGroupEvent(tenant, &proto.GroupEvent{
 		Type:  proto.GroupEvent_UPSERT,
 		Group: groupStatus,
 	})

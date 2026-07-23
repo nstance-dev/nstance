@@ -19,12 +19,13 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
 
-// MockInstanceManager
+// MockInstanceManager implements InstanceManager with configurable test functions.
 type MockInstanceManager struct {
 	CreateInstanceFunc func(ctx context.Context, req instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error)
-	DeleteInstanceFunc func(ctx context.Context, instanceID string) error
+	DeleteInstanceFunc func(ctx context.Context, tenant, instanceID string) error
 }
 
+// CreateInstance invokes the configured test function or returns a default instance.
 func (m *MockInstanceManager) CreateInstance(ctx context.Context, req instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error) {
 	if m.CreateInstanceFunc != nil {
 		return m.CreateInstanceFunc(ctx, req)
@@ -32,18 +33,80 @@ func (m *MockInstanceManager) CreateInstance(ctx context.Context, req instances.
 	return &instances.CreateInstanceResponse{InstanceID: "inst-1"}, nil
 }
 
-func (m *MockInstanceManager) DeleteInstance(ctx context.Context, instanceID string) error {
+// DeleteInstance invokes the configured test function when present.
+func (m *MockInstanceManager) DeleteInstance(ctx context.Context, tenant, instanceID string) error {
 	if m.DeleteInstanceFunc != nil {
-		return m.DeleteInstanceFunc(ctx, instanceID)
+		return m.DeleteInstanceFunc(ctx, tenant, instanceID)
 	}
 	return nil
 }
 
-// MockStorage
+// MockStorage implements storage operations with configurable test functions.
 type MockStorage struct {
 	storage.Storage
 	GetFunc func(ctx context.Context, key string) ([]byte, string, error)
 	PutFunc func(ctx context.Context, key string, data []byte) error
+}
+
+// TestInitialReconcileScalesDownRemovedGroup verifies deleted groups do not retain managed instances.
+func TestInitialReconcileScalesDownRemovedGroup(t *testing.T) {
+	db, err := localdb.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := db.CreateInstance(&localdb.Instance{
+		ID:            "orphaned-instance",
+		Tenant:        "red",
+		Group:         "removed",
+		Nonce:         "orphaned-nonce",
+		ProviderState: []byte(`{"status":"running"}`),
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	storage := &MockStorage{}
+	loader, err := config.NewLoader(config.LoaderOptions{
+		Storage:      storage,
+		CacheStorage: storage,
+		LocalDB:      db,
+		Logger:       slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("create loader: %v", err)
+	}
+	loader.SetConfig(&config.Config{Groups: map[string]map[string]config.GroupConfig{}})
+
+	var deleted string
+	r, err := New(Options{
+		InstanceManager: &MockInstanceManager{DeleteInstanceFunc: func(_ context.Context, _ string, instanceID string) error {
+			deleted = instanceID
+			return nil
+		}},
+		ConfigLoader: loader,
+		LocalDB:      db,
+		Provider:     mock.NewProvider(mock.Options{}),
+		NotifyDrain:  func(string, string, string, time.Time, time.Time) {},
+		IsLeader:     func() bool { return true },
+		Logger:       slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("create reconciler: %v", err)
+	}
+	identity := groupIdentity{tenant: "red", group: "removed"}
+	r.expiryTimers[identity] = time.NewTimer(time.Hour)
+
+	if err := r.handleInitialReconcile(); err != nil {
+		t.Fatalf("initial reconcile: %v", err)
+	}
+	if deleted != "orphaned-instance" {
+		t.Fatalf("deleted instance = %q, want orphaned-instance", deleted)
+	}
+	if _, exists := r.expiryTimers[identity]; exists {
+		t.Fatal("removed group's expiry timer was not cancelled")
+	}
 }
 
 func (m *MockStorage) Get(ctx context.Context, key string) ([]byte, string, error) {
@@ -205,6 +268,15 @@ func TestReconciler_ScaleDown(t *testing.T) {
 		Nonce:         "nonce-3",
 		ProviderState: providerState,
 	}
+	blueInst := &localdb.Instance{
+		ID:            "blue-inst",
+		Tenant:        "blue",
+		Group:         "group1",
+		ProviderID:    &pid3,
+		CreatedAt:     now.Add(-20 * time.Minute),
+		Nonce:         "blue-nonce",
+		ProviderState: providerState,
+	}
 	if err := db.CreateInstance(inst1); err != nil {
 		t.Fatalf("Failed to create inst1: %v", err)
 	}
@@ -213,6 +285,9 @@ func TestReconciler_ScaleDown(t *testing.T) {
 	}
 	if err := db.CreateInstance(inst3); err != nil {
 		t.Fatalf("Failed to create inst3: %v", err)
+	}
+	if err := db.CreateInstance(blueInst); err != nil {
+		t.Fatalf("Failed to create blue instance: %v", err)
 	}
 
 	mockStorage := &MockStorage{}
@@ -254,7 +329,7 @@ func TestReconciler_ScaleDown(t *testing.T) {
 	deletedCount := 0
 	doneCh := make(chan struct{})
 	mockIM := &MockInstanceManager{
-		DeleteInstanceFunc: func(ctx context.Context, instanceID string) error {
+		DeleteInstanceFunc: func(ctx context.Context, _ string, instanceID string) error {
 			deletedCount++
 			// Expect inst-1 and inst-2 to be deleted (oldest first)
 			if instanceID != "inst-1" && instanceID != "inst-2" {

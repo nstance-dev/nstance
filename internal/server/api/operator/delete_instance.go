@@ -6,6 +6,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,6 +14,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/infra"
+	"github.com/nstance-dev/nstance/internal/server/instances"
 )
 
 func (s *Service) DeleteInstance(ctx context.Context, req *proto.DeleteInstanceRequest) (*proto.DeleteInstanceResponse, error) {
@@ -27,14 +29,15 @@ func (s *Service) DeleteInstance(ctx context.Context, req *proto.DeleteInstanceR
 		return nil, status.Errorf(codes.InvalidArgument, "instance_id is required")
 	}
 
-	instanceStatus, err := s.instanceManager.GetInstanceStatus(ctx, req.InstanceId)
+	instanceStatus, err := s.instanceManager.GetInstanceStatus(ctx, clientInfo.Tenant, req.InstanceId)
 	if err != nil {
+		if errors.Is(err, instances.ErrInstanceTenantMismatch) {
+			return nil, tenantInstanceError(err)
+		}
 		s.logger.Info("Instance not found during deletion (idempotent)",
 			"client_id", clientInfo.ClientID,
 			"instance_id", req.InstanceId)
-		return &proto.DeleteInstanceResponse{
-			Status: infra.StatusUnknown,
-		}, nil
+		return &proto.DeleteInstanceResponse{Status: infra.StatusUnknown}, nil
 	}
 
 	if instanceStatus.Status == infra.StatusDeleted || instanceStatus.Status == infra.StatusDeleting {
@@ -42,13 +45,14 @@ func (s *Service) DeleteInstance(ctx context.Context, req *proto.DeleteInstanceR
 			"client_id", clientInfo.ClientID,
 			"instance_id", req.InstanceId,
 			"status", instanceStatus.Status)
-		return &proto.DeleteInstanceResponse{
-			Status: instanceStatus.Status,
-		}, nil
+		return &proto.DeleteInstanceResponse{Status: instanceStatus.Status}, nil
 	}
 
-	err = s.instanceManager.DeleteInstance(ctx, req.InstanceId)
+	err = s.instanceManager.DeleteInstance(ctx, clientInfo.Tenant, req.InstanceId)
 	if err != nil {
+		if errors.Is(err, instances.ErrInstanceTenantMismatch) {
+			return nil, tenantInstanceError(err)
+		}
 		s.logger.Error("Failed to delete instance",
 			"client_id", clientInfo.ClientID,
 			"instance_id", req.InstanceId,

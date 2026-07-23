@@ -32,6 +32,26 @@ func newTestDB(t *testing.T) *localdb.DB {
 	return db
 }
 
+// opaqueValidatorStorage exposes a non-content-derived conditional-write validator.
+type opaqueValidatorStorage struct {
+	storage.Storage
+	validator string
+}
+
+// Get returns stored data with the configured opaque validator.
+func (s *opaqueValidatorStorage) Get(ctx context.Context, key string) ([]byte, string, error) {
+	data, _, err := s.Storage.Get(ctx, key)
+	return data, s.validator, err
+}
+
+// PutIfMatch requires the opaque validator before replacing stored data.
+func (s *opaqueValidatorStorage) PutIfMatch(ctx context.Context, key string, data []byte, etag string) error {
+	if etag != s.validator {
+		return storage.ErrPrecondition
+	}
+	return s.Put(ctx, key, data)
+}
+
 func TestLoader(t *testing.T) {
 	// Create test configuration
 	testConfig := &Config{
@@ -363,6 +383,109 @@ func TestLoader(t *testing.T) {
 			t.Error("Cache should be cleaned")
 		}
 	})
+}
+
+// TestDynamicGroupWriteReloadsAuthoritativeGroups verifies updates preserve remotely changed groups.
+func TestDynamicGroupWriteReloadsAuthoritativeGroups(t *testing.T) {
+	ctx := context.Background()
+	mainStorage := storage.NewMock()
+	cacheStorage := storage.NewMock()
+	initial := []byte(`{"red":{"workers":{"template":"test","size":1}}}`)
+	if err := mainStorage.Put(ctx, groupsKey, initial); err != nil {
+		t.Fatalf("put initial groups: %v", err)
+	}
+
+	loader, err := NewLoader(LoaderOptions{
+		LocalDB:      newTestDB(t),
+		Storage:      mainStorage,
+		CacheStorage: cacheStorage,
+		Logger:       slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("create loader: %v", err)
+	}
+	if _, err := loader.LoadDynamicGroups(ctx); err != nil {
+		t.Fatalf("load groups: %v", err)
+	}
+
+	// Simulate another server winning the optimistic-lock race.
+	if err := mainStorage.Put(ctx, groupsKey, []byte(`{"red":{"workers":{"template":"test","size":2}}}`)); err != nil {
+		t.Fatalf("replace stored groups: %v", err)
+	}
+	size := 3
+	if err := loader.SetDynamicGroup(ctx, "red", "new", GroupConfig{Template: "test", Size: &size}); err != nil {
+		t.Fatalf("SetDynamicGroup: %v", err)
+	}
+	if _, exists := loader.GetDynamicGroup("red", "new"); !exists {
+		t.Fatal("new group was not installed")
+	}
+	workers, exists := loader.GetDynamicGroup("red", "workers")
+	if !exists || workers.GetSize() != 2 {
+		t.Fatalf("authoritative workers group was overwritten: %#v, exists=%v", workers, exists)
+	}
+}
+
+// TestDynamicGroupWriteUsesOpaqueStorageValidator verifies updates use backend validators directly.
+func TestDynamicGroupWriteUsesOpaqueStorageValidator(t *testing.T) {
+	ctx := context.Background()
+	underlying := storage.NewMock()
+	mainStorage := &opaqueValidatorStorage{Storage: underlying, validator: "42"}
+	if err := mainStorage.Put(ctx, groupsKey, []byte(`{"red":{"workers":{"template":"test","size":1}}}`)); err != nil {
+		t.Fatalf("put initial groups: %v", err)
+	}
+	loader, err := NewLoader(LoaderOptions{
+		LocalDB:      newTestDB(t),
+		Storage:      mainStorage,
+		CacheStorage: storage.NewMock(),
+		Logger:       slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("create loader: %v", err)
+	}
+	size := 2
+	if err := loader.SetDynamicGroup(ctx, "red", "workers", GroupConfig{Template: "test", Size: &size}); err != nil {
+		t.Fatalf("SetDynamicGroup with opaque validator: %v", err)
+	}
+}
+
+// TestFailedDynamicGroupMergeDoesNotMutateLoadedMaps verifies failed writes preserve cached state.
+func TestFailedDynamicGroupMergeDoesNotMutateLoadedMaps(t *testing.T) {
+	ctx := context.Background()
+	mainStorage := storage.NewMock()
+	loader, err := NewLoader(LoaderOptions{
+		LocalDB:      newTestDB(t),
+		Storage:      mainStorage,
+		CacheStorage: storage.NewMock(),
+		Logger:       slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("create loader: %v", err)
+	}
+	initial := []byte(`{"red":{"workers":{"template":"test","size":1,"vars":{"state":"committed"}}}}`)
+	if err := mainStorage.Put(ctx, groupsKey, initial); err != nil {
+		t.Fatalf("put initial groups: %v", err)
+	}
+	if _, err := loader.LoadDynamicGroups(ctx); err != nil {
+		t.Fatalf("load groups: %v", err)
+	}
+
+	err = loader.UpdateDynamicGroup(ctx, "red", "workers", func(existing GroupConfig, exists bool) (GroupConfig, error) {
+		if !exists {
+			t.Fatal("workers group missing during update")
+		}
+		existing.Vars["state"] = "uncommitted"
+		if err := mainStorage.Put(ctx, groupsKey, []byte(`{"red":{"workers":{"template":"test","size":2,"vars":{"state":"remote"}}}}`)); err != nil {
+			t.Fatalf("replace groups during update: %v", err)
+		}
+		return existing, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "modified by another process") {
+		t.Fatalf("UpdateDynamicGroup error = %v, want optimistic lock failure", err)
+	}
+	workers, exists := loader.GetDynamicGroup("red", "workers")
+	if !exists || workers.Vars["state"] != "committed" {
+		t.Fatalf("failed merge mutated loaded group: %#v, exists=%v", workers, exists)
+	}
 }
 
 func TestLoaderValidation(t *testing.T) {

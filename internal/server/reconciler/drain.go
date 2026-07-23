@@ -42,7 +42,7 @@ func (r *Reconciler) replaceAndDrain(instanceID, tenant, groupKey, reason string
 
 	// Skip drain if instance is stopping/stopped/deleting/deleted/failed or drain timeout is 0
 	if skipDrain || drainTimeout == 0 {
-		r.deleteInstance(instanceID)
+		r.deleteInstance(tenant, instanceID)
 		return
 	}
 

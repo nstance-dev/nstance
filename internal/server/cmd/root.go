@@ -574,9 +574,9 @@ func NewRootCmd() *cobra.Command {
 					})
 				}
 			},
-			NotifyError: func(group, instanceID, errMsg string) {
+			NotifyError: func(tenant, group, instanceID, errMsg string) {
 				if operatorService != nil {
-					operatorService.NotifyError(&proto.ErrorEvent{
+					operatorService.NotifyError(tenant, &proto.ErrorEvent{
 						Group:      group,
 						InstanceId: instanceID,
 						Error:      errMsg,
@@ -668,6 +668,16 @@ func NewRootCmd() *cobra.Command {
 				})
 				return nil
 			},
+			OnReconcileRequested: func(tenant, groupKey, reason string) error {
+				rec.Enqueue(reconciler.ReconcileEvent{
+					Type:      reconciler.EventGroupChanged,
+					Tenant:    tenant,
+					GroupKey:  groupKey,
+					Timestamp: time.Now().UTC(),
+					Cause:     reason,
+				})
+				return nil
+			},
 			OnInstanceDisconnect: func(instanceID string, graceful bool) error {
 				logger.Info("Agent disconnected, enqueuing health check",
 					"instance_id", instanceID,
@@ -700,9 +710,10 @@ func NewRootCmd() *cobra.Command {
 					Timestamp: time.Now().UTC(),
 				})
 			},
-			OnDrainAcked: func(instanceID string) {
+			OnDrainAcked: func(tenant, instanceID string) {
 				rec.Enqueue(reconciler.ReconcileEvent{
 					Type:       reconciler.EventDrainAcked,
+					Tenant:     tenant,
 					InstanceID: instanceID,
 					Timestamp:  time.Now().UTC(),
 				})
@@ -781,18 +792,19 @@ func NewRootCmd() *cobra.Command {
 					}
 				}
 
-				// Start leader gRPC services
-				logger.Info("Starting leader services")
-				if err := server.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start gRPC server: %w", err)
-				}
-				logger.Info("Leader service started")
-
 				// Refresh configuration, dynamic groups, and sync to SQLite
 				logger.Info("Became shard leader, refreshing configuration and rebuilding cache")
 				if _, err := configLoader.LoadConfigAndGroups(ctx, true); err != nil {
 					return fmt.Errorf("failed to refresh configuration on leadership acquisition: %w", err)
 				}
+
+				// Start leader gRPC services only after the authoritative refresh so
+				// requests and watches cannot observe or mutate stale group state.
+				logger.Info("Starting leader services")
+				if err := server.Start(ctx); err != nil {
+					return fmt.Errorf("failed to start gRPC server: %w", err)
+				}
+				logger.Info("Leader service started")
 
 				// Start image resolution service
 				if imageService != nil {

@@ -200,18 +200,20 @@ func (m *Manager) watchShard(ctx context.Context, shard string, conn *grpc.Clien
 		log.Info("watch stream connected")
 		backoff = time.Second
 
-		if err := m.consumeGroupStream(ctx, shard, stream); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return
-			}
+		err = m.consumeGroupStream(ctx, shard, stream)
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		if err != nil {
 			log.Error(err, "watch stream error, reconnecting")
 			m.markShardUnreachable(ctx, shard)
+		}
 
-			// Request full sync on reconnect to catch missed events
-			select {
-			case m.syncCh <- syncRequest{fullSync: true}:
-			default:
-			}
+		// The API contract requires a full sync after any disconnect to catch
+		// missed events, including clean EOF disconnects.
+		select {
+		case m.syncCh <- syncRequest{fullSync: true}:
+		default:
 		}
 	}
 }

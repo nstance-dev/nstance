@@ -23,7 +23,7 @@ import (
 // InstanceManager defines the interface for instance management operations required by the reconciler
 type InstanceManager interface {
 	CreateInstance(ctx context.Context, req instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error)
-	DeleteInstance(ctx context.Context, instanceID string) error
+	DeleteInstance(ctx context.Context, tenant, instanceID string) error
 }
 
 // EventType represents the type of reconciliation event
@@ -50,6 +50,12 @@ type ReconcileEvent struct {
 	Attempt          int    // Retry attempt number for follow-up polling
 }
 
+// groupIdentity identifies a group within a tenant for reconciler state.
+type groupIdentity struct {
+	tenant string
+	group  string
+}
+
 // Reconciler handles instance reconciliation (matching actual instance count to desired group size)
 type Reconciler struct {
 	queue           chan ReconcileEvent
@@ -58,7 +64,7 @@ type Reconciler struct {
 	localDB         *localdb.DB
 	provider        infra.Provider
 	notifyDrain     func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time)
-	notifyError     func(group, instanceID, errMsg string)
+	notifyError     func(tenant, group, instanceID, errMsg string)
 	isLeader        func() bool
 	logger          *slog.Logger
 
@@ -72,7 +78,7 @@ type Reconciler struct {
 	eventsMu     sync.RWMutex
 
 	// Expiry timers (one per group)
-	expiryTimers  map[string]*time.Timer
+	expiryTimers  map[groupIdentity]*time.Timer
 	expiryTimerMu sync.Mutex
 
 	// Control
@@ -92,7 +98,7 @@ type Options struct {
 	LocalDB         *localdb.DB
 	Provider        infra.Provider
 	NotifyDrain     func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time)
-	NotifyError     func(group, instanceID, errMsg string)
+	NotifyError     func(tenant, group, instanceID, errMsg string)
 	IsLeader        func() bool
 	CreateRateLimit time.Duration
 	Logger          *slog.Logger
@@ -135,7 +141,7 @@ func New(opts Options) (*Reconciler, error) {
 		isLeader:        opts.IsLeader,
 		createRateLimit: opts.CreateRateLimit,
 		recentEvents:    make(map[string]time.Time),
-		expiryTimers:    make(map[string]*time.Timer),
+		expiryTimers:    make(map[groupIdentity]*time.Timer),
 		logger:          opts.Logger,
 		ctx:             ctx,
 		cancel:          cancel,
@@ -301,7 +307,7 @@ func (r *Reconciler) handleEvent(event ReconcileEvent) {
 	case EventInstanceDeleted:
 		err = r.handleInstanceDeleted(event.InstanceID, event.Tenant, event.GroupKey)
 	case EventDrainAcked:
-		err = r.handleDrainAcked(event.InstanceID)
+		err = r.handleDrainAcked(event.Tenant, event.InstanceID)
 	default:
 		r.logger.Warn("Unknown event type", "type", event.Type)
 	}

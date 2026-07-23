@@ -6,6 +6,8 @@ package operator
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
+	"github.com/nstance-dev/nstance/internal/server/instances"
 )
 
 func (s *Service) GetInstanceStatus(ctx context.Context, req *proto.GetInstanceStatusRequest) (*proto.InstanceStatusResponse, error) {
@@ -26,9 +29,11 @@ func (s *Service) GetInstanceStatus(ctx context.Context, req *proto.GetInstanceS
 	if req.InstanceId == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "instance_id is required")
 	}
-
-	instanceStatus, err := s.instanceManager.GetInstanceStatus(ctx, req.InstanceId)
+	instanceStatus, err := s.instanceManager.GetInstanceStatus(ctx, clientInfo.Tenant, req.InstanceId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, instances.ErrInstanceTenantMismatch) {
+			return nil, tenantInstanceError(err)
+		}
 		s.logger.Error("Failed to get instance status",
 			"client_id", clientInfo.ClientID,
 			"instance_id", req.InstanceId,

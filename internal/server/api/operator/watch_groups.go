@@ -21,36 +21,41 @@ func (s *Service) WatchGroups(req *emptypb.Empty, stream proto.OperatorService_W
 		return status.Errorf(codes.Internal, "failed to get client info: %v", err)
 	}
 
+	tenant := clientInfo.Tenant
+	registeredStream := &groupsStream{stream: stream}
+	registeredStream.mu.Lock()
 	s.streamMu.Lock()
-	s.groupsStream = stream
+	s.groupsStreams[tenant] = registeredStream
 	s.streamMu.Unlock()
 
 	defer func() {
 		s.streamMu.Lock()
-		if s.groupsStream == stream {
-			s.groupsStream = nil
+		if s.groupsStreams[tenant] == registeredStream {
+			delete(s.groupsStreams, tenant)
 		}
 		s.streamMu.Unlock()
 	}()
 
-	tenant := clientInfo.Tenant
 	s.logger.Info("Operator connected to groups stream", "client_id", clientInfo.ClientID, "tenant", tenant)
 
 	// Send current state as initial snapshot
 	groups, err := s.listGroups(tenant)
 	if err != nil {
+		registeredStream.mu.Unlock()
 		return status.Errorf(codes.Internal, "failed to list groups: %v", err)
 	}
-
 	for _, g := range groups {
 		event := &proto.GroupEvent{
 			Type:  proto.GroupEvent_UPSERT,
 			Group: g,
 		}
-		if err := stream.Send(event); err != nil {
+		err := registeredStream.stream.Send(event)
+		if err != nil {
+			registeredStream.mu.Unlock()
 			return err
 		}
 	}
+	registeredStream.mu.Unlock()
 
 	s.logger.Info("Sent groups snapshot", "client_id", clientInfo.ClientID, "count", len(groups))
 

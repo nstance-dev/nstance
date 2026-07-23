@@ -17,7 +17,7 @@ func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 	r.logger.Info("Reconciling group", "tenant", tenant, "group", groupKey)
 
 	// Get current instances for this group from localDB
-	currentInstances, err := r.getGroupInstances(groupKey)
+	currentInstances, err := r.getGroupInstances(tenant, groupKey)
 	if err != nil {
 		return fmt.Errorf("failed to get current instances for group %s: %w", groupKey, err)
 	}
@@ -28,8 +28,9 @@ func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 	if err != nil {
 		// Group was deleted - scale down all instances to 0
 		r.logger.Info("Group not found, scaling down to 0", "tenant", tenant, "group", groupKey, "current", currentCount)
+		r.cancelGroupExpiryTimer(tenant, groupKey)
 		if currentCount > 0 {
-			r.scaleDown(groupKey, currentInstances, currentCount)
+			r.scaleDown(tenant, groupKey, currentInstances, currentCount)
 		}
 		return nil
 	}
@@ -50,14 +51,14 @@ func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 
 	// Scale down if needed
 	if currentCount > desiredCount {
-		r.scaleDown(groupKey, currentInstances, currentCount-desiredCount)
+		r.scaleDown(tenant, groupKey, currentInstances, currentCount-desiredCount)
 	}
 
 	// Check for infra config drift and rotate drifted instances (one at a time)
 	r.checkGroupConfigDrift(tenant, groupKey, *group)
 
 	// Check for instance expiry and schedule next expiry timer
-	r.checkGroupExpiry(groupKey)
+	r.checkGroupExpiry(tenant, groupKey)
 	r.scheduleGroupExpiry(tenant, groupKey)
 	return nil
 }
@@ -69,7 +70,7 @@ func (r *Reconciler) scaleUp(tenant, groupKey string, group config.GroupConfig, 
 	for i := 0; i < count; i++ {
 		if _, err := r.createInstanceForGroup(tenant, groupKey, group, false); err != nil {
 			if r.notifyError != nil {
-				r.notifyError(groupKey, "", fmt.Sprintf("Failed to create instance: %v", err))
+				r.notifyError(tenant, groupKey, "", fmt.Sprintf("Failed to create instance: %v", err))
 			}
 			return fmt.Errorf("failed to create instance for group %s: %w", groupKey, err)
 		}
@@ -78,21 +79,21 @@ func (r *Reconciler) scaleUp(tenant, groupKey string, group config.GroupConfig, 
 }
 
 // scaleDown deletes instances from a group (oldest first)
-func (r *Reconciler) scaleDown(groupKey string, instances []string, count int) {
+func (r *Reconciler) scaleDown(tenant, groupKey string, instances []string, count int) {
 	r.logger.Info("Scaling down group", "group", groupKey, "count", count)
 
 	// Delete oldest instances first
 	for i := 0; i < count && i < len(instances); i++ {
 		instanceID := instances[i]
 
-		err := r.instanceManager.DeleteInstance(r.ctx, instanceID)
+		err := r.instanceManager.DeleteInstance(r.ctx, tenant, instanceID)
 		if err != nil {
 			r.logger.Error("Failed to delete instance",
 				"group", groupKey,
 				"instance_id", instanceID,
 				"error", err)
 			if r.notifyError != nil {
-				r.notifyError(groupKey, instanceID, fmt.Sprintf("Failed to delete instance: %v", err))
+				r.notifyError(tenant, groupKey, instanceID, fmt.Sprintf("Failed to delete instance: %v", err))
 			}
 			continue
 		}
@@ -105,8 +106,8 @@ func (r *Reconciler) scaleDown(groupKey string, instances []string, count int) {
 
 // getGroupInstances returns all managed instances for a group (ordered by creation time, oldest first)
 // Excludes on-demand instances
-func (r *Reconciler) getGroupInstances(groupKey string) ([]string, error) {
-	return r.localDB.GetInstancesByGroup(groupKey, true) // exclude on-demand
+func (r *Reconciler) getGroupInstances(tenant, groupKey string) ([]string, error) {
+	return r.localDB.GetInstancesByGroup(tenant, groupKey, true) // exclude on-demand
 }
 
 // checkGroupConfigDrift checks for infra config drift and triggers rotation for drifted instances.
@@ -121,7 +122,7 @@ func (r *Reconciler) checkGroupConfigDrift(tenant, groupKey string, group config
 		return
 	}
 
-	currentInstances, err := r.getGroupInstances(groupKey)
+	currentInstances, err := r.getGroupInstances(tenant, groupKey)
 	if err != nil {
 		r.logger.Error("Failed to get instances for config drift check", "group", groupKey, "error", err)
 		return
@@ -172,7 +173,7 @@ func (r *Reconciler) createInstanceForGroup(tenant, groupKey string, group confi
 
 	// Safety check: ensure we're not exceeding the group size
 	// When allowOversize is true (during replacement), allow up to 1 extra instance
-	currentCount, err := r.localDB.GetInstanceCountByGroup(groupKey, true)
+	currentCount, err := r.localDB.GetInstanceCountByGroup(tenant, groupKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current instance count: %w", err)
 	}

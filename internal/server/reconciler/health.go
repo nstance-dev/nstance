@@ -93,7 +93,7 @@ func (r *Reconciler) handleCheckInstance(event ReconcileEvent) {
 				"error", err)
 		}
 		if r.notifyError != nil {
-			r.notifyError(instance.Group, instanceID, fmt.Sprintf("Failed to get instance status: %v", err))
+			r.notifyError(instance.Tenant, instance.Group, instanceID, fmt.Sprintf("Failed to get instance status: %v", err))
 		}
 		// Schedule retry with backoff so provider timeouts don't silently stall replacement
 		r.scheduleDisconnectFollowUp(event, instance, instanceID, "unknown")
@@ -268,7 +268,7 @@ func (r *Reconciler) handleDrainCompletion(instanceID string, instance *localdb.
 		r.logger.Info("Drain acknowledged, proceeding with deletion",
 			"instance_id", instanceID,
 			"elapsed", elapsed)
-		r.deleteInstance(instanceID)
+		r.deleteInstance(instance.Tenant, instanceID)
 		return
 	}
 
@@ -278,7 +278,7 @@ func (r *Reconciler) handleDrainCompletion(instanceID string, instance *localdb.
 			"instance_id", instanceID,
 			"elapsed", elapsed,
 			"timeout", drainTimeout)
-		r.deleteInstance(instanceID)
+		r.deleteInstance(instance.Tenant, instanceID)
 		return
 	}
 
@@ -292,7 +292,7 @@ func (r *Reconciler) handleDrainCompletion(instanceID string, instance *localdb.
 				r.logger.Info("Draining instance not found in provider, proceeding with deletion",
 					"instance_id", instanceID,
 					"elapsed", elapsed)
-				r.deleteInstance(instanceID)
+				r.deleteInstance(instance.Tenant, instanceID)
 				return
 			}
 			r.logger.Warn("Failed to check provider status for draining instance",
@@ -303,7 +303,7 @@ func (r *Reconciler) handleDrainCompletion(instanceID string, instance *localdb.
 				"instance_id", instanceID,
 				"status", status.Status,
 				"elapsed", elapsed)
-			r.deleteInstance(instanceID)
+			r.deleteInstance(instance.Tenant, instanceID)
 			return
 		}
 	}
@@ -315,16 +315,16 @@ func (r *Reconciler) handleDrainCompletion(instanceID string, instance *localdb.
 		"timeout", drainTimeout)
 }
 
-// deleteInstance deletes an instance and logs the result
-func (r *Reconciler) deleteInstance(instanceID string) {
-	err := r.instanceManager.DeleteInstance(r.ctx, instanceID)
+// deleteInstance deletes a tenant-owned instance and logs the result.
+func (r *Reconciler) deleteInstance(tenant, instanceID string) {
+	err := r.instanceManager.DeleteInstance(r.ctx, tenant, instanceID)
 	if err != nil {
 		r.logger.Error("Failed to delete instance",
 			"instance_id", instanceID,
 			"error", err)
 		if r.notifyError != nil {
 			if instance, _ := r.localDB.GetInstance(instanceID); instance != nil {
-				r.notifyError(instance.Group, instanceID, fmt.Sprintf("Failed to delete instance: %v", err))
+				r.notifyError(instance.Tenant, instance.Group, instanceID, fmt.Sprintf("Failed to delete instance: %v", err))
 			}
 		}
 	} else {

@@ -44,7 +44,7 @@ func (r *Reconciler) handleSpotTerminating(instanceID string) error {
 	resp, err := r.createInstanceForGroup(instance.Tenant, groupKey, *group, true)
 	if err != nil {
 		if r.notifyError != nil {
-			r.notifyError(groupKey, instanceID, fmt.Sprintf("Failed to create replacement for spot-terminating instance: %v", err))
+			r.notifyError(instance.Tenant, groupKey, instanceID, fmt.Sprintf("Failed to create replacement for spot-terminating instance: %v", err))
 		}
 		return fmt.Errorf("failed to create replacement for spot-terminating instance %s: %w", instanceID, err)
 	}
@@ -68,10 +68,10 @@ func (r *Reconciler) handleInstanceDeleted(instanceID, tenant, groupKey string) 
 	return nil
 }
 
-// handleDrainAcked processes drain acknowledgment from operator
-// Always proceeds with deletion, trusting operator regardless of tracked state
-func (r *Reconciler) handleDrainAcked(instanceID string) error {
-	r.logger.Info("Drain acknowledged by operator", "instance_id", instanceID)
+// handleDrainAcked processes a tenant's drain acknowledgment from an operator.
+// It always proceeds with deletion, trusting the operator regardless of tracked state.
+func (r *Reconciler) handleDrainAcked(tenant, instanceID string) error {
+	r.logger.Info("Drain acknowledged by operator", "tenant", tenant, "instance_id", instanceID)
 
 	// Mark drain acked in database
 	if err := r.localDB.MarkDrainAcked(instanceID); err != nil {
@@ -84,10 +84,10 @@ func (r *Reconciler) handleDrainAcked(instanceID string) error {
 	// Operator has acknowledged drain is complete - proceed with deletion
 	// This applies to both unhealthy instances and expiry instances
 	r.logger.Info("Proceeding with deletion for acknowledged drain", "instance_id", instanceID)
-	if err := r.instanceManager.DeleteInstance(r.ctx, instanceID); err != nil {
+	if err := r.instanceManager.DeleteInstance(r.ctx, tenant, instanceID); err != nil {
 		if r.notifyError != nil {
 			if instance, _ := r.localDB.GetInstance(instanceID); instance != nil {
-				r.notifyError(instance.Group, instanceID, fmt.Sprintf("Failed to delete drained instance: %v", err))
+				r.notifyError(instance.Tenant, instance.Group, instanceID, fmt.Sprintf("Failed to delete drained instance: %v", err))
 			}
 		}
 		return fmt.Errorf("failed to delete drained instance %s: %w", instanceID, err)

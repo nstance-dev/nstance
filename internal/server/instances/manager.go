@@ -24,6 +24,9 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
 
+// ErrInstanceTenantMismatch indicates that an instance belongs to another tenant.
+var ErrInstanceTenantMismatch = errors.New("instance belongs to another tenant")
+
 // ImageGetter provides access to resolved image IDs
 type ImageGetter interface {
 	GetAll() map[string]string
@@ -419,15 +422,17 @@ func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest)
 	}, nil
 }
 
-// DeleteInstance deletes an instance
-func (m *Manager) DeleteInstance(ctx context.Context, instanceID string) error {
-	m.logger.Info("Deleting instance", "instance_id", instanceID)
-
-	// Get instance from local DB to retrieve provider ID
+// DeleteInstance deletes a tenant-owned instance.
+func (m *Manager) DeleteInstance(ctx context.Context, tenant, instanceID string) error {
 	instance, err := m.localDB.GetInstance(instanceID)
 	if err != nil {
 		return fmt.Errorf("instance not found in local DB: %w", err)
 	}
+	if instance.Tenant != tenant {
+		return ErrInstanceTenantMismatch
+	}
+	m.logger.Info("Deleting instance", "instance_id", instanceID)
+
 	if instance.ProviderID == nil || *instance.ProviderID == "" {
 		return fmt.Errorf("instance has no provider ID")
 	}
@@ -495,12 +500,14 @@ func (m *Manager) DeleteInstance(ctx context.Context, instanceID string) error {
 	return nil
 }
 
-// GetInstanceStatus returns the current status of an instance
-func (m *Manager) GetInstanceStatus(ctx context.Context, instanceID string) (*InstanceStatus, error) {
-	// Get instance record from local DB to retrieve provider ID
+// GetInstanceStatus returns provider status for a tenant-owned instance.
+func (m *Manager) GetInstanceStatus(ctx context.Context, tenant, instanceID string) (*InstanceStatus, error) {
 	instance, err := m.localDB.GetInstance(instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("instance not found in local DB: %w", err)
+	}
+	if instance.Tenant != tenant {
+		return nil, ErrInstanceTenantMismatch
 	}
 
 	if instance.ProviderID == nil || *instance.ProviderID == "" {
@@ -526,6 +533,18 @@ func (m *Manager) GetInstanceStatus(ctx context.Context, instanceID string) (*In
 		LastUpdated:        time.Now().UTC(),
 		Tags:               providerStatus.Tags,
 	}, nil
+}
+
+// ValidateInstanceTenant verifies that an active instance belongs to tenant.
+func (m *Manager) ValidateInstanceTenant(tenant, instanceID string) error {
+	instance, err := m.localDB.GetInstance(instanceID)
+	if err != nil {
+		return fmt.Errorf("instance not found in local DB: %w", err)
+	}
+	if instance.Tenant != tenant {
+		return ErrInstanceTenantMismatch
+	}
+	return nil
 }
 
 // Helper functions

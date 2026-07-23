@@ -6,11 +6,11 @@ package config
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"sync"
 	"time"
@@ -337,55 +337,77 @@ func (l *Loader) LoadDynamicGroups(ctx context.Context) (map[string]map[string]G
 	}
 
 	// Step 2: Load from S3
-	data, _, err := l.storage.Get(ctx, groupsKey)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			// File doesn't exist yet - cache and return empty map
-			l.groups = make(map[string]map[string]GroupConfig)
-			return l.groups, nil
-		}
-		return nil, fmt.Errorf("failed to load dynamic groups: %w", err)
-	}
-
-	// Step 3: Parse groups (nested by tenant)
-	groups, err = l.parseGroups(data)
+	groups, _, err := l.loadDynamicGroupsFromStorage(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Step 4: Save to disk cache
-	if err := l.saveGroupsToCache(ctx, groupsCacheKey, data); err != nil {
-		l.logger.Warn("Failed to save groups to cache", "error", err)
-	}
-
-	// Step 5: Update in-memory cache
 	l.groups = groups
 	return groups, nil
 }
 
+// loadDynamicGroupsFromStorage loads dynamic groups without consulting or mutating
+// the in-memory cache. The caller must hold groupsMu before installing the result.
+func (l *Loader) loadDynamicGroupsFromStorage(ctx context.Context) (map[string]map[string]GroupConfig, string, error) {
+	// Load current groups and the backend validator used for conditional writes.
+	data, etag, err := l.storage.Get(ctx, groupsKey)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return make(map[string]map[string]GroupConfig), "", nil
+		}
+		return nil, "", fmt.Errorf("failed to load dynamic groups: %w", err)
+	}
+
+	// Parse groups nested by tenant.
+	groups, err := l.parseGroups(data)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Save the authoritative data to the local disk cache.
+	if err := l.saveGroupsToCache(ctx, groupsCacheKey, data); err != nil {
+		l.logger.Warn("Failed to save groups to cache", "error", err)
+	}
+	return groups, etag, nil
+}
+
 // SetDynamicGroup atomically updates a single dynamic group and persists to S3.
 // This is the only safe way to mutate dynamic groups.
-// Uses ETag from disk cache to prevent concurrent modification.
+// Uses the authoritative storage ETag to prevent concurrent modification.
 // Updates both in-memory and disk cache on successful write.
 func (l *Loader) SetDynamicGroup(ctx context.Context, tenant, key string, group GroupConfig) error {
+	return l.UpdateDynamicGroup(ctx, tenant, key, func(GroupConfig, bool) (GroupConfig, error) {
+		return group, nil
+	})
+}
+
+// UpdateDynamicGroup atomically reloads, merges, and persists one dynamic group.
+// The update callback runs while groupsMu is held and must not call Loader methods.
+func (l *Loader) UpdateDynamicGroup(
+	ctx context.Context,
+	tenant, key string,
+	update func(existing GroupConfig, exists bool) (GroupConfig, error),
+) error {
 	l.groupsMu.Lock()
 	defer l.groupsMu.Unlock()
 
-	// Ensure groups are loaded
-	if l.groups == nil {
-		l.groups = make(map[string]map[string]GroupConfig)
+	groups, etag, err := l.loadDynamicGroupsFromStorage(ctx)
+	if err != nil {
+		return err
+	}
+	l.groups = groups
+
+	existing, exists := groups[tenant][key]
+	group, err := update(cloneGroupConfig(existing), exists)
+	if err != nil {
+		return err
 	}
 
-	// Ensure tenant map exists
-	if l.groups[tenant] == nil {
-		l.groups[tenant] = make(map[string]GroupConfig)
+	candidate := cloneDynamicGroups(groups)
+	if candidate[tenant] == nil {
+		candidate[tenant] = make(map[string]GroupConfig)
 	}
-
-	// Update the group
-	l.groups[tenant][key] = group
-
-	// Persist
-	return l.saveDynamicGroupsLocked(ctx)
+	candidate[tenant][key] = group
+	return l.saveDynamicGroupsLocked(ctx, candidate, etag)
 }
 
 // DeleteDynamicGroup atomically removes a dynamic group and persists to S3.
@@ -393,41 +415,41 @@ func (l *Loader) DeleteDynamicGroup(ctx context.Context, tenant, key string) err
 	l.groupsMu.Lock()
 	defer l.groupsMu.Unlock()
 
-	if l.groups == nil || l.groups[tenant] == nil {
+	groups, etag, err := l.loadDynamicGroupsFromStorage(ctx)
+	if err != nil {
+		return err
+	}
+	l.groups = groups
+
+	if groups[tenant] == nil {
 		return nil // Nothing to delete
 	}
 
-	if _, exists := l.groups[tenant][key]; !exists {
+	if _, exists := groups[tenant][key]; !exists {
 		return nil // Nothing to delete
 	}
 
-	delete(l.groups[tenant], key)
+	candidate := cloneDynamicGroups(groups)
+	delete(candidate[tenant], key)
 
 	// Clean up empty tenant map
-	if len(l.groups[tenant]) == 0 {
-		delete(l.groups, tenant)
+	if len(candidate[tenant]) == 0 {
+		delete(candidate, tenant)
 	}
 
-	return l.saveDynamicGroupsLocked(ctx)
+	return l.saveDynamicGroupsLocked(ctx, candidate, etag)
 }
 
 // saveDynamicGroupsLocked persists dynamic groups to S3. Caller must hold groupsMu.
-func (l *Loader) saveDynamicGroupsLocked(ctx context.Context) error {
-	// Compute ETag from disk cache (empty if never loaded/doesn't exist)
-	expectedETag := ""
-	cachedData, _, err := l.cacheStorage.Get(ctx, groupsCacheKey)
-	if err == nil {
-		expectedETag = fmt.Sprintf("%x", md5.Sum(cachedData))
-	}
-
+func (l *Loader) saveDynamicGroupsLocked(ctx context.Context, groups map[string]map[string]GroupConfig, etag string) error {
 	// Marshal to JSON
-	data, err := json.MarshalIndent(l.groups, "", "  ")
+	data, err := json.MarshalIndent(groups, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal dynamic groups: %w", err)
 	}
 
 	// Write to S3 with ETag check (optimistic locking)
-	if err := l.storage.PutIfMatch(ctx, groupsKey, data, expectedETag); err != nil {
+	if err := l.storage.PutIfMatch(ctx, groupsKey, data, etag); err != nil {
 		if errors.Is(err, storage.ErrPrecondition) {
 			return fmt.Errorf("groups file was modified by another process")
 		}
@@ -439,7 +461,24 @@ func (l *Loader) saveDynamicGroupsLocked(ctx context.Context) error {
 		l.logger.Warn("Failed to update groups cache", "error", err)
 	}
 
+	l.groups = groups
 	return nil
+}
+
+// cloneDynamicGroups copies the tenant and group maps for a candidate update.
+func cloneDynamicGroups(groups map[string]map[string]GroupConfig) map[string]map[string]GroupConfig {
+	clone := make(map[string]map[string]GroupConfig, len(groups))
+	for tenant, tenantGroups := range groups {
+		clone[tenant] = maps.Clone(tenantGroups)
+	}
+	return clone
+}
+
+// cloneGroupConfig copies mutable maps in a group configuration.
+func cloneGroupConfig(group GroupConfig) GroupConfig {
+	group.Vars = maps.Clone(group.Vars)
+	group.Args = maps.Clone(group.Args)
+	return group
 }
 
 // loadGroupsFromCache attempts to load groups from local disk cache

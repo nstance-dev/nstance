@@ -7,6 +7,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 )
 
@@ -133,52 +134,44 @@ func UpsertGroup(ctx context.Context, loader *Loader, tenant, key string, group 
 	staticTenantGroups := c.Groups[tenant]
 	staticGroup, existsInStatic := staticTenantGroups[key]
 
-	existingDynamic, existsInDynamic := loader.GetDynamicGroup(tenant, key)
-
-	// Validate based on group type
-	if existsInStatic {
-		if group.Template != "" && group.Template != staticGroup.Template {
-			return fmt.Errorf("cannot override template for static group %s in tenant %s", key, tenant)
-		}
-		if group.SubnetPool != "" {
-			return fmt.Errorf("cannot override subnet pool for static group %s in tenant %s", key, tenant)
-		}
-		if len(group.Args) > 0 {
-			return fmt.Errorf("cannot override args for static group %s in tenant %s", key, tenant)
-		}
-		if group.DrainTimeout != nil {
-			return fmt.Errorf("cannot override drainTimeout for static group %s in tenant %s", key, tenant)
-		}
-	} else if !existsInDynamic {
-		// New dynamic group - validate required fields
-		if group.Template == "" {
-			return fmt.Errorf("template is required for new group in tenant %s", tenant)
-		}
-		// If no subnet pool specified, inherit from template
-		if group.SubnetPool == "" {
-			template, exists := c.Templates[group.Template]
-			if !exists {
-				return fmt.Errorf("template %s not found", group.Template)
+	if err := loader.UpdateDynamicGroup(ctx, tenant, key, func(existingDynamic GroupConfig, existsInDynamic bool) (GroupConfig, error) {
+		// Validate based on group type
+		if existsInStatic {
+			if group.Template != "" && group.Template != staticGroup.Template {
+				return GroupConfig{}, fmt.Errorf("cannot override template for static group %s in tenant %s", key, tenant)
 			}
-			if template.SubnetPool == "" {
-				return fmt.Errorf("template %s has no subnet pool configured", group.Template)
+			if group.SubnetPool != "" {
+				return GroupConfig{}, fmt.Errorf("cannot override subnet pool for static group %s in tenant %s", key, tenant)
 			}
-			group.SubnetPool = template.SubnetPool
+			if len(group.Args) > 0 {
+				return GroupConfig{}, fmt.Errorf("cannot override args for static group %s in tenant %s", key, tenant)
+			}
+			if group.DrainTimeout != nil {
+				return GroupConfig{}, fmt.Errorf("cannot override drainTimeout for static group %s in tenant %s", key, tenant)
+			}
+		} else if !existsInDynamic {
+			if group.Template == "" {
+				return GroupConfig{}, fmt.Errorf("template is required for new group in tenant %s", tenant)
+			}
+			if group.SubnetPool == "" {
+				template, exists := c.Templates[group.Template]
+				if !exists {
+					return GroupConfig{}, fmt.Errorf("template %s not found", group.Template)
+				}
+				if template.SubnetPool == "" {
+					return GroupConfig{}, fmt.Errorf("template %s has no subnet pool configured", group.Template)
+				}
+				group.SubnetPool = template.SubnetPool
+			}
 		}
-	}
 
-	// Validate subnet pool for dynamic groups
-	if !existsInStatic && group.SubnetPool != "" {
-		if err := c.ValidateDynamicSubnetKey(group.SubnetPool); err != nil {
-			return err
+		if !existsInStatic && group.SubnetPool != "" {
+			if err := c.ValidateDynamicSubnetKey(group.SubnetPool); err != nil {
+				return GroupConfig{}, err
+			}
 		}
-	}
-
-	// Merge into existing dynamic config (or create new)
-	merged := mergeGroupConfig(existingDynamic, group, existsInStatic)
-
-	// Atomically update and persist
-	if err := loader.SetDynamicGroup(ctx, tenant, key, merged); err != nil {
+		return mergeGroupConfig(existingDynamic, group, existsInStatic), nil
+	}); err != nil {
 		return err
 	}
 
@@ -266,6 +259,7 @@ func mergeGroups(static, dynamic map[string]GroupConfig) map[string]GroupConfig 
 		if staticGroup, existsInStatic := static[key]; existsInStatic {
 			// Merge: keep template and subnet from static, override size/instanceType/vars from dynamic
 			mergedGroup := staticGroup
+			mergedGroup.Vars = maps.Clone(staticGroup.Vars)
 			if dynamicGroup.Size != nil {
 				mergedGroup.Size = dynamicGroup.Size
 			}

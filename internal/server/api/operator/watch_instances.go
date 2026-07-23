@@ -23,14 +23,17 @@ func (s *Service) WatchInstances(req *emptypb.Empty, stream proto.OperatorServic
 		return status.Errorf(codes.Internal, "failed to get client info: %v", err)
 	}
 
+	tenant := clientInfo.Tenant
+	registeredStream := &instancesStream{stream: stream}
+	registeredStream.mu.Lock()
 	s.streamMu.Lock()
-	s.instancesStream = stream
+	s.instancesStreams[tenant] = registeredStream
 	s.streamMu.Unlock()
 
 	defer func() {
 		s.streamMu.Lock()
-		if s.instancesStream == stream {
-			s.instancesStream = nil
+		if s.instancesStreams[tenant] == registeredStream {
+			delete(s.instancesStreams, tenant)
 		}
 		s.streamMu.Unlock()
 	}()
@@ -38,8 +41,9 @@ func (s *Service) WatchInstances(req *emptypb.Empty, stream proto.OperatorServic
 	s.logger.Info("Operator connected to instances stream", "client_id", clientInfo.ClientID)
 
 	// Send initial snapshot of pending drain instances
-	instances, err := s.localDB.GetInstancesPendingDrain(clientInfo.Tenant)
+	instances, err := s.localDB.GetInstancesPendingDrain(tenant)
 	if err != nil {
+		registeredStream.mu.Unlock()
 		s.logger.Error("Failed to get pending drain instances", "client_id", clientInfo.ClientID, "error", err)
 		return status.Errorf(codes.Internal, "failed to get snapshot: %v", err)
 	}
@@ -72,11 +76,14 @@ func (s *Service) WatchInstances(req *emptypb.Empty, stream proto.OperatorServic
 			ProviderInstanceId: ptrToString(inst.ProviderID),
 		}
 
-		if err := stream.Send(event); err != nil {
+		err := registeredStream.stream.Send(event)
+		if err != nil {
+			registeredStream.mu.Unlock()
 			s.logger.Warn("Failed to send snapshot event", "error", err)
 			return err
 		}
 	}
+	registeredStream.mu.Unlock()
 
 	s.logger.Info("Sent drain snapshot", "client_id", clientInfo.ClientID, "count", len(instances))
 

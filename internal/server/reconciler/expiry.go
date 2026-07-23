@@ -21,12 +21,23 @@ func (r *Reconciler) handleInitialReconcile() error {
 	if err != nil {
 		return fmt.Errorf("failed to get groups for initial reconciliation: %w", err)
 	}
+	identities := make(map[groupIdentity]struct{}, len(groups))
+	for _, group := range groups {
+		identities[groupIdentity{tenant: group.Tenant, group: group.Key}] = struct{}{}
+	}
+	managedGroups, err := r.localDB.GetActiveManagedGroupIdentities()
+	if err != nil {
+		return fmt.Errorf("failed to get active managed groups for initial reconciliation: %w", err)
+	}
+	for _, group := range managedGroups {
+		identities[groupIdentity{tenant: group.Tenant, group: group.Group}] = struct{}{}
+	}
 
 	var firstErr error
-	for _, tg := range groups {
-		if err := r.handleGroupChanged(tg.Tenant, tg.Key); err != nil {
+	for identity := range identities {
+		if err := r.handleGroupChanged(identity.tenant, identity.group); err != nil {
 			r.logger.Error("Failed to reconcile group during initial reconciliation",
-				"tenant", tg.Tenant, "group", tg.Key, "error", err)
+				"tenant", identity.tenant, "group", identity.group, "error", err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -36,12 +47,12 @@ func (r *Reconciler) handleInitialReconcile() error {
 	// Check for on-demand instance expiry
 	r.checkOnDemandExpiry()
 
-	r.logger.Info("Initial reconciliation complete", "groups", len(groups))
+	r.logger.Info("Initial reconciliation complete", "groups", len(identities))
 	return firstErr
 }
 
 // checkGroupExpiry checks for and handles expiry of managed instances in a group
-func (r *Reconciler) checkGroupExpiry(groupKey string) {
+func (r *Reconciler) checkGroupExpiry(tenant, groupKey string) {
 	cfg := r.configLoader.GetCurrent()
 	expiry := cfg.Shard.Expiry
 
@@ -53,7 +64,7 @@ func (r *Reconciler) checkGroupExpiry(groupKey string) {
 	r.logger.Info("Checking for instance expiry", "group", groupKey)
 
 	// Get current draining state for this group
-	currentInstances, err := r.getGroupInstances(groupKey)
+	currentInstances, err := r.getGroupInstances(tenant, groupKey)
 	if err != nil {
 		r.logger.Error("Failed to get current instances for expiry check", "group", groupKey, "error", err)
 		return
@@ -82,7 +93,7 @@ func (r *Reconciler) checkGroupExpiry(groupKey string) {
 
 		// Filter to this group only
 		for _, instance := range instances {
-			if instance.Group == groupKey {
+			if instance.Tenant == tenant && instance.Group == groupKey {
 				r.logger.Info("Forced expiry triggered for instance", "instance_id", instance.ID, "age", time.Since(instance.CreatedAt))
 				r.expireInstance(instance.ID, "forced-expiry")
 				return // Only expire one instance per reconciliation cycle
@@ -100,7 +111,7 @@ func (r *Reconciler) checkGroupExpiry(groupKey string) {
 
 		// Filter to this group only
 		for _, instance := range instances {
-			if instance.Group == groupKey {
+			if instance.Tenant == tenant && instance.Group == groupKey {
 				r.logger.Info("Opportunistic expiry triggered for instance", "instance_id", instance.ID, "age", time.Since(instance.CreatedAt))
 				r.expireInstance(instance.ID, "eligible-expiry")
 				return // Only expire one instance per reconciliation cycle
@@ -167,7 +178,7 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 		return
 	}
 
-	oldest, err := r.localDB.GetOldestManagedInstanceByGroup(groupKey)
+	oldest, err := r.localDB.GetOldestManagedInstanceByGroup(tenant, groupKey)
 	if err != nil {
 		r.logger.Error("Failed to get oldest instance for expiry scheduling",
 			"group", groupKey, "error", err)
@@ -175,7 +186,7 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 	}
 	if oldest == nil {
 		r.logger.Debug("No eligible instances for expiry scheduling", "group", groupKey)
-		r.cancelGroupExpiryTimer(groupKey)
+		r.cancelGroupExpiryTimer(tenant, groupKey)
 		return
 	}
 
@@ -201,7 +212,8 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 	r.expiryTimerMu.Lock()
 	defer r.expiryTimerMu.Unlock()
 
-	if existing, ok := r.expiryTimers[groupKey]; ok {
+	identity := groupIdentity{tenant: tenant, group: groupKey}
+	if existing, ok := r.expiryTimers[identity]; ok {
 		existing.Stop()
 	}
 
@@ -211,7 +223,7 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 		"instance_age", instanceAge.Round(time.Second).String(),
 		"check_in", nextExpiry.Round(time.Second).String())
 
-	r.expiryTimers[groupKey] = time.AfterFunc(nextExpiry, func() {
+	r.expiryTimers[identity] = time.AfterFunc(nextExpiry, func() {
 		r.logger.Info("Expiry timer fired", "tenant", tenant, "group", groupKey)
 		r.Enqueue(ReconcileEvent{
 			Type:     EventGroupChanged,
@@ -222,13 +234,14 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 }
 
 // cancelGroupExpiryTimer cancels the expiry timer for a group if one exists
-func (r *Reconciler) cancelGroupExpiryTimer(groupKey string) {
+func (r *Reconciler) cancelGroupExpiryTimer(tenant, groupKey string) {
 	r.expiryTimerMu.Lock()
 	defer r.expiryTimerMu.Unlock()
 
-	if timer, ok := r.expiryTimers[groupKey]; ok {
+	identity := groupIdentity{tenant: tenant, group: groupKey}
+	if timer, ok := r.expiryTimers[identity]; ok {
 		timer.Stop()
-		delete(r.expiryTimers, groupKey)
+		delete(r.expiryTimers, identity)
 	}
 }
 
@@ -237,8 +250,8 @@ func (r *Reconciler) stopAllExpiryTimers() {
 	r.expiryTimerMu.Lock()
 	defer r.expiryTimerMu.Unlock()
 
-	for groupKey, timer := range r.expiryTimers {
+	for identity, timer := range r.expiryTimers {
 		timer.Stop()
-		delete(r.expiryTimers, groupKey)
+		delete(r.expiryTimers, identity)
 	}
 }

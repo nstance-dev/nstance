@@ -6,11 +6,15 @@ package operator
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/nstance-dev/nstance/internal/proto"
@@ -29,6 +33,18 @@ type DrainNotification struct {
 	DeleteAt    time.Time
 }
 
+// groupsStream serializes snapshot and live group events on one operator stream.
+type groupsStream struct {
+	stream proto.OperatorService_WatchGroupsServer
+	mu     sync.Mutex
+}
+
+// instancesStream serializes snapshot and live instance events on one operator stream.
+type instancesStream struct {
+	stream proto.OperatorService_WatchInstancesServer
+	mu     sync.Mutex
+}
+
 // Service implements the OperatorService gRPC service
 type Service struct {
 	proto.UnimplementedOperatorServiceServer
@@ -37,7 +53,7 @@ type Service struct {
 	localDB         *localdb.DB
 	instanceManager InstanceManager
 	onGroupChanged  func(tenant, groupKey string)
-	onDrainAcked    func(instanceID string)
+	onDrainAcked    func(tenant, instanceID string)
 	logger          *slog.Logger
 
 	// Certificate renewal dependencies
@@ -47,17 +63,19 @@ type Service struct {
 	isClusterLeader func() bool
 
 	// Operator stream tracking
-	streamMu        sync.Mutex
-	groupsStream    proto.OperatorService_WatchGroupsServer
-	instancesStream proto.OperatorService_WatchInstancesServer
-	errorsStream    proto.OperatorService_WatchErrorsServer
+	groupMutationMu  sync.Mutex
+	streamMu         sync.Mutex
+	groupsStreams    map[string]*groupsStream
+	instancesStreams map[string]*instancesStream
+	errorsStreams    map[string]proto.OperatorService_WatchErrorsServer
 }
 
 // InstanceManager interface for instance operations
 type InstanceManager interface {
 	CreateInstance(ctx context.Context, req instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error)
-	DeleteInstance(ctx context.Context, instanceID string) error
-	GetInstanceStatus(ctx context.Context, instanceID string) (*instances.InstanceStatus, error)
+	DeleteInstance(ctx context.Context, tenant, instanceID string) error
+	GetInstanceStatus(ctx context.Context, tenant, instanceID string) (*instances.InstanceStatus, error)
+	ValidateInstanceTenant(tenant, instanceID string) error
 }
 
 // ptrToString converts a string pointer to string (empty if nil)
@@ -68,13 +86,24 @@ func ptrToString(s *string) string {
 	return *s
 }
 
+// tenantInstanceError maps instance ownership and lookup failures to operator API errors.
+func tenantInstanceError(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return status.Error(codes.NotFound, "instance not found")
+	}
+	if errors.Is(err, instances.ErrInstanceTenantMismatch) {
+		return status.Error(codes.PermissionDenied, "instance belongs to another tenant")
+	}
+	return status.Errorf(codes.Internal, "failed to get instance: %v", err)
+}
+
 // Options contains options for creating an OperatorService
 type Options struct {
 	ConfigLoader    *serverconfig.Loader
 	LocalDB         *localdb.DB
 	InstanceManager InstanceManager
 	OnGroupChanged  func(tenant, groupKey string)
-	OnDrainAcked    func(instanceID string)
+	OnDrainAcked    func(tenant, instanceID string)
 	Logger          *slog.Logger
 
 	// Certificate renewal dependencies
@@ -114,26 +143,18 @@ func New(opts Options) (*Service, error) {
 		logger:          opts.Logger,
 
 		// Certificate renewal dependencies (optional for backward compatibility)
-		clusterStorage:  opts.ClusterStorage,
-		caCertPEM:       opts.CACertPEM,
-		caKeyPEM:        opts.CAKeyPEM,
-		isClusterLeader: opts.IsClusterLeader,
+		clusterStorage:   opts.ClusterStorage,
+		caCertPEM:        opts.CACertPEM,
+		caKeyPEM:         opts.CAKeyPEM,
+		isClusterLeader:  opts.IsClusterLeader,
+		groupsStreams:    make(map[string]*groupsStream),
+		instancesStreams: make(map[string]*instancesStream),
+		errorsStreams:    make(map[string]proto.OperatorService_WatchErrorsServer),
 	}, nil
 }
 
 // NotifyDrain sends a drain notification to the connected operator (if any)
 func (s *Service) NotifyDrain(notification DrainNotification) {
-	s.streamMu.Lock()
-	stream := s.instancesStream
-	s.streamMu.Unlock()
-
-	if stream == nil {
-		s.logger.Warn("No operator connected, drain notification skipped (instance will be deleted after timeout)",
-			"instance_id", notification.InstanceID,
-			"delete_at", notification.DeleteAt)
-		return
-	}
-
 	// Get instance to retrieve provider ID
 	instance, err := s.localDB.GetInstance(notification.InstanceID)
 	if err != nil {
@@ -158,6 +179,18 @@ func (s *Service) NotifyDrain(notification DrainNotification) {
 		return
 	}
 
+	s.streamMu.Lock()
+	stream := s.instancesStreams[instance.Tenant]
+	s.streamMu.Unlock()
+
+	if stream == nil {
+		s.logger.Warn("No operator connected for tenant, drain notification skipped (instance will be deleted after timeout)",
+			"tenant", instance.Tenant,
+			"instance_id", notification.InstanceID,
+			"delete_at", notification.DeleteAt)
+		return
+	}
+
 	event := &proto.InstanceEvent{
 		InstanceId:         notification.InstanceID,
 		Tenant:             instance.Tenant,
@@ -169,32 +202,42 @@ func (s *Service) NotifyDrain(notification DrainNotification) {
 		ProviderInstanceId: providerInstanceID,
 	}
 
-	if err := stream.Send(event); err != nil {
+	stream.mu.Lock()
+	err = stream.stream.Send(event)
+	stream.mu.Unlock()
+	if err != nil {
 		s.logger.Warn("Failed to send drain notification", "instance_id", notification.InstanceID, "error", err)
 	} else {
 		s.logger.Info("Sent drain notification to operator", "instance_id", notification.InstanceID, "provider_instance_id", providerInstanceID)
 	}
 }
 
-// NotifyGroupEvent sends a group change event to the connected operator (if any)
-func (s *Service) NotifyGroupEvent(event *proto.GroupEvent) {
+// NotifyGroupEvent sends a group change event to the tenant's connected operator (if any).
+func (s *Service) NotifyGroupEvent(tenant string, event *proto.GroupEvent) {
 	s.streamMu.Lock()
-	stream := s.groupsStream
+	stream := s.groupsStreams[tenant]
 	s.streamMu.Unlock()
 
 	if stream == nil {
 		return
 	}
 
-	if err := stream.Send(event); err != nil {
-		s.logger.Warn("Failed to send group event", "group", event.Group.Key, "error", err)
+	stream.mu.Lock()
+	err := stream.stream.Send(event)
+	stream.mu.Unlock()
+	if err != nil {
+		group := ""
+		if event.Group != nil {
+			group = event.Group.Key
+		}
+		s.logger.Warn("Failed to send group event", "tenant", tenant, "group", group, "error", err)
 	}
 }
 
-// NotifyError sends an error event to the connected operator (if any)
-func (s *Service) NotifyError(event *proto.ErrorEvent) {
+// NotifyError sends an error event to the tenant's connected operator (if any).
+func (s *Service) NotifyError(tenant string, event *proto.ErrorEvent) {
 	s.streamMu.Lock()
-	stream := s.errorsStream
+	stream := s.errorsStreams[tenant]
 	s.streamMu.Unlock()
 
 	if stream == nil {

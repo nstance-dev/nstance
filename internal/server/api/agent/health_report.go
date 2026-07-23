@@ -587,7 +587,7 @@ func (s *Service) handleConfigDrift(_ context.Context, instanceID, reportedConfi
 
 			// Trigger reconciliation to schedule rotation
 			if s.onReconcileRequested != nil {
-				if err := s.onReconcileRequested(instance.Group, "config-drift"); err != nil {
+				if err := s.onReconcileRequested(instance.Tenant, instance.Group, "config-drift"); err != nil {
 					s.logger.Error("Failed to trigger reconciliation for infra drift",
 						"instance_id", instanceID,
 						"group", instance.Group,

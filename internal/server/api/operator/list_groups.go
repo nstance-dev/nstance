@@ -9,6 +9,7 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -68,6 +69,7 @@ func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
 		if isStatic {
 			finalGroup = staticGroup
 			if hasDynamic {
+				finalGroup.Vars = maps.Clone(staticGroup.Vars)
 				if dynamicGroup.Size != nil {
 					finalGroup.Size = dynamicGroup.Size
 				}
@@ -90,28 +92,33 @@ func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
 			continue
 		}
 
-		gs := &proto.GroupStatus{
-			Key:          groupKey,
-			Tenant:       tenant,
-			Template:     finalGroup.Template,
-			Size:         int32(finalGroup.GetSize()),
-			InstanceType: finalGroup.InstanceType,
-			SubnetPool:   finalGroup.SubnetPool,
-			Vars:         finalGroup.Vars,
-			IsStatic:     isStatic,
-		}
-		providerIDs, err := s.localDB.GetProviderIDsByGroup(groupKey, true)
-		if err != nil {
-			s.logger.Warn("Failed to get provider IDs for group", "group", groupKey, "error", err)
-		} else {
-			gs.ActualSize = int32(len(providerIDs))
-			gs.ProviderIds = providerIDs
-		}
-		gs.Etag = computeGroupEtag(gs)
-		groups = append(groups, gs)
+		groups = append(groups, s.buildGroupStatus(tenant, groupKey, finalGroup, isStatic))
 	}
 
 	return groups, nil
+}
+
+// buildGroupStatus constructs the operator-facing status for a tenant-scoped group.
+func (s *Service) buildGroupStatus(tenant, groupKey string, group serverconfig.GroupConfig, isStatic bool) *proto.GroupStatus {
+	status := &proto.GroupStatus{
+		Key:          groupKey,
+		Tenant:       tenant,
+		Template:     group.Template,
+		Size:         int32(group.GetSize()),
+		InstanceType: group.InstanceType,
+		SubnetPool:   group.SubnetPool,
+		Vars:         group.Vars,
+		IsStatic:     isStatic,
+	}
+	providerIDs, err := s.localDB.GetProviderIDsByGroup(tenant, groupKey, true)
+	if err != nil {
+		s.logger.Warn("Failed to get provider IDs for group", "tenant", tenant, "group", groupKey, "error", err)
+	} else {
+		status.ActualSize = int32(len(providerIDs))
+		status.ProviderIds = providerIDs
+	}
+	status.Etag = computeGroupEtag(status)
+	return status
 }
 
 // computeGroupEtag generates a deterministic hash of a group's merged config for change detection.

@@ -24,12 +24,15 @@ func (s *Service) AcknowledgeDrained(ctx context.Context, req *proto.DrainAckReq
 	if req.InstanceId == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "instance_id is required")
 	}
+	if err := s.instanceManager.ValidateInstanceTenant(clientInfo.Tenant, req.InstanceId); err != nil {
+		return nil, tenantInstanceError(err)
+	}
 
 	s.logger.Info("Operator acknowledged drain",
 		"client_id", clientInfo.ClientID,
 		"instance_id", req.InstanceId)
 
-	s.onDrainAcked(req.InstanceId)
+	s.onDrainAcked(clientInfo.Tenant, req.InstanceId)
 
 	return &emptypb.Empty{}, nil
 }

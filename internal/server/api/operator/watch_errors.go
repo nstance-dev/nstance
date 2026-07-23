@@ -20,19 +20,20 @@ func (s *Service) WatchErrors(req *emptypb.Empty, stream proto.OperatorService_W
 		return status.Errorf(codes.Internal, "failed to get client info: %v", err)
 	}
 
+	tenant := clientInfo.Tenant
 	s.streamMu.Lock()
-	s.errorsStream = stream
+	s.errorsStreams[tenant] = stream
 	s.streamMu.Unlock()
 
 	defer func() {
 		s.streamMu.Lock()
-		if s.errorsStream == stream {
-			s.errorsStream = nil
+		if s.errorsStreams[tenant] == stream {
+			delete(s.errorsStreams, tenant)
 		}
 		s.streamMu.Unlock()
 	}()
 
-	s.logger.Info("Operator connected to errors stream", "client_id", clientInfo.ClientID)
+	s.logger.Info("Operator connected to errors stream", "client_id", clientInfo.ClientID, "tenant", tenant)
 
 	<-stream.Context().Done()
 	s.logger.Info("Operator disconnected from errors stream", "client_id", clientInfo.ClientID)

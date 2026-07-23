@@ -451,11 +451,11 @@ func (db *DB) SeedFromS3Data(instances []*Instance) error {
 // GetProviderIDsByGroup returns sorted provider IDs for all active instances in a group.
 // If excludeOnDemand is true, on-demand instances (created via CreateInstance/Machine) are
 // excluded since their lifecycle is managed by individual Machine/NstanceMachine resources.
-func (db *DB) GetProviderIDsByGroup(groupKey string, excludeOnDemand bool) ([]string, error) {
+func (db *DB) GetProviderIDsByGroup(tenant, groupKey string, excludeOnDemand bool) ([]string, error) {
 	query := `
 		SELECT provider_id
 		FROM instances
-		WHERE group_key = ?
+		WHERE tenant = ? AND group_key = ?
 		AND deleted_at IS NULL
 		AND provider_id IS NOT NULL
 		AND (provider_state IS NULL OR json_extract(provider_state, '$.status') NOT IN ('deleting', 'deleted'))
@@ -465,7 +465,7 @@ func (db *DB) GetProviderIDsByGroup(groupKey string, excludeOnDemand bool) ([]st
 	}
 	query += ` ORDER BY provider_id ASC`
 
-	rows, err := db.conn.Query(query, groupKey)
+	rows, err := db.conn.Query(query, tenant, groupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -485,15 +485,15 @@ func (db *DB) GetProviderIDsByGroup(groupKey string, excludeOnDemand bool) ([]st
 
 // GetInstancesByGroup returns all active instances for a group, ordered by creation time (oldest first)
 // If excludeOnDemand is true, on-demand instances are excluded from the results
-func (db *DB) GetInstancesByGroup(groupKey string, excludeOnDemand bool) ([]string, error) {
+func (db *DB) GetInstancesByGroup(tenant, groupKey string, excludeOnDemand bool) ([]string, error) {
 	query := `
 		SELECT id
 		FROM instances
-		WHERE group_key = ?
+		WHERE tenant = ? AND group_key = ?
 		AND deleted_at IS NULL
 		AND (provider_state IS NULL OR json_extract(provider_state, '$.status') NOT IN ('deleting', 'deleted'))
 	`
-	args := []any{groupKey}
+	args := []any{tenant, groupKey}
 
 	if excludeOnDemand {
 		query += " AND on_demand = 0"
@@ -519,13 +519,48 @@ func (db *DB) GetInstancesByGroup(groupKey string, excludeOnDemand bool) ([]stri
 	return instanceIDs, rows.Err()
 }
 
+// ManagedGroupIdentity identifies a tenant-scoped managed instance group.
+type ManagedGroupIdentity struct {
+	Tenant string
+	Group  string
+}
+
+// GetActiveManagedGroupIdentities returns tenant/group identities with active managed instances.
+// An identity is the tenant and group key pair that uniquely identifies a group.
+func (db *DB) GetActiveManagedGroupIdentities() ([]ManagedGroupIdentity, error) {
+	rows, err := db.conn.Query(`
+		SELECT DISTINCT tenant, group_key
+		FROM instances
+		WHERE on_demand = 0
+		AND group_key IS NOT NULL
+		AND group_key != ''
+		AND deleted_at IS NULL
+		AND (provider_state IS NULL OR json_extract(provider_state, '$.status') NOT IN ('deleting', 'deleted'))
+		ORDER BY tenant, group_key
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var identities []ManagedGroupIdentity
+	for rows.Next() {
+		var identity ManagedGroupIdentity
+		if err := rows.Scan(&identity.Tenant, &identity.Group); err != nil {
+			return nil, err
+		}
+		identities = append(identities, identity)
+	}
+	return identities, rows.Err()
+}
+
 // GetOldestManagedInstanceByGroup returns the oldest non-draining managed (not on-demand) instance for a group
 // Returns nil if no eligible instances exist
-func (db *DB) GetOldestManagedInstanceByGroup(groupKey string) (*Instance, error) {
+func (db *DB) GetOldestManagedInstanceByGroup(tenant, groupKey string) (*Instance, error) {
 	query := `
 		SELECT ` + instanceColumns + `
 		FROM instances
-		WHERE group_key = ?
+		WHERE tenant = ? AND group_key = ?
 		AND deleted_at IS NULL
 		AND on_demand = 0
 		AND drain_started_at IS NULL
@@ -535,7 +570,7 @@ func (db *DB) GetOldestManagedInstanceByGroup(groupKey string) (*Instance, error
 	`
 
 	instance := &Instance{}
-	err := scanInstance(db.conn.QueryRow(query, groupKey), instance)
+	err := scanInstance(db.conn.QueryRow(query, tenant, groupKey), instance)
 	if err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			return nil, nil
@@ -548,15 +583,15 @@ func (db *DB) GetOldestManagedInstanceByGroup(groupKey string) (*Instance, error
 
 // GetInstanceCountByGroup returns the count of active instances for a group
 // If excludeOnDemand is true, on-demand instances are excluded from the count
-func (db *DB) GetInstanceCountByGroup(groupKey string, excludeOnDemand bool) (int, error) {
+func (db *DB) GetInstanceCountByGroup(tenant, groupKey string, excludeOnDemand bool) (int, error) {
 	query := `
 		SELECT COUNT(*)
 		FROM instances
-		WHERE group_key = ?
+		WHERE tenant = ? AND group_key = ?
 		AND deleted_at IS NULL
 		AND (provider_state IS NULL OR json_extract(provider_state, '$.status') NOT IN ('deleting', 'deleted'))
 	`
-	args := []any{groupKey}
+	args := []any{tenant, groupKey}
 
 	if excludeOnDemand {
 		query += " AND on_demand = 0"

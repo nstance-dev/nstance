@@ -18,6 +18,56 @@ func timePtr(t time.Time) *time.Time {
 	return &t
 }
 
+// TestGroupInstanceQueriesAreTenantScoped verifies same-key groups remain tenant-isolated.
+func TestGroupInstanceQueriesAreTenantScoped(t *testing.T) {
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	now := time.Now().UTC()
+	running := []byte(`{"status":"running"}`)
+	instances := []*Instance{
+		{ID: "red-old", Tenant: "red", Group: "workers", Nonce: "red-old", ProviderID: stringPtr("provider-red-old"), ProviderState: running, CreatedAt: now.Add(-2 * time.Hour)},
+		{ID: "red-new", Tenant: "red", Group: "workers", Nonce: "red-new", ProviderID: stringPtr("provider-red-new"), ProviderState: running, CreatedAt: now.Add(-time.Hour)},
+		{ID: "blue-old", Tenant: "blue", Group: "workers", Nonce: "blue-old", ProviderID: stringPtr("provider-blue-old"), ProviderState: running, CreatedAt: now.Add(-3 * time.Hour)},
+		{ID: "on-demand", Tenant: "red", Group: "adhoc", Nonce: "on-demand", OnDemand: true, ProviderState: running, CreatedAt: now},
+		{ID: "deleting", Tenant: "red", Group: "old", Nonce: "deleting", ProviderState: []byte(`{"status":"deleting"}`), CreatedAt: now},
+	}
+	for _, instance := range instances {
+		if err := db.CreateInstance(instance); err != nil {
+			t.Fatalf("create %s: %v", instance.ID, err)
+		}
+	}
+
+	redIDs, err := db.GetInstancesByGroup("red", "workers", true)
+	if err != nil || fmt.Sprint(redIDs) != "[red-old red-new]" {
+		t.Fatalf("red instances = %v, err = %v", redIDs, err)
+	}
+	blueCount, err := db.GetInstanceCountByGroup("blue", "workers", true)
+	if err != nil || blueCount != 1 {
+		t.Fatalf("blue count = %d, err = %v", blueCount, err)
+	}
+	oldest, err := db.GetOldestManagedInstanceByGroup("red", "workers")
+	if err != nil || oldest == nil || oldest.ID != "red-old" {
+		t.Fatalf("red oldest = %#v, err = %v", oldest, err)
+	}
+	providerIDs, err := db.GetProviderIDsByGroup("blue", "workers", true)
+	if err != nil || fmt.Sprint(providerIDs) != "[provider-blue-old]" {
+		t.Fatalf("blue provider IDs = %v, err = %v", providerIDs, err)
+	}
+	identities, err := db.GetActiveManagedGroupIdentities()
+	if err != nil || fmt.Sprint(identities) != "[{blue workers} {red workers}]" {
+		t.Fatalf("active managed group identities = %v, err = %v", identities, err)
+	}
+}
+
+// stringPtr returns a pointer to value for test records.
+func stringPtr(value string) *string {
+	return &value
+}
+
 func TestDatabase(t *testing.T) {
 	// Create temporary database file
 	tempFile := "/tmp/nstance-test.db"

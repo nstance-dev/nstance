@@ -36,6 +36,9 @@ func (s *Service) DeleteGroup(ctx context.Context, req *proto.DeleteGroupRequest
 		return nil, status.Errorf(codes.InvalidArgument, "invalid group key %q: %v", req.Key, err)
 	}
 
+	s.groupMutationMu.Lock()
+	defer s.groupMutationMu.Unlock()
+
 	if err := serverconfig.DeleteGroup(ctx, s.configLoader, tenant, req.Key); err != nil {
 		s.logger.Error("Failed to delete group", "client_id", clientInfo.ClientID, "tenant", tenant, "group", req.Key, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to delete group: %v", err)
@@ -43,10 +46,18 @@ func (s *Service) DeleteGroup(ctx context.Context, req *proto.DeleteGroupRequest
 
 	s.onGroupChanged(tenant, req.Key)
 
-	s.NotifyGroupEvent(&proto.GroupEvent{
-		Type:  proto.GroupEvent_DELETE,
-		Group: &proto.GroupStatus{Key: req.Key},
-	})
+	staticGroup, isStatic := s.configLoader.GetCurrent().Groups[tenant][req.Key]
+	if isStatic {
+		s.NotifyGroupEvent(tenant, &proto.GroupEvent{
+			Type:  proto.GroupEvent_UPSERT,
+			Group: s.buildGroupStatus(tenant, req.Key, staticGroup, true),
+		})
+	} else {
+		s.NotifyGroupEvent(tenant, &proto.GroupEvent{
+			Type:  proto.GroupEvent_DELETE,
+			Group: &proto.GroupStatus{Key: req.Key, Tenant: tenant},
+		})
+	}
 
 	s.logger.Info("Group deleted successfully", "client_id", clientInfo.ClientID, "group", req.Key)
 	return &emptypb.Empty{}, nil

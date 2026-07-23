@@ -6,6 +6,7 @@ package instances
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -239,9 +240,12 @@ func TestInstanceManager(t *testing.T) {
 		}
 
 		// Get status
-		status, err := manager.GetInstanceStatus(ctx, instanceID)
+		status, err := manager.GetInstanceStatus(ctx, "default", instanceID)
 		if err != nil {
 			t.Fatalf("Failed to get instance status: %v", err)
+		}
+		if _, err := manager.GetInstanceStatus(ctx, "other", instanceID); !errors.Is(err, ErrInstanceTenantMismatch) {
+			t.Fatalf("foreign tenant status error = %v, want ErrInstanceTenantMismatch", err)
 		}
 
 		// Verify status
@@ -270,8 +274,12 @@ func TestInstanceManager(t *testing.T) {
 			t.Fatalf("Failed to create instance: %v", err)
 		}
 
+		if err := manager.DeleteInstance(ctx, "other", instanceID); !errors.Is(err, ErrInstanceTenantMismatch) {
+			t.Fatalf("foreign tenant deletion error = %v, want ErrInstanceTenantMismatch", err)
+		}
+
 		// Delete instance
-		err = manager.DeleteInstance(ctx, instanceID)
+		err = manager.DeleteInstance(ctx, "default", instanceID)
 		if err != nil {
 			t.Fatalf("Failed to delete instance: %v", err)
 		}

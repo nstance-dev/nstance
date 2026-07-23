@@ -32,6 +32,7 @@ func (s *Service) CreateInstance(ctx context.Context, req *proto.CreateInstanceR
 
 	createReq := instances.CreateInstanceRequest{
 		InstanceID:   req.InstanceId,
+		Tenant:       clientInfo.Tenant,
 		Group:        req.Config.Group,
 		Template:     req.Config.Template,
 		InstanceType: req.Config.InstanceType,
