@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.93.2
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.0
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.56.7
 	github.com/aws/smithy-go v1.24.0
 	github.com/caarlos0/env/v11 v11.3.1
 	github.com/fsnotify/fsnotify v1.9.0
@@ -39,6 +40,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.22.4
 	sigs.k8s.io/yaml v1.6.0
 )
+
+require github.com/jmespath/go-jmespath v0.4.0 // indirect
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect

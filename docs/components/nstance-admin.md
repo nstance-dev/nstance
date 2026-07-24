@@ -44,6 +44,7 @@ Generate identity files using the `cluster register-operator` command:
 ```bash
 nstance-admin cluster register-operator \
   --storage-bucket my-cluster-bucket \
+  --secrets-provider object-storage \
   --key-provider env
 ```
 
@@ -88,18 +89,20 @@ All `nstance-admin cluster` commands share these persistent flags:
 | `--storage-provider` | `s3` | Storage provider (s3, gcs, file) |
 | `--storage-bucket` | *(required)* | Storage bucket name |
 | `--storage-prefix` | `cluster/` | Storage prefix for cluster data |
-| `--secrets-provider` | `object-storage` | Secrets provider (object-storage, aws-secrets-manager, gcp-secret-manager) |
+| `--secrets-provider` | *(required)* | Secrets provider (object-storage, aws-parameter-store, aws-secrets-manager, gcp-secret-manager) |
 | `--secrets-prefix` | `secret/` | Secrets prefix |
 | `--secrets-gcp-project` | | GCP project ID (required for gcp-secret-manager) |
-| `--key-provider` | | Encryption key provider (env, file, aws-secrets-manager, gcp-secret-manager) - required for object-storage |
-| `--key-source` | | Key source - defaults to `NSTANCE_ENCRYPTION_KEY` for env provider, otherwise required |
+| `--key-provider` | | Encryption key provider (env, file, aws-parameter-store, aws-secrets-manager, gcp-secret-manager) - required for object-storage |
+| `--key-source` | | Key source (environment variable, file, Parameter Store name, or secret ARN) - defaults to `NSTANCE_ENCRYPTION_KEY` for env provider, otherwise required |
+
+`nstance-admin cluster` does not infer a cloud provider, so `--secrets-provider` must be specified explicitly. When managing an AWS deployment that uses Parameter Store, pass `--secrets-provider aws-parameter-store` and a prefix under `/nstance/<cluster-id>/`. For a Google Cloud deployment that uses Secret Manager, pass `--secrets-provider gcp-secret-manager`, `--secrets-gcp-project`, and the deployment's secrets prefix.
 
 ### `nstance-admin cluster nonce`
 
 Generate a registration nonce JWT for the Nstance Operator.
 
 ```bash
-nstance-admin cluster nonce --cluster-id <cluster-id> --storage-bucket <bucket> --key-provider <provider> [--tenant <tenant>] [--expiry <duration>] [--output <path>]
+nstance-admin cluster nonce --cluster-id <cluster-id> --storage-bucket <bucket> --secrets-provider <provider> [--key-provider <provider>] [--tenant <tenant>] [--expiry <duration>] [--output <path>]
 ```
 
 **Command-specific flags:**
@@ -110,17 +113,23 @@ nstance-admin cluster nonce --cluster-id <cluster-id> --storage-bucket <bucket> 
 
 **Example:**
 ```bash
+# Generate nonce using the direct AWS Parameter Store backend
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider aws-parameter-store --secrets-prefix /nstance/example-cluster/
+
 # Generate nonce using encryption key from environment variable
-nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env
 
 # Generate nonce using AWS Secrets Manager for the encryption key
-nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider aws-secrets-manager --key-source arn:aws:secretsmanager:...
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider aws-secrets-manager --key-source arn:aws:secretsmanager:...
+
+# Generate nonce using Parameter Store for the encryption key
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider aws-parameter-store --key-source /nstance/example-cluster/encryption-key
 
 # Generate nonce and output to stdout (for Kubernetes secrets)
-nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env --output -
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env --output -
 
 # Generate nonce with custom tenant and expiry
-nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env --tenant prod --expiry 1h
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env --tenant prod --expiry 1h
 ```
 
 When using `--output -`, the JWT is written to stdout and can easily be stored in a Kubernetes Secret for operator bootstrap. Otherwise, the nonce is written to a file, great for use by subsequent admin commands.
@@ -134,7 +143,7 @@ Register an operator with the cluster by creating a client certificate and stori
 This command is used to bootstrap operator identity for nstance-admin shard commands. It can also be used when cluster leader election is disabled on all nstance-servers and operators cannot be registered via gRPC.
 
 ```bash
-nstance-admin cluster register-operator --storage-bucket <bucket> --key-provider <provider>
+nstance-admin cluster register-operator --storage-bucket <bucket> --secrets-provider <provider> [--key-provider <provider>]
 ```
 
 **Command-specific flags:**
@@ -154,17 +163,20 @@ nstance-admin cluster register-operator --storage-bucket <bucket> --key-provider
 # Register operator with auto-generated ID and keypair
 nstance-admin cluster register-operator \
   --storage-bucket my-cluster-bucket \
+  --secrets-provider object-storage \
   --key-provider env
 
 # Register operator with custom output directory
 nstance-admin cluster register-operator \
   --storage-bucket my-cluster-bucket \
+  --secrets-provider object-storage \
   --key-provider env \
   --output-dir /path/to/identity
 
 # Register operator with specific ID and existing public key
 nstance-admin cluster register-operator \
   --storage-bucket my-cluster-bucket \
+  --secrets-provider object-storage \
   --key-provider env \
   --operator-id opr01abc123... \
   --public-key-file /path/to/operator.pub

@@ -440,9 +440,9 @@ resource "aws_security_group" "vpc_endpoints" {
   })
 }
 
-# VPC Endpoint for Secrets Manager (interface endpoint) - place in private subnets, one per AZ
+# VPC Endpoint for Secrets Manager when used by the cluster or encryption key.
 resource "aws_vpc_endpoint" "secretsmanager" {
-  count = local.use_existing_vpc ? 0 : (length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : ((var.cluster.secrets_provider == "aws-secrets-manager" || var.cluster.encryption_key_provider == "aws-secrets-manager") && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.secretsmanager"
@@ -458,9 +458,9 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   depends_on = [aws_subnet.managed]
 }
 
-# VPC Endpoint for SSM - only when creating new VPC
+# Parameter Store uses the SSM API endpoint independently of Session Manager.
 resource "aws_vpc_endpoint" "ssm" {
-  count = local.use_existing_vpc ? 0 : (var.enable_ssm && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : ((var.cluster.secrets_provider == "aws-parameter-store" || var.cluster.encryption_key_provider == "aws-parameter-store" || var.enable_ssm) && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ssm"

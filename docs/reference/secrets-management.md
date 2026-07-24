@@ -28,11 +28,11 @@ Nstance Server has a single "Encryption Key" which can be used to encrypt any se
 
 Note that the Encryption Key value can contain a single key, or two keys for support for key rotation.
 
-Depending on the provider, it is expected that the Encryption Key is stored in one of the following systems:
+Depending on the provider, an object-storage Encryption Key can be stored in one of the following systems:
 
 | Provider | Service |
 |----------|---------|
-| AWS | Secrets Manager |
+| AWS | Systems Manager Parameter Store (default key source) or Secrets Manager |
 | Azure | Key Vault |
 | Google Cloud | Secret Manager |
 | Other | HashiCorp Vault |
@@ -44,6 +44,12 @@ By using an Encryption Key:
 
 * It reduces required permissions to read-only for secrets store access.
 
-  * For example, rotating the CA private key does not require a write operation to AWS Secrets Manager.
+  * For example, rotating the CA private key does not require a write operation to Parameter Store or AWS Secrets Manager.
 
 * It simplifies support for multiple clouds and requirements for on-prem.
+
+AWS uses `aws-parameter-store` as its default direct secrets backend. `aws-secrets-manager` and encrypted `object-storage` remain explicit alternatives. Parameter Store can also be selected as the encryption-key source for object storage, using a name such as `/nstance/<cluster-id>/encryption-key`.
+
+Nstance exposes secret values as `[]byte`, while Parameter Store stores raw `SecureString` text without a base64 envelope. Writes containing invalid UTF-8 are rejected, and standard-tier values are limited to 4 KiB. Nstance calls `GetParameter` with decryption, `PutParameter`, and `DeleteParameter`. This is AWS Systems Manager (SSM) **Parameter Store**, which is separate from SSM Session Manager.
+
+Google Cloud uses `gcp-secret-manager` as its default direct secrets backend. Encrypted `object-storage` remains an explicit alternative, with Google Cloud Secret Manager holding its encryption key.

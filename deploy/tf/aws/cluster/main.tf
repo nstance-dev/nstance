@@ -5,11 +5,26 @@
 data "aws_region" "current" {}
 
 locals {
-  cluster_id            = var.cluster_id
-  create_bucket         = var.bucket == ""
-  create_encryption_key = var.secrets_provider == "object-storage" && var.encryption_key == ""
-  profile_flag          = var.aws_profile != null ? "--profile ${var.aws_profile}" : ""
-  server_config         = var.server_config
+  cluster_id              = var.cluster_id
+  create_bucket           = var.bucket == ""
+  secrets_provider        = coalesce(var.secrets_provider, "aws-parameter-store")
+  encryption_key_provider = coalesce(var.encryption_key_provider, "aws-parameter-store")
+  create_encryption_key   = local.secrets_provider == "object-storage" && var.encryption_key == ""
+  profile_flag            = var.aws_profile != null ? "--profile ${var.aws_profile}" : ""
+  server_config           = var.server_config
+}
+
+resource "terraform_data" "validate_secrets_providers" {
+  lifecycle {
+    precondition {
+      condition     = contains(["object-storage", "aws-parameter-store", "aws-secrets-manager"], local.secrets_provider)
+      error_message = "The AWS cluster module supports secrets_provider values object-storage, aws-parameter-store, and aws-secrets-manager."
+    }
+    precondition {
+      condition     = local.secrets_provider != "object-storage" || contains(["aws-parameter-store", "aws-secrets-manager"], local.encryption_key_provider)
+      error_message = "The AWS cluster module supports aws-parameter-store and aws-secrets-manager as object-storage encryption_key_provider values."
+    }
+  }
 }
 
 resource "random_id" "bucket_suffix" {
@@ -64,9 +79,32 @@ data "aws_s3_bucket" "existing" {
   bucket = var.bucket
 }
 
-# Create secret in Secrets Manager (shared across all shards, value generated externally)
+# Create an object-storage encryption key in Parameter Store without persisting its value in state.
+ephemeral "random_password" "encryption_key" {
+  count   = local.create_encryption_key && local.encryption_key_provider == "aws-parameter-store" ? 1 : 0
+  length  = 32
+  special = false
+}
+resource "aws_ssm_parameter" "encryption_key" {
+  count = local.create_encryption_key && local.encryption_key_provider == "aws-parameter-store" ? 1 : 0
+
+  name             = "/nstance/${var.cluster_id}/encryption-key"
+  description      = "Encryption key for Nstance Server"
+  type             = "SecureString"
+  tier             = "Standard"
+  value_wo         = ephemeral.random_password.encryption_key[0].result
+  value_wo_version = 1
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-encryption-key"
+  })
+
+  depends_on = [terraform_data.validate_secrets_providers]
+}
+
+# Secrets Manager remains available as an explicit object-storage key provider.
 resource "aws_secretsmanager_secret" "encryption_key" {
-  count                   = local.create_encryption_key ? 1 : 0
+  count                   = local.create_encryption_key && local.encryption_key_provider == "aws-secrets-manager" ? 1 : 0
   name                    = "nstance/${var.name_prefix}/encryption-key"
   description             = "Encryption key for Nstance Server"
   recovery_window_in_days = 7
@@ -79,7 +117,7 @@ resource "aws_secretsmanager_secret" "encryption_key" {
 # Initialize secret value using AWS CLI (only if not already set)
 # This keeps the secret value out of Terraform state
 resource "null_resource" "encryption_key_init" {
-  count = local.create_encryption_key ? 1 : 0
+  count = local.create_encryption_key && local.encryption_key_provider == "aws-secrets-manager" ? 1 : 0
 
   triggers = {
     secret_arn = aws_secretsmanager_secret.encryption_key[0].arn

@@ -22,11 +22,41 @@ resource "google_storage_bucket_iam_member" "server_bucket_admin" {
   member = "serviceAccount:${google_service_account.server.email}"
 }
 
-# Secret Manager access for server (read encryption key)
+# Secret Manager access for an object-storage encryption key.
 resource "google_secret_manager_secret_iam_member" "server_secret_accessor" {
+  count = var.cluster.secrets_provider == "object-storage" && var.cluster.encryption_key_provider == "gcp-secret-manager" ? 1 : 0
+
   secret_id = var.cluster.encryption_key_source
+  project   = var.cluster.project_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.server.email}"
+}
+
+# Minimal project-level role for the direct Secret Manager store. Secret creation
+# cannot be restricted to a name prefix because its IAM resource is the project.
+resource "google_project_iam_custom_role" "server_secret_store" {
+  count = var.cluster.secrets_provider == "gcp-secret-manager" ? 1 : 0
+
+  project     = var.cluster.project_id
+  role_id     = "${replace(local.name_prefix, "-", "_")}_secret_store"
+  title       = "Nstance Secret Store"
+  description = "Manage Nstance secrets in Secret Manager"
+  permissions = [
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.delete",
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.list",
+    "secretmanager.versions.access",
+    "secretmanager.versions.add",
+  ]
+}
+
+resource "google_project_iam_member" "server_secret_store" {
+  count = var.cluster.secrets_provider == "gcp-secret-manager" ? 1 : 0
+
+  project = var.cluster.project_id
+  role    = google_project_iam_custom_role.server_secret_store[0].id
+  member  = "serviceAccount:${google_service_account.server.email}"
 }
 
 # Compute Instance Admin for creating/managing agent VMs

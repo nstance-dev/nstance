@@ -38,6 +38,10 @@ func (a *AWSSecretsManager) Get(ctx context.Context, name string) ([]byte, error
 
 	resp, err := a.client.GetSecretValue(ctx, input)
 	if err != nil {
+		var nf *types.ResourceNotFoundException
+		if errors.As(err, &nf) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
 		return nil, fmt.Errorf("failed to get secret %s: %w", name, err)
 	}
 
@@ -98,6 +102,10 @@ func (a *AWSSecretsManager) Delete(ctx context.Context, name string) error {
 
 	_, err := a.client.DeleteSecret(ctx, input)
 	if err != nil {
+		var nf *types.ResourceNotFoundException
+		if errors.As(err, &nf) {
+			return nil
+		}
 		return fmt.Errorf("failed to delete secret %s: %w", name, err)
 	}
 

@@ -6,6 +6,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -34,8 +35,8 @@ func TestMemoryStore(t *testing.T) {
 
 	// Test Get non-existent
 	_, err = store.Get(ctx, "non-existent")
-	if err == nil {
-		t.Error("Expected error for non-existent secret")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get() error = %v, want ErrNotFound", err)
 	}
 
 	// Test Delete
@@ -46,7 +47,7 @@ func TestMemoryStore(t *testing.T) {
 
 	// Verify deletion
 	_, err = store.Get(ctx, "test-secret")
-	if err == nil {
-		t.Error("Expected error after deletion")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get() error = %v, want ErrNotFound", err)
 	}
 }

@@ -51,7 +51,7 @@ See [Data Storage](../reference/data-storage.md) for the full bucket layout.
 
 ### 3. Secret Manager
 
-Used as an optional secrets backend for secure storage of sensitive cryptographic material:
+Secret Manager is the default Google Cloud secrets backend for secure storage of sensitive cryptographic material:
 
 - **Encryption Key**: For encrypting data stored in object storage
 - **Certificate Authority Keys**: Private keys for CA operations
@@ -62,9 +62,9 @@ Used as an optional secrets backend for secure storage of sensitive cryptographi
 - Secrets are automatically versioned — each write creates a new version
 - The `latest` version alias is used for reads
 - Secrets are encrypted at rest and in transit
-- Secret names are prefixed (e.g., `nstance/`) for access scoping
+- Secret names are prefixed (for example, `nstance-<cluster-id>-`) to avoid collisions
 
-**Configuration:** Set `secrets.provider` to `gcp-secret-manager` and provide the `project_id` in the secrets configuration. Alternatively, use `object-storage` with an encryption key to store secrets in GCS instead.
+**Configuration:** The Google Cloud Terraform/OpenTofu modules configure `gcp-secret-manager` and the project ID by default. In a manually managed server configuration, set `secrets.provider` to `gcp-secret-manager` and provide `secrets.project_id`. Alternatively, select `object-storage` with an encryption key to store secrets in GCS.
 
 ### 4. Instance Groups (Load Balancing)
 

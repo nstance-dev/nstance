@@ -181,9 +181,8 @@ func TestFileStorage(t *testing.T) {
 	})
 
 	t.Run("DeleteNonExistentFile", func(t *testing.T) {
-		err := storage.Delete(ctx, "nonexistent/file.txt")
-		if err == nil {
-			t.Error("Expected error when deleting non-existent file")
+		if err := storage.Delete(ctx, "nonexistent/file.txt"); err != nil {
+			t.Errorf("Delete() error = %v, want nil", err)
 		}
 	})
 

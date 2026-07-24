@@ -1,6 +1,6 @@
 # Nstance Account Module (AWS)
 
-Creates IAM roles and instance profiles for Nstance server and agent EC2 instances, with least-privilege permissions for EC2, S3, Secrets Manager, and ELB access.
+Creates IAM roles and instance profiles for Nstance server and agent EC2 instances, with least-privilege permissions for EC2, S3, ELB, and the Parameter Store or Secrets Manager providers selected by the cluster.
 
 ## Usage
 

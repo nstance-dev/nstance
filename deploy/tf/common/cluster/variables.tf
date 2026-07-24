@@ -57,18 +57,29 @@ variable "versioning" {
 }
 
 variable "secrets_provider" {
-  description = "Secrets storage provider: 'object-storage' (encrypted in bucket), 'aws-secrets-manager', or 'gcp-secret-manager'"
+  description = "Secrets storage provider. Null selects the cloud-specific default (AWS: aws-parameter-store; Google Cloud: gcp-secret-manager)."
   type        = string
-  default     = "object-storage"
+  default     = null
 
   validation {
-    condition     = contains(["object-storage", "aws-secrets-manager", "gcp-secret-manager"], var.secrets_provider)
-    error_message = "secrets_provider must be one of: object-storage, aws-secrets-manager, gcp-secret-manager"
+    condition     = var.secrets_provider == null || contains(["object-storage", "aws-parameter-store", "aws-secrets-manager", "gcp-secret-manager"], var.secrets_provider)
+    error_message = "secrets_provider must be one of: object-storage, aws-parameter-store, aws-secrets-manager, gcp-secret-manager"
+  }
+}
+
+variable "encryption_key_provider" {
+  description = "Provider holding the object-storage encryption key. Null selects the cloud-specific default."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.encryption_key_provider == null || contains(["aws-parameter-store", "aws-secrets-manager", "gcp-secret-manager"], var.encryption_key_provider)
+    error_message = "encryption_key_provider must be one of: aws-parameter-store, aws-secrets-manager, gcp-secret-manager"
   }
 }
 
 variable "encryption_key" {
-  description = "Existing encryption key secret (AWS: ARN, Google Cloud: secret name). Only used when secrets_provider='object-storage'. If empty, a new secret is created."
+  description = "Existing encryption key source. Only used with object-storage; when empty, a key is created in the selected encryption_key_provider."
   type        = string
   default     = ""
 }

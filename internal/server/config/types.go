@@ -158,9 +158,16 @@ type LeaderNetworkConfig struct {
 	InterfaceID string `json:"interface_id,omitempty"` // Provider resource ID: ENI ID for AWS; empty for GCP (which uses alias IP)
 }
 
+// SecretProviderConfig defines fields shared by secrets provider configurations.
+type SecretProviderConfig struct {
+	ProjectID string `json:"project_id,omitempty"` // Google Cloud project ID for Secret Manager
+}
+
 // SecretsConfig defines secrets management configuration
 type SecretsConfig struct {
-	Provider          string                `json:"provider" validate:"required,oneof=object-storage aws-secrets-manager gcp-secret-manager memory"`
+	SecretProviderConfig
+
+	Provider          string                `json:"provider" validate:"required,oneof=object-storage aws-parameter-store aws-secrets-manager gcp-secret-manager memory"`
 	Prefix            string                `json:"prefix,omitempty"`              // Prefix for secrets (S3 path or AWS name prefix)
 	EncryptionKey     *EncryptionKeyConfig  `json:"encryption_key,omitempty"`      // Current key (used for encryption)
 	OldEncryptionKeys []EncryptionKeyConfig `json:"old_encryption_keys,omitempty"` // Old keys (decryption only during rotation)
@@ -169,9 +176,10 @@ type SecretsConfig struct {
 
 // EncryptionKeyConfig defines Encryption Key configuration
 type EncryptionKeyConfig struct {
-	Provider string                 `json:"provider" validate:"required,oneof=env file aws-secrets-manager gcp-secret-manager"`
-	Options  map[string]interface{} `json:"options,omitempty"`          // Provider-specific options
-	Source   string                 `json:"source" validate:"required"` // env var name, file path, secret name, or AWS secret ARN
+	SecretProviderConfig
+
+	Provider string `json:"provider" validate:"required,oneof=env file aws-parameter-store aws-secrets-manager gcp-secret-manager"`
+	Source   string `json:"source" validate:"required"` // Env var, file path, parameter name, secret name, or secret ARN
 }
 
 // DefaultsConfig defines global defaults
@@ -372,6 +380,20 @@ func (c *Config) Validate() error {
 
 	if err := validate.Struct(c); err != nil {
 		return fmt.Errorf("configuration validation failed: %w", err)
+	}
+	if err := validateSecretProviderConfig("cluster.secrets", c.Cluster.Secrets.Provider, c.Cluster.Secrets.SecretProviderConfig); err != nil {
+		return err
+	}
+	if c.Cluster.Secrets.EncryptionKey != nil {
+		key := c.Cluster.Secrets.EncryptionKey
+		if err := validateSecretProviderConfig("cluster.secrets.encryption_key", key.Provider, key.SecretProviderConfig); err != nil {
+			return err
+		}
+	}
+	for i, key := range c.Cluster.Secrets.OldEncryptionKeys {
+		if err := validateSecretProviderConfig(fmt.Sprintf("cluster.secrets.old_encryption_keys[%d]", i), key.Provider, key.SecretProviderConfig); err != nil {
+			return err
+		}
 	}
 
 	// Additional custom validations - ensure all bind addrs use unique ports when on the same host
@@ -672,6 +694,16 @@ func (c *Config) validateProxmoxArgs() error {
 	return nil
 }
 
+func validateSecretProviderConfig(path, provider string, cfg SecretProviderConfig) error {
+	if provider == "gcp-secret-manager" && cfg.ProjectID == "" {
+		return fmt.Errorf("%s.project_id is required for gcp-secret-manager", path)
+	}
+	if provider != "gcp-secret-manager" && cfg.ProjectID != "" {
+		return fmt.Errorf("%s.project_id is only valid for gcp-secret-manager", path)
+	}
+	return nil
+}
+
 // isValidTemplateIdentifier checks if a string is a valid Go template identifier
 // (alphanumeric characters and underscores only, starting with letter or underscore)
 func isValidTemplateIdentifier(s string) bool {
@@ -698,6 +730,21 @@ func isValidTemplateIdentifier(s string) bool {
 
 // SetDefaults sets default values for optional fields
 func (c *Config) SetDefaults() {
+	// AWS defaults to Systems Manager Parameter Store for secrets.
+	if c.Cluster.Secrets.Provider == "" && c.Shard.Infra.Provider == "aws" {
+		c.Cluster.Secrets.Provider = "aws-parameter-store"
+	}
+	if c.Cluster.Secrets.Provider == "aws-parameter-store" && c.Cluster.Secrets.Prefix == "" {
+		c.Cluster.Secrets.Prefix = "/nstance/" + c.Cluster.ID + "/"
+	}
+	// Google Cloud defaults to Secret Manager for secrets.
+	if c.Cluster.Secrets.Provider == "" && c.Shard.Infra.Provider == "gcp" {
+		c.Cluster.Secrets.Provider = "gcp-secret-manager"
+	}
+	if c.Cluster.Secrets.Provider == "gcp-secret-manager" && c.Cluster.Secrets.Prefix == "" {
+		c.Cluster.Secrets.Prefix = "nstance-" + c.Cluster.ID + "-"
+	}
+
 	// Cluster leader election defaults
 	if c.Cluster.LeaderElection.FrequentInterval == 0 {
 		c.Cluster.LeaderElection.FrequentInterval = Duration(5 * time.Second)

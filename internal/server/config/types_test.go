@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-playground/validator/v10"
 )
 
 func TestDurationUnmarshalJSON(t *testing.T) {
@@ -50,6 +52,85 @@ func TestDurationMarshalJSON(t *testing.T) {
 	}
 	if string(data) != `"30s"` {
 		t.Errorf("Marshal() = %s, want %s", string(data), `"30s"`)
+	}
+}
+
+func TestAWSSecretsDefaults(t *testing.T) {
+	config := Config{
+		Cluster: ClusterConfig{ID: "example-cluster"},
+		Shard:   ShardConfig{Infra: InfraConfig{Provider: "aws"}},
+	}
+
+	config.SetDefaults()
+
+	if got := config.Cluster.Secrets.Provider; got != "aws-parameter-store" {
+		t.Errorf("secrets provider = %q, want aws-parameter-store", got)
+	}
+	if got := config.Cluster.Secrets.Prefix; got != "/nstance/example-cluster/" {
+		t.Errorf("secrets prefix = %q, want /nstance/example-cluster/", got)
+	}
+}
+
+func TestGCPSecretsDefaults(t *testing.T) {
+	config := Config{
+		Cluster: ClusterConfig{ID: "example-cluster"},
+		Shard:   ShardConfig{Infra: InfraConfig{Provider: "gcp"}},
+	}
+
+	config.SetDefaults()
+
+	if got := config.Cluster.Secrets.Provider; got != "gcp-secret-manager" {
+		t.Errorf("secrets provider = %q, want gcp-secret-manager", got)
+	}
+	if got := config.Cluster.Secrets.Prefix; got != "nstance-example-cluster-" {
+		t.Errorf("secrets prefix = %q, want nstance-example-cluster-", got)
+	}
+}
+
+func TestAWSParameterStoreProvidersValidate(t *testing.T) {
+	validate := validator.New()
+	if err := validate.Struct(SecretsConfig{Provider: "aws-parameter-store"}); err != nil {
+		t.Fatalf("SecretsConfig validation error = %v", err)
+	}
+	if err := validate.Struct(EncryptionKeyConfig{Provider: "aws-parameter-store", Source: "/nstance/example-cluster/encryption-key"}); err != nil {
+		t.Fatalf("EncryptionKeyConfig validation error = %v", err)
+	}
+}
+
+func TestGCPSecretManagerProjectIDValidation(t *testing.T) {
+	if err := validateSecretProviderConfig("secrets", "gcp-secret-manager", SecretProviderConfig{ProjectID: "example-project"}); err != nil {
+		t.Fatalf("validation error = %v", err)
+	}
+	if err := validateSecretProviderConfig("secrets", "gcp-secret-manager", SecretProviderConfig{}); err == nil {
+		t.Fatal("validation succeeded without project_id")
+	}
+	if err := validateSecretProviderConfig("secrets", "aws-parameter-store", SecretProviderConfig{}); err != nil {
+		t.Fatalf("validation error = %v", err)
+	}
+	if err := validateSecretProviderConfig("secrets", "aws-parameter-store", SecretProviderConfig{ProjectID: "example-project"}); err == nil {
+		t.Fatal("validation succeeded with project_id for non-GCP provider")
+	}
+}
+
+func TestSecretProviderConfigJSONIsFlat(t *testing.T) {
+	cfg := SecretsConfig{
+		SecretProviderConfig: SecretProviderConfig{ProjectID: "example-project"},
+		Provider:             "gcp-secret-manager",
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if got := string(data); got != `{"project_id":"example-project","provider":"gcp-secret-manager"}` {
+		t.Fatalf("Marshal() = %s", got)
+	}
+
+	var keyCfg EncryptionKeyConfig
+	if err := json.Unmarshal([]byte(`{"provider":"gcp-secret-manager","project_id":"example-project","source":"encryption-key"}`), &keyCfg); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if keyCfg.ProjectID != "example-project" {
+		t.Fatalf("ProjectID = %q, want example-project", keyCfg.ProjectID)
 	}
 }
 

@@ -424,6 +424,7 @@ NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 \
 ./bin/nstance-admin cluster nonce \
  --cluster-id example-cluster \
  --storage-bucket dev \
+ --secrets-provider object-storage \
  --key-provider env \
  --output \
 -)

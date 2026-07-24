@@ -42,7 +42,7 @@ func (g *GCPSecretManager) Get(ctx context.Context, name string) ([]byte, error)
 	resp, err := g.client.AccessSecretVersion(ctx, req)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
-			return nil, fmt.Errorf("secret %s not found", name)
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 		}
 		return nil, fmt.Errorf("failed to get secret %s: %w", name, err)
 	}

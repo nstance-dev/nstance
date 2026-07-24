@@ -34,6 +34,7 @@ cannot be registered via gRPC. It requires:
 Example:
   nstance-admin cluster register-operator \
     --storage-bucket my-cluster-bucket \
+    --secrets-provider object-storage \
     --key-provider env
 `,
 	RunE: runClusterRegisterOperator,

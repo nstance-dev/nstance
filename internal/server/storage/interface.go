@@ -31,7 +31,7 @@ type Storage interface {
 	// Returns ErrPrecondition if ETag doesn't match
 	PutIfMatch(ctx context.Context, key string, data []byte, etag string) error
 
-	// Delete removes an object from storage
+	// Delete removes an object from storage. It succeeds if the object does not exist.
 	Delete(ctx context.Context, key string) error
 
 	// Exists checks if an object exists in storage

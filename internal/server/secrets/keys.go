@@ -15,13 +15,23 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 )
+
+type secretsManagerKeyClient interface {
+	GetSecretValue(context.Context, *secretsmanager.GetSecretValueInput, ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
+}
+
+type parameterStoreKeyClient interface {
+	GetParameter(context.Context, *ssm.GetParameterInput, ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
+}
 
 // KeyConfig defines configuration for loading a single encryption key
 type KeyConfig struct {
-	Provider string
-	Options  map[string]interface{}
-	Source   string
+	Provider  string
+	ProjectID string
+	Source    string
 }
 
 // LoadEncryptionKeys loads all encryption keys from the given configs.
@@ -33,30 +43,45 @@ func LoadEncryptionKeys(ctx context.Context, keys ...KeyConfig) ([][]byte, error
 	}
 
 	// Create required clients
-	var awsClient *secretsmanager.Client
+	var awsSecretsClient secretsManagerKeyClient
+	var awsParameterClient parameterStoreKeyClient
 	var gcpClient *secretmanager.Client
+	var needAWSSecrets, needAWSParameters, needGCP bool
 	for _, k := range keys {
 		switch k.Provider {
 		case "aws-secrets-manager":
-			awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("load AWS config: %w", err)
-			}
-			awsClient = secretsmanager.NewFromConfig(awsCfg)
+			needAWSSecrets = true
+		case "aws-parameter-store":
+			needAWSParameters = true
 		case "gcp-secret-manager":
-			client, err := secretmanager.NewClient(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("create GCP Secret Manager client: %w", err)
-			}
-			gcpClient = client
-			defer func() { _ = gcpClient.Close() }()
+			needGCP = true
 		}
+	}
+	if needAWSSecrets || needAWSParameters {
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load AWS config: %w", err)
+		}
+		if needAWSSecrets {
+			awsSecretsClient = secretsmanager.NewFromConfig(awsCfg)
+		}
+		if needAWSParameters {
+			awsParameterClient = ssm.NewFromConfig(awsCfg)
+		}
+	}
+	if needGCP {
+		client, err := secretmanager.NewClient(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("create GCP Secret Manager client: %w", err)
+		}
+		gcpClient = client
+		defer func() { _ = gcpClient.Close() }()
 	}
 
 	// Load each key
 	result := make([][]byte, 0, len(keys))
 	for _, cfg := range keys {
-		key, err := loadKey(ctx, cfg, awsClient, gcpClient)
+		key, err := loadKey(ctx, cfg, awsSecretsClient, awsParameterClient, gcpClient)
 		if err != nil {
 			return nil, err
 		}
@@ -65,7 +90,7 @@ func LoadEncryptionKeys(ctx context.Context, keys ...KeyConfig) ([][]byte, error
 	return result, nil
 }
 
-func loadKey(ctx context.Context, cfg KeyConfig, awsClient *secretsmanager.Client, gcpClient *secretmanager.Client) ([]byte, error) {
+func loadKey(ctx context.Context, cfg KeyConfig, awsSecretsClient secretsManagerKeyClient, awsParameterClient parameterStoreKeyClient, gcpClient *secretmanager.Client) ([]byte, error) {
 	var key []byte
 
 	switch cfg.Provider {
@@ -84,10 +109,10 @@ func loadKey(ctx context.Context, cfg KeyConfig, awsClient *secretsmanager.Clien
 		key = []byte(strings.TrimSpace(string(data)))
 
 	case "aws-secrets-manager":
-		if awsClient == nil {
+		if awsSecretsClient == nil {
 			return nil, fmt.Errorf("AWS client required for aws-secrets-manager key provider")
 		}
-		result, err := awsClient.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		result, err := awsSecretsClient.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 			SecretId: aws.String(cfg.Source),
 		})
 		if err != nil {
@@ -101,15 +126,33 @@ func loadKey(ctx context.Context, cfg KeyConfig, awsClient *secretsmanager.Clien
 			return nil, fmt.Errorf("AWS secret %s is empty", cfg.Source)
 		}
 
+	case "aws-parameter-store":
+		if awsParameterClient == nil {
+			return nil, fmt.Errorf("AWS client required for aws-parameter-store key provider")
+		}
+		result, err := awsParameterClient.GetParameter(ctx, &ssm.GetParameterInput{
+			Name:           aws.String(cfg.Source),
+			WithDecryption: aws.Bool(true),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get parameter %s from AWS: %w", cfg.Source, err)
+		}
+		if result.Parameter == nil || result.Parameter.Value == nil || *result.Parameter.Value == "" {
+			return nil, fmt.Errorf("AWS parameter %s is empty", cfg.Source)
+		}
+		if result.Parameter.Type != ssmtypes.ParameterTypeSecureString {
+			return nil, fmt.Errorf("AWS parameter %s is %s, expected SecureString", cfg.Source, result.Parameter.Type)
+		}
+		key = []byte(*result.Parameter.Value)
+
 	case "gcp-secret-manager":
 		if gcpClient == nil {
 			return nil, fmt.Errorf("GCP client required for gcp-secret-manager key provider")
 		}
-		projectID, ok := cfg.Options["project_id"].(string)
-		if !ok || projectID == "" {
-			return nil, fmt.Errorf("options.project_id is required for gcp-secret-manager key provider")
+		if cfg.ProjectID == "" {
+			return nil, fmt.Errorf("project_id is required for gcp-secret-manager key provider")
 		}
-		name := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", projectID, cfg.Source)
+		name := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", cfg.ProjectID, cfg.Source)
 		result, err := gcpClient.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
 			Name: name,
 		})

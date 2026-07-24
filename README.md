@@ -33,7 +33,7 @@ Key features:
 * __Multi-Tenancy:__
     Run one or more Kubernetes clusters with isolation on each Nstance cluster.
 
-Nstance is designed to be simple and easy to operate. To achieve a balance of lowest cost, highest reliability, and easiest operation, Nstance uses simple yet proven cloud primitives - VMs (and optionally, ASGs), a secrets store (such as AWS Secrets Manager), and object storage (such as AWS S3, Google Cloud Storage, or S3-compatible services supporting If-Match headers such as Ceph RGW or SeaweedFS).
+Nstance is designed to be simple and easy to operate. To achieve a balance of lowest cost, highest reliability, and easiest operation, Nstance uses simple yet proven cloud primitives - VMs (and optionally, ASGs), a cloud secrets store (AWS Systems Manager Parameter Store by default on AWS and Google Cloud Secret Manager by default on Google Cloud), and object storage (such as AWS S3, Google Cloud Storage, or S3-compatible services supporting If-Match headers such as Ceph RGW or SeaweedFS).
 
 ## Documentation
 

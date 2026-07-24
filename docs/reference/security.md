@@ -155,10 +155,15 @@ When using the `object-storage` secrets provider, Nstance performs client-side e
 - Key sources: Encryption keys can be loaded from multiple providers:
   - `env` — environment variable
   - `file` — local file path
+  - `aws-parameter-store` — AWS Systems Manager Parameter Store `SecureString` (by parameter name, such as `/nstance/<cluster-id>/encryption-key`)
   - `aws-secrets-manager` — AWS Secrets Manager secret (by ARN or name)
-  - `gcp-secret-manager` — GCP Secret Manager secret (by name, with `project_id` option)
+  - `gcp-secret-manager` — GCP Secret Manager secret (by name, with the `project_id` field)
 - Key rotation: The configuration supports a primary `encryption_key` (used for all new writes) and a list of `old_encryption_keys` (used for decryption only). On read, Nstance attempts decryption with each configured key in order until one succeeds, allowing a rotation window where old ciphertexts remain readable while new writes use the current key.
 - Optional: If no encryption keys are configured, secrets are stored and retrieved in plaintext. Encryption is strongly recommended for production deployments.
+
+On AWS, `aws-parameter-store` is the default direct secrets store; `aws-secrets-manager` and `object-storage` are explicit alternatives. Parameter Store presents values as `[]byte` to Nstance but stores raw `SecureString` text without base64 encoding, so writes must be valid UTF-8 and no larger than the standard-tier 4 KiB limit. It uses `GetParameter` with decryption, `PutParameter`, and `DeleteParameter`.
+
+On Google Cloud, `gcp-secret-manager` is the default direct secrets store. The Nstance server receives only the Secret Manager permissions needed to create, read, update, list, and delete secrets. Encrypted `object-storage` is available as an explicit alternative.
 
 ## Leadership and Security-Critical Operations
 

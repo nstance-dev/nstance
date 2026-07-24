@@ -20,10 +20,25 @@ resource "google_project_service" "required" {
 }
 
 locals {
-  cluster_id            = var.cluster_id
-  create_bucket         = var.bucket == ""
-  create_encryption_key = var.secrets_provider == "object-storage" && var.encryption_key == ""
-  server_config         = var.server_config
+  cluster_id              = var.cluster_id
+  create_bucket           = var.bucket == ""
+  secrets_provider        = coalesce(var.secrets_provider, "gcp-secret-manager")
+  encryption_key_provider = coalesce(var.encryption_key_provider, "gcp-secret-manager")
+  create_encryption_key   = local.secrets_provider == "object-storage" && var.encryption_key == ""
+  server_config           = var.server_config
+}
+
+resource "terraform_data" "validate_secrets_providers" {
+  lifecycle {
+    precondition {
+      condition     = contains(["object-storage", "gcp-secret-manager"], local.secrets_provider)
+      error_message = "The Google Cloud cluster module supports secrets_provider values object-storage and gcp-secret-manager."
+    }
+    precondition {
+      condition     = local.secrets_provider != "object-storage" || local.encryption_key_provider == "gcp-secret-manager"
+      error_message = "The Google Cloud cluster module supports gcp-secret-manager as its object-storage encryption_key_provider."
+    }
+  }
 }
 
 resource "random_id" "bucket_suffix" {

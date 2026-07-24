@@ -12,6 +12,7 @@ import (
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
 
@@ -21,13 +22,13 @@ type StoreOptions struct {
 	Prefix         string
 	CacheTTL       time.Duration
 	EncryptionKeys []KeyConfig // Only used for object-storage provider
-	GCPProject     string      // Required for gcp-secret-manager provider
+	ProjectID      string      // Required for gcp-secret-manager provider
 	Storage        storage.Storage
 }
 
 // NewStore creates a new secrets Store based on options.
 // Creates cloud clients internally based on Provider.
-// Loads encryption keys only for s3 provider.
+// Loads encryption keys only for the object-storage provider.
 func NewStore(ctx context.Context, opts StoreOptions) (Store, error) {
 	var store Store
 
@@ -50,15 +51,23 @@ func NewStore(ctx context.Context, opts StoreOptions) (Store, error) {
 		client := secretsmanager.NewFromConfig(awsCfg)
 		store = NewAWSSecretsManagerStore(client, opts.Prefix)
 
+	case "aws-parameter-store":
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load AWS config: %w", err)
+		}
+		client := ssm.NewFromConfig(awsCfg)
+		store = NewAWSParameterStore(client, opts.Prefix)
+
 	case "gcp-secret-manager":
-		if opts.GCPProject == "" {
-			return nil, fmt.Errorf("GCPProject is required for gcp-secret-manager provider")
+		if opts.ProjectID == "" {
+			return nil, fmt.Errorf("project_id is required for gcp-secret-manager provider")
 		}
 		client, err := secretmanager.NewClient(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("create GCP Secret Manager client: %w", err)
 		}
-		store = NewGCPSecretManagerStore(client, opts.GCPProject, opts.Prefix)
+		store = NewGCPSecretManagerStore(client, opts.ProjectID, opts.Prefix)
 
 	case "memory":
 		store = NewMemoryStore()

@@ -1,6 +1,8 @@
 # Nstance Cluster Module (AWS)
 
-Creates shared cluster resources including a cluster ID, S3 bucket for config/state storage, and encryption key in AWS Secrets Manager.
+Creates shared cluster resources including a cluster ID and S3 bucket for config/state storage. Secrets default to direct AWS Systems Manager Parameter Store under `/nstance/<cluster-id>/`. Object storage can be selected explicitly; its encryption key defaults to a safely generated SecureString in Parameter Store and can instead use AWS Secrets Manager.
+
+Requires Terraform/OpenTofu 1.11 or newer and AWS provider 6.8 or newer for ephemeral key generation and write-only SSM parameter values.
 
 ## Usage
 

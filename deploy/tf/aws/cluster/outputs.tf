@@ -28,13 +28,20 @@ output "bucket_arn" {
 }
 
 output "secrets_provider" {
-  description = "Secrets storage provider (object-storage or aws-secrets-manager)"
-  value       = var.secrets_provider
+  description = "Secrets storage provider"
+  value       = local.secrets_provider
+}
+
+output "encryption_key_provider" {
+  description = "Provider holding the object-storage encryption key"
+  value       = local.secrets_provider == "object-storage" ? local.encryption_key_provider : ""
 }
 
 output "encryption_key_source" {
   description = "Encryption key source identifier for the secrets store"
-  value       = var.secrets_provider == "object-storage" ? (local.create_encryption_key ? aws_secretsmanager_secret.encryption_key[0].arn : var.encryption_key) : ""
+  value = local.secrets_provider == "object-storage" ? (
+    local.create_encryption_key ? one(concat(aws_ssm_parameter.encryption_key[*].name, aws_secretsmanager_secret.encryption_key[*].arn)) : var.encryption_key
+  ) : ""
 }
 
 output "server_config" {

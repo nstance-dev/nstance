@@ -30,7 +30,7 @@ func (m *Memory) Get(ctx context.Context, name string) ([]byte, error) {
 
 	data, exists := m.secrets[name]
 	if !exists {
-		return nil, fmt.Errorf("secret not found: %s", name)
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
 	// Return a copy to prevent external modification

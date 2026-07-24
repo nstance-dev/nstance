@@ -32,10 +32,10 @@ for use by other admin commands. Use --output to specify a different path,
 or --output - to write to stdout.
 
 Example:
-  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env
-  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env --tenant prod
-  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env --expiry 1h
-  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --key-provider env --output -`,
+  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env
+  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env --tenant prod
+  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env --expiry 1h
+  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env --output -`,
 	RunE: runClusterNonce,
 }
 

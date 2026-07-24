@@ -85,6 +85,19 @@ resource "terraform_data" "validate_shard" {
   }
 }
 
+resource "terraform_data" "validate_secrets_project" {
+  lifecycle {
+    precondition {
+      condition     = var.cluster.secrets_provider != "gcp-secret-manager" || var.cluster.project_id != ""
+      error_message = "cluster.project_id is required when secrets_provider is gcp-secret-manager."
+    }
+    precondition {
+      condition     = var.cluster.encryption_key_provider != "gcp-secret-manager" || var.cluster.project_id != ""
+      error_message = "cluster.project_id is required when encryption_key_provider is gcp-secret-manager."
+    }
+  }
+}
+
 # Validate that the server_subnet role exists and has at least one subnet
 resource "terraform_data" "validate_server_subnet" {
   lifecycle {

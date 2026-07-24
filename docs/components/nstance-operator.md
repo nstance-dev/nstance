@@ -105,7 +105,7 @@ The operator uses a nonce-based registration flow to obtain a client certificate
 
 ### Bootstrap Steps
 
-1. **Generate nonce** — Use `nstance-admin cluster nonce --expiry="3h"` to create a registration JWT. See [Nstance Admin](nstance-admin.md#nstance-admin-cluster-nonce) for details.
+1. **Generate nonce** — Use `nstance-admin cluster nonce --expiry="3h"` with the required cluster ID, storage, and secrets-provider flags to create a registration JWT with a three-hour lifetime. See [Nstance Admin](nstance-admin.md#nstance-admin-cluster-nonce) for details.
 
 2. **Store nonce** — Create a Kubernetes Secret with the JWT:
    ```bash

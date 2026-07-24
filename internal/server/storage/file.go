@@ -129,7 +129,7 @@ func (f *FileStorage) Delete(ctx context.Context, key string) error {
 	filePath := filepath.Join(f.baseDir, key)
 	if err := os.Remove(filePath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("key not found: %s", key)
+			return nil
 		}
 		return fmt.Errorf("failed to delete file: %w", err)
 	}

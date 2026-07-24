@@ -33,19 +33,9 @@ Below is an example/reference configuration file for Nstance Server, using examp
       "prefix": "cluster/"
     },
     "secrets": {
-      "provider": "object-storage",
-      "prefix": "secret/",
-      "encryption_key": {
-        "provider": "aws-secrets-manager",
-        "source": "arn:aws:secretsmanager:us-west-2:123412341234:secret:nstance/example-cluster/key"
-      },
-      // Optional: old encryption keys are decryption-only during key rotation.
-      "old_encryption_keys": [
-        {
-          "provider": "aws-secrets-manager",
-          "source": "arn:aws:secretsmanager:us-west-2:123412341234:secret:nstance/example-cluster/old-key"
-        }
-      ],
+      // AWS default. Names are appended below this Parameter Store path.
+      "provider": "aws-parameter-store",
+      "prefix": "/nstance/example-cluster/",
       // Optional: secret cache TTL. Omit or set to 0 to disable caching.
       "cache_ttl": "5m"
     },
@@ -421,6 +411,8 @@ Below is an example/reference configuration file for Nstance Server, using examp
   }
 }
 ```
+
+AWS Secrets Manager (`aws-secrets-manager`) and encrypted object storage (`object-storage`) are explicit alternatives. For object storage, `encryption_key.provider` and entries in `old_encryption_keys` may use `aws-parameter-store`; set `source` to a `SecureString` parameter name such as `/nstance/example-cluster/encryption-key`. Parameter Store stores raw UTF-8 text (not base64) and standard-tier values are limited to 4 KiB.
 
 ## `cluster`
 

@@ -361,25 +361,26 @@ func NewRootCmd() *cobra.Command {
 
 		// create secrets store using cluster storage
 		storeOpts := secrets.StoreOptions{
-			Provider: cfg.Cluster.Secrets.Provider,
-			Prefix:   cfg.Cluster.Secrets.Prefix,
-			CacheTTL: cfg.Cluster.Secrets.CacheTTL.Duration(),
-			Storage:  clusterStorage,
+			Provider:  cfg.Cluster.Secrets.Provider,
+			Prefix:    cfg.Cluster.Secrets.Prefix,
+			CacheTTL:  cfg.Cluster.Secrets.CacheTTL.Duration(),
+			ProjectID: cfg.Cluster.Secrets.ProjectID,
+			Storage:   clusterStorage,
 		}
 
 		// load encryption key if configured (only used with object-storage secrets provider)
 		if cfg.Cluster.Secrets.EncryptionKey != nil {
 			storeOpts.EncryptionKeys = []secrets.KeyConfig{{
-				Provider: cfg.Cluster.Secrets.EncryptionKey.Provider,
-				Source:   cfg.Cluster.Secrets.EncryptionKey.Source,
-				Options:  cfg.Cluster.Secrets.EncryptionKey.Options,
+				Provider:  cfg.Cluster.Secrets.EncryptionKey.Provider,
+				ProjectID: cfg.Cluster.Secrets.EncryptionKey.ProjectID,
+				Source:    cfg.Cluster.Secrets.EncryptionKey.Source,
 			}}
 		}
 		for _, k := range cfg.Cluster.Secrets.OldEncryptionKeys {
 			storeOpts.EncryptionKeys = append(storeOpts.EncryptionKeys, secrets.KeyConfig{
-				Provider: k.Provider,
-				Source:   k.Source,
-				Options:  k.Options,
+				Provider:  k.Provider,
+				ProjectID: k.ProjectID,
+				Source:    k.Source,
 			})
 		}
 		secretsStore, err := secrets.NewStore(ctx, storeOpts)

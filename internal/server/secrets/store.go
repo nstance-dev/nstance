@@ -6,7 +6,11 @@ package secrets
 
 import (
 	"context"
+	"errors"
 )
+
+// ErrNotFound indicates that a requested secret does not exist.
+var ErrNotFound = errors.New("secret not found")
 
 // Store provides simple secret storage operations
 type Store interface {

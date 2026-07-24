@@ -4,11 +4,18 @@
 
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
 locals {
-  account_id  = data.aws_caller_identity.current.account_id
-  region      = data.aws_region.current.region
-  name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
+  account_id               = data.aws_caller_identity.current.account_id
+  region                   = data.aws_region.current.region
+  name_prefix              = coalesce(var.name_prefix, var.cluster.name_prefix)
+  uses_parameter_store     = var.cluster.secrets_provider == "aws-parameter-store"
+  uses_parameter_store_key = var.cluster.secrets_provider == "object-storage" && var.cluster.encryption_key_provider == "aws-parameter-store"
+  uses_secrets_manager     = var.cluster.secrets_provider == "aws-secrets-manager"
+  uses_secrets_manager_key = var.cluster.secrets_provider == "object-storage" && var.cluster.encryption_key_provider == "aws-secrets-manager"
+  parameter_store_key_arn  = startswith(var.cluster.encryption_key_source, "arn:") ? var.cluster.encryption_key_source : "arn:${data.aws_partition.current.partition}:ssm:${local.region}:${local.account_id}:parameter/${trimprefix(var.cluster.encryption_key_source, "/")}"
+  secrets_manager_key_arn  = startswith(var.cluster.encryption_key_source, "arn:") ? var.cluster.encryption_key_source : "arn:${data.aws_partition.current.partition}:secretsmanager:${local.region}:${local.account_id}:secret:${var.cluster.encryption_key_source}*"
 }
 
 # ============================================================================
@@ -76,18 +83,53 @@ data "aws_iam_policy_document" "server" {
     ]
   }
 
-  # Secrets Manager Access
-  statement {
-    sid = "SecretsManagerAccess"
-    actions = [
-      "secretsmanager:GetSecretValue",
-      "secretsmanager:UpdateSecret",
-      "secretsmanager:CreateSecret",
-      "secretsmanager:DeleteSecret"
-    ]
-    resources = [
-      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:nstance/*"
-    ]
+  dynamic "statement" {
+    for_each = local.uses_parameter_store ? [1] : []
+    content {
+      sid = "ParameterStoreAccess"
+      actions = [
+        "ssm:GetParameter",
+        "ssm:PutParameter",
+        "ssm:DeleteParameter"
+      ]
+      resources = [
+        "arn:${data.aws_partition.current.partition}:ssm:${local.region}:${local.account_id}:parameter/nstance/${var.cluster.id}/*"
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.uses_parameter_store_key ? [1] : []
+    content {
+      sid       = "ParameterStoreKeyAccess"
+      actions   = ["ssm:GetParameter"]
+      resources = [local.parameter_store_key_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.uses_secrets_manager ? [1] : []
+    content {
+      sid = "SecretsManagerAccess"
+      actions = [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:CreateSecret",
+        "secretsmanager:DeleteSecret"
+      ]
+      resources = [
+        "arn:${data.aws_partition.current.partition}:secretsmanager:${local.region}:${local.account_id}:secret:nstance/${var.cluster.id}/*"
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.uses_secrets_manager_key ? [1] : []
+    content {
+      sid       = "SecretsManagerKeyAccess"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [local.secrets_manager_key_arn]
+    }
   }
 
   # ELB Access (for load balancer integration)

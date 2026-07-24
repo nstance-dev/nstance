@@ -90,7 +90,7 @@ For example:
 
 * Subnet Pools help make configuration portable: groups synced across an Nstance shard in AWS and in Google Cloud can both reference a set of subnets by name, and the specific subnet resources are mapped in each cloud's shard config (set via OpenTofu/Terraform).
 
-* Userdata to configure a VM can be entirely cloud-agnostic: Nstance Agent handles receiving secrets, TLS certificates, etc. and the underlying encryption keys can be stored in a cloud-specific secrets storage (e.g. AWS Secrets Manager) and Nstance Server handles the abstraction layer transparently to each VM.
+* Userdata to configure a VM can be entirely cloud-agnostic: Nstance Agent handles receiving secrets, TLS certificates, etc. and the underlying secrets or encryption keys can be stored in cloud-specific storage (e.g. AWS Systems Manager Parameter Store by default, or AWS Secrets Manager explicitly) while Nstance Server handles the abstraction layer transparently to each VM.
 
 ## 6. Faster Auto-Scaling & Failure Detection
 

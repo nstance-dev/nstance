@@ -111,18 +111,18 @@ resource "google_storage_bucket_object" "shard_config" {
               prefix   = var.cluster.secrets_provider == "object-storage" ? "secret/" : "nstance-${var.cluster.id}-"
             },
             var.cluster.secrets_provider == "object-storage" ? {
-              encryption_key = {
-                provider = "gcp-secret-manager"
-                source   = var.cluster.encryption_key_source
-                options = {
-                  project_id = local.project_id
-                }
-              }
+              encryption_key = merge(
+                {
+                  provider = var.cluster.encryption_key_provider
+                  source   = var.cluster.encryption_key_source
+                },
+                var.cluster.encryption_key_provider == "gcp-secret-manager" ? {
+                  project_id = var.cluster.project_id
+                } : {},
+              )
             } : {},
-            var.cluster.secrets_provider != "object-storage" ? {
-              options = {
-                project_id = local.project_id
-              }
+            var.cluster.secrets_provider == "gcp-secret-manager" ? {
+              project_id = var.cluster.project_id
             } : {},
           )
         },

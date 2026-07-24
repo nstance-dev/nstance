@@ -1,7 +1,7 @@
 ---
 title: "AWS"
 weight: 10
-description: "How Nstance integrates with AWS services including EC2, S3, Secrets Manager, and Elastic Load Balancing."
+description: "How Nstance integrates with AWS services including EC2, S3, Parameter Store, Secrets Manager, and Elastic Load Balancing."
 ---
 
 # AWS Integration Guide for Nstance
@@ -43,21 +43,24 @@ S3 serves as the object storage backend for all persistent state:
 
 See [Data Storage](../reference/data-storage.md) for the full bucket layout.
 
-### 3. AWS Secrets Manager
+### 3. AWS Systems Manager Parameter Store
 
-Used for secure storage of sensitive cryptographic material:
+Parameter Store is the default AWS secrets backend. Configure the direct store with `provider: "aws-parameter-store"` and a path such as `/nstance/<cluster-id>/`. It can also supply the 32-byte encryption key when `object-storage` is selected explicitly.
 
-- **Encryption Key**: For encrypting data stored in object storage
-- **Certificate Authority Keys**: Private keys for CA operations
-- **Service Account Keys**: Kubernetes service account signing keys
-- **Custom Secrets**: Distributed to instances via agent
+Nstance values remain `[]byte` at its boundaries, but Parameter Store writes them as raw `SecureString` text without a base64 envelope. Writes must therefore be valid UTF-8 and fit the standard-tier 4 KiB value limit.
+
+AWS Systems Manager Parameter Store is commonly called simply Parameter Store. This integration uses Parameter Store, not Session Manager. Session Manager is a separate AWS Systems Manager capability and requires additional messaging endpoints.
+
+### 4. AWS Secrets Manager
+
+AWS Secrets Manager remains an explicit alternative, either as the direct `aws-secrets-manager` store or as the encryption-key source for `object-storage`. Object storage itself is also an explicit alternative for CA keys, service account keys, and custom secrets.
 
 **Security Model:**
 - Encryption Key reduces required permissions (read-only access to Secrets Manager)
 - Secrets are encrypted at rest and in transit
 - Supports key rotation workflows
 
-### 4. Elastic Load Balancing v2 (ELBv2)
+### 5. Elastic Load Balancing v2 (ELBv2)
 
 Manages Network Load Balancer target groups for service exposure:
 
@@ -103,6 +106,14 @@ Manages Network Load Balancer target groups for service exposure:
 | `CreateSecret` | `secretsmanager:CreateSecret` | Create new secrets |
 | `DeleteSecret` | `secretsmanager:DeleteSecret` | Remove secrets |
 
+### Systems Manager Parameter Store APIs
+
+| SDK Method | IAM Action | Purpose |
+|------------|------------|---------|
+| `GetParameter` (with decryption) | `ssm:GetParameter` | Retrieve and decrypt a `SecureString` |
+| `PutParameter` | `ssm:PutParameter` | Create or overwrite a `SecureString` |
+| `DeleteParameter` | `ssm:DeleteParameter` | Remove a parameter |
+
 ### ELBv2 APIs
 
 | SDK Method | IAM Action | Purpose |
@@ -118,7 +129,7 @@ Nstance Server requires a dedicated IAM role with specific permissions. The comp
 ### Key Considerations
 
 - **Resource Scoping**: S3 permissions are scoped to specific buckets
-- **Secret Prefixing**: Secrets Manager access limited to `nstance/*` prefix
+- **Secret Prefixing**: Parameter Store access is limited to `/nstance/<cluster-id>/`; direct Secrets Manager access is limited to `nstance/<cluster-id>/` when that alternative is selected
 - **Regional Scope**: All permissions should be scoped to the deployment region
 - **Tag-Based Access**: Consider adding tag-based conditions for EC2 resources
 

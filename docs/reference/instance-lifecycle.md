@@ -134,8 +134,8 @@ Registration Nonce JWTs are used by any Nstance Agent and the Nstance Operator t
 * For the Nstance Operator, the JWT is expected to be injected into a cluster Secret when the cluster etcd data is seeded. These JWTs are typically slightly longer-lived (default 3 hours), to allow more time for the first Operator container to start running. Operator nonces are generated using the `nstance-admin` CLI:
 
   ```bash
-  nstance-admin cluster nonce --storage-bucket my-bucket --key-provider env
-  nstance-admin cluster nonce --storage-bucket my-bucket --key-provider env --expiry 1h
+  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env
+  nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env --expiry 1h
   ```
 
 Before a client can register, it must generate a keypair, where the public key will be used for generating a client certificate it can use to create an authenticated gRPC connection for Nstance Server API access.

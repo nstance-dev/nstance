@@ -111,12 +111,12 @@ resource "aws_s3_object" "shard_config" {
             provider = "object-storage"
             prefix   = "secret/"
             encryption_key = {
-              provider = "aws-secrets-manager"
+              provider = var.cluster.encryption_key_provider
               source   = var.cluster.encryption_key_source
             }
             } : {
             provider       = var.cluster.secrets_provider
-            prefix         = "nstance/${var.cluster.id}/"
+            prefix         = var.cluster.secrets_provider == "aws-parameter-store" ? "/nstance/${var.cluster.id}/" : "nstance/${var.cluster.id}/"
             encryption_key = null
           }
         },

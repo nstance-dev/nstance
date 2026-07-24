@@ -45,13 +45,14 @@ func init() {
 	pflags.StringVar(&flagClusterStorageProvider, "storage-provider", "s3", "Storage provider (s3, gcs, file)")
 	pflags.StringVar(&flagClusterStorageBucket, "storage-bucket", "", "Storage bucket name")
 	pflags.StringVar(&flagClusterStoragePrefix, "storage-prefix", "cluster/", "Storage prefix for cluster data")
-	pflags.StringVar(&flagClusterSecretsProvider, "secrets-provider", "object-storage", "Secrets provider (object-storage, aws-secrets-manager, gcp-secret-manager)")
+	pflags.StringVar(&flagClusterSecretsProvider, "secrets-provider", "", "Secrets provider (object-storage, aws-parameter-store, aws-secrets-manager, gcp-secret-manager)")
 	pflags.StringVar(&flagClusterSecretsPrefix, "secrets-prefix", "secret/", "Secrets prefix")
 	pflags.StringVar(&flagClusterSecretsGCPProject, "secrets-gcp-project", "", "GCP project ID (required for gcp-secret-manager provider)")
-	pflags.StringVar(&flagClusterKeyProvider, "key-provider", "", "Encryption key provider (env, file, aws-secrets-manager, gcp-secret-manager) - required for object-storage secrets provider")
-	pflags.StringVar(&flagClusterKeySource, "key-source", "", "Encryption key source (env var name, file path, or secret ARN) - defaults to NSTANCE_ENCRYPTION_KEY for env provider")
+	pflags.StringVar(&flagClusterKeyProvider, "key-provider", "", "Encryption key provider (env, file, aws-parameter-store, aws-secrets-manager, gcp-secret-manager) - required for object-storage secrets provider")
+	pflags.StringVar(&flagClusterKeySource, "key-source", "", "Encryption key source (env var name, file path, parameter name, or secret ARN) - defaults to NSTANCE_ENCRYPTION_KEY for env provider")
 
 	_ = clusterCmd.MarkPersistentFlagRequired("storage-bucket")
+	_ = clusterCmd.MarkPersistentFlagRequired("secrets-provider")
 
 	rootCmd.AddCommand(clusterCmd)
 }
@@ -88,9 +89,9 @@ func initClusterServices(cmd *cobra.Command, _ []string) error {
 
 func initClusterSecretsStore(ctx context.Context) (secrets.Store, error) {
 	storeOpts := secrets.StoreOptions{
-		Provider:   flagClusterSecretsProvider,
-		Prefix:     flagClusterSecretsPrefix,
-		GCPProject: flagClusterSecretsGCPProject,
+		Provider:  flagClusterSecretsProvider,
+		Prefix:    flagClusterSecretsPrefix,
+		ProjectID: flagClusterSecretsGCPProject,
 	}
 
 	switch flagClusterSecretsProvider {
@@ -108,21 +109,21 @@ func initClusterSecretsStore(ctx context.Context) (secrets.Store, error) {
 		}
 		storeOpts.Storage = clusterStorage
 		keyCfg := secrets.KeyConfig{
-			Provider: flagClusterKeyProvider,
-			Source:   keySource,
+			Provider:  flagClusterKeyProvider,
+			ProjectID: flagClusterSecretsGCPProject,
+			Source:    keySource,
 		}
 		if flagClusterKeyProvider == "gcp-secret-manager" {
 			if flagClusterSecretsGCPProject == "" {
 				return nil, fmt.Errorf("--secrets-gcp-project is required for gcp-secret-manager key provider")
 			}
-			keyCfg.Options = map[string]interface{}{"project_id": flagClusterSecretsGCPProject}
 		}
 		storeOpts.EncryptionKeys = []secrets.KeyConfig{keyCfg}
 	case "gcp-secret-manager":
-		if storeOpts.GCPProject == "" {
+		if storeOpts.ProjectID == "" {
 			return nil, fmt.Errorf("--secrets-gcp-project is required for gcp-secret-manager provider")
 		}
-	case "aws-secrets-manager":
+	case "aws-parameter-store", "aws-secrets-manager":
 	default:
 		return nil, fmt.Errorf("unsupported secrets provider: %s", flagClusterSecretsProvider)
 	}

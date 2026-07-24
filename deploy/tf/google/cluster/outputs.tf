@@ -34,12 +34,17 @@ output "project_id" {
 
 output "secrets_provider" {
   description = "The secrets provider type"
-  value       = var.secrets_provider
+  value       = local.secrets_provider
+}
+
+output "encryption_key_provider" {
+  description = "Provider holding the object-storage encryption key"
+  value       = local.secrets_provider == "object-storage" ? local.encryption_key_provider : ""
 }
 
 output "encryption_key_source" {
   description = "Encryption key source identifier for the secrets store"
-  value       = local.create_encryption_key ? google_secret_manager_secret.encryption_key[0].secret_id : var.encryption_key
+  value       = local.secrets_provider == "object-storage" ? (local.create_encryption_key ? google_secret_manager_secret.encryption_key[0].secret_id : var.encryption_key) : ""
 }
 
 output "server_config" {

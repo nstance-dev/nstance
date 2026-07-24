@@ -41,7 +41,7 @@ func LoadCA(ctx context.Context, storageClient storage.Storage, secretsStore sec
 	}
 
 	// Both failed to load - check if it's "not found" vs actual error
-	if !errors.Is(keyErr, storage.ErrNotFound) {
+	if !errors.Is(keyErr, secrets.ErrNotFound) {
 		return nil, nil, false, fmt.Errorf("failed to load CA private key: %w", keyErr)
 	}
 	if !errors.Is(certErr, storage.ErrNotFound) {
@@ -182,7 +182,7 @@ func EnsureRegistrationNonceKey(ctx context.Context, secretsStore secrets.Store,
 	}
 
 	// If any error occured other than not found, return it to trigger a restart/retry on loading the key
-	if !errors.Is(err, storage.ErrNotFound) {
+	if !errors.Is(err, secrets.ErrNotFound) {
 		return nil, fmt.Errorf("failed to load registration nonce key: %w", err)
 	}
 

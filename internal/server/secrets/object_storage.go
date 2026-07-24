@@ -6,6 +6,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/nstance-dev/nstance/internal/server/storage"
@@ -35,6 +36,9 @@ func (s *ObjectStorageStore) Get(ctx context.Context, name string) ([]byte, erro
 	key := s.prefix + name
 	data, _, err := s.storage.Get(ctx, key)
 	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
 		return nil, fmt.Errorf("failed to get secret %s: %w", name, err)
 	}
 

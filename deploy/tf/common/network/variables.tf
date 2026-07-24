@@ -9,8 +9,10 @@
 variable "cluster" {
   description = "Cluster configuration from cluster module output"
   type = object({
-    name_prefix = optional(string, "nstance")
-    shards      = optional(list(string), [])
+    name_prefix             = optional(string, "nstance")
+    shards                  = optional(list(string), [])
+    secrets_provider        = string
+    encryption_key_provider = optional(string, "")
   })
 }
 

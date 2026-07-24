@@ -1,6 +1,6 @@
 # Nstance Network Module (AWS)
 
-Creates VPC infrastructure including subnets, NAT gateways, route tables, VPC endpoints (S3, SSM, Secrets Manager), and optional Network Load Balancers.
+Creates VPC infrastructure including subnets, NAT gateways, route tables, provider-aware VPC endpoints, and optional Network Load Balancers. The SSM API endpoint is enabled whenever Parameter Store is used, independently of Session Manager; messaging and Secrets Manager endpoints remain conditional.
 
 ## Usage
 

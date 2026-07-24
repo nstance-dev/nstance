@@ -24,7 +24,7 @@ The delineation of these modules enables cluster deployments to scale from singl
 |------------------------------------|:-------:|:-------:|:-------:|:-----:|
 | Cluster ID / Root CA               |    ✓    |         |         |       |
 | S3/GCS Bucket                      |    ✓    |         |         |       |
-| Encryption Key (Secrets Manager)   |    ✓    |         |         |       |
+| Optional Object-Storage Enc. Key   |    ✓    |         |         |       |
 | Server IAM Role                    |         |    ✓    |         |       |
 | Agent IAM Role                     |         |    ✓    |         |       |
 | Instance Profiles                  |         |    ✓    |         |       |
@@ -103,6 +103,7 @@ deploy/tf/
 ## Prerequisites
 
 - OpenTofu >= 1.6.0 or Terraform >= 1.5.0
+- The AWS cluster module requires Terraform/OpenTofu >= 1.11 and AWS provider >= 6.8.
 - Cloud provider CLI (`aws` or `gcloud`) configured with appropriate credentials.
 - GitHub releases available for nstance-server and nstance-agent (or custom binary URLs).
 
@@ -115,7 +116,8 @@ deploy/tf/
 - Instance metadata service configuration uses secure defaults (i.e. IMDSv2 on AWS).
 - Instance volumes are encrypted by default.
 - IAM roles are separated per use case, each with least-privilege permissions.
-- Encryption key stored in secrets manager (not in Terraform state).
+- On AWS, secrets default to Parameter Store; Secrets Manager and object storage are explicit alternatives.
+- When AWS object storage uses a Parameter Store encryption key and no existing key is supplied, Terraform safely creates a 32-character key using an ephemeral value and the AWS provider's write-only parameter value. Terraform/OpenTofu >= 1.11 and AWS provider >= 6.8 keep that value out of state.
 - S3 buckets are encrypted by default.
 - S3/GCS buckets have deletion protection by default.
 
@@ -493,7 +495,9 @@ server_config = {
 Generates shared cluster resources:
 - Cluster ID (user-provided, lowercase alphanumeric with hyphens not leading/trailing/repeating, max 32 chars)
 - S3/GCS bucket for config and state
-- Encryption key in AWS/Google Cloud Secrets Manager (only when `secrets_provider="object-storage"`)
+- AWS Systems Manager Parameter Store as the default direct AWS secrets store
+- Google Cloud Secret Manager as the default direct Google Cloud secrets store
+- Optional encryption key in AWS Parameter Store, AWS Secrets Manager, or Google Cloud Secret Manager (only when `secrets_provider="object-storage"`)
 
 **Key Variables:**
 | Name | Description | Default |
@@ -503,8 +507,9 @@ Generates shared cluster resources:
 | `shards` | Optional list of valid shard IDs for validation | `[]` |
 | `bucket` | Existing S3/GCS bucket (if empty, a new bucket is created) | `""` |
 | `versioning` | Enable object versioning on the bucket (increases storage costs) | `false` |
-| `secrets_provider` | Secrets storage provider: `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `gcp-secret-manager` | `"object-storage"` |
-| `encryption_key` | Existing encryption key secret (AWS: ARN, Google Cloud: secret name). Only used when `secrets_provider="object-storage"`. If empty, created. | `""` |
+| `secrets_provider` | Secrets storage provider: `aws-parameter-store`, `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `gcp-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `gcp-secret-manager` on Google Cloud) |
+| `encryption_key_provider` | Key source for object storage: `aws-parameter-store`, `aws-secrets-manager`, or `gcp-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `gcp-secret-manager` on Google Cloud) |
+| `encryption_key` | Existing encryption key source (AWS Parameter Store name or Secrets Manager ARN; Google Cloud secret name). Only used with `object-storage`; if empty, created. | `""` |
 | `server_config` | Server configuration (if specified, merged over defaults) | `{}` |
 
 **Outputs:**
@@ -522,7 +527,7 @@ Generates shared cluster resources:
 ### Account Module
 
 Creates IAM roles/service accounts:
-- Server role with EC2, S3, Secrets Manager, ELB permissions
+- Server role with EC2, S3, ELB, and permissions for the selected Parameter Store or Secrets Manager provider
 - Agent role with minimal EC2 describe permissions
 - Instance profiles (AWS)
 
@@ -768,7 +773,7 @@ If no subnets are found after filtering, a validation error is raised (catches s
                                               ▼
                           ┌─────────────────────────────────────┐
                           │   Cluster Module (shared storage)   │
-                          │  S3/GCS bucket, Secrets Manager     │
+                          │  S3/GCS, Parameter/Secrets Manager  │
                           └─────────────────────────────────────┘
 ```
 
