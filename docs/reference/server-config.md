@@ -118,13 +118,16 @@ Below is an example/reference configuration file for Nstance Server, using examp
     }
   },
   // Optional: logical backend registration targets that groups can reference by key.
-  // AWS targets use target group ARNs; Google Cloud targets use unmanaged instance groups.
+  // Entries use provider-specific AWS target group, Google Cloud NEG, or tunnel listener shapes.
   "load_balancers": {
     "www": {
       "provider": "aws",
-      "target_group_arns": [
-        "arn:aws:elasticloadbalancing:us-west-2:123412341234:targetgroup/example-www/abcdef1234567890"
-      ]
+      "target_groups": [{
+        "arn": "arn:aws:elasticloadbalancing:us-west-2:123412341234:targetgroup/example-www/abcdef1234567890",
+        "listener_port": 443,
+        "target_port": 443,
+        "proxy_port": 8443
+      }]
     }
   },
   // Optional: image lookup configuration. Omit if templates use fixed provider image IDs directly.
@@ -454,7 +457,7 @@ AWS load balancers use:
 ```jsonc
 {
   "provider": "aws",
-  "target_group_arns": ["arn:aws:elasticloadbalancing:..."]
+  "target_groups": [{"arn": "arn:aws:elasticloadbalancing:...", "listener_port": 443, "target_port": 443, "proxy_port": 8443}]
 }
 ```
 
@@ -463,11 +466,12 @@ Google Cloud load balancers use:
 ```jsonc
 {
   "provider": "google",
-  "instance_group_name": "example-instance-group"
+  "network_endpoint_groups": ["example-us-central1-a"],
+  "frontends": [{"ip": "34.10.20.30", "port": 443}]
 }
 ```
 
-For Google Cloud, Nstance adds and removes instances from the unmanaged instance group. Infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
+Tunnel load balancers use `listeners` entries containing `target_port` and `proxy_port`. Tunnel entries do not invoke infrastructure provider membership APIs.
 
 ## `certificates` and template files
 

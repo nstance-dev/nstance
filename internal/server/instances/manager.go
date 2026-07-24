@@ -735,15 +735,14 @@ func (m *Manager) deregisterInstanceFromLB(ctx context.Context, instance *locald
 				"lb_key", lbInstance.LBKey)
 			continue
 		}
+		if lbConfig.Provider == "tunnel" {
+			continue
+		}
 
 		req := infra.DeregisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
-			LBConfig: infra.LoadBalancerConfig{
-				Provider:          lbConfig.Provider,
-				TargetGroupArns:   lbConfig.TargetGroupArns,
-				InstanceGroupName: lbConfig.InstanceGroupName,
-			},
-			Zone: cfg.Shard.Infra.Zone,
+			LBConfig:           infra.LoadBalancerConfigForProvider(lbConfig),
+			Zone:               cfg.Shard.Infra.Zone,
 		}
 
 		if err := m.provider.DeregisterFromLB(ctx, req); err != nil {

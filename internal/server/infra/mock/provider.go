@@ -361,11 +361,11 @@ func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInsta
 }
 
 func (p *Provider) getLBKey(cfg provider.LoadBalancerConfig) string {
-	if len(cfg.TargetGroupArns) > 0 {
-		return cfg.TargetGroupArns[0]
+	if len(cfg.TargetGroups) > 0 {
+		return cfg.TargetGroups[0].ARN
 	}
-	if cfg.InstanceGroupName != nil {
-		return *cfg.InstanceGroupName
+	if len(cfg.NetworkEndpointGroups) > 0 {
+		return cfg.NetworkEndpointGroups[0]
 	}
 	return "default"
 }

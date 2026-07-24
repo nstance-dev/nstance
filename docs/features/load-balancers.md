@@ -10,21 +10,24 @@ Nstance supports automatic registration/de-registration of instances with cloud 
 
 ## Configuration
 
-Load balancers are defined in the `load_balancers` configuration section. Each entry is a logical registration target: an AWS target group set or a Google Cloud unmanaged instance group that is already attached to the provider load balancer topology.
+Load balancers are defined in the `load_balancers` configuration section. Each entry is a logical registration target with an AWS NLB, Google Cloud NLB, or provider-neutral tunnel shape.
 
 ```jsonc
 {
   "load_balancers": {
     "www": {
       "provider": "aws",
-      "target_group_arns": [
-        "arn:aws:elasticloadbalancing:region:account:targetgroup/www-80/123",
-        "arn:aws:elasticloadbalancing:region:account:targetgroup/www-443/456"
-      ]
+      "target_groups": [{
+        "arn": "arn:aws:elasticloadbalancing:region:account:targetgroup/www-443/456",
+        "listener_port": 443,
+        "target_port": 443,
+        "proxy_port": 8443
+      }]
     },
     "internal": {
       "provider": "google",
-      "instance_group_name": "internal-ig"
+      "network_endpoint_groups": ["internal-us-central1-a"],
+      "frontends": [{"ip": "34.10.20.30", "port": 443}]
     }
   },
   "groups": {
@@ -43,8 +46,9 @@ Load balancers are defined in the `load_balancers` configuration section. Each e
 ```
 
 **Provider-Specific Fields:**
-- **AWS**: `target_group_arns` (required) - Array of NLB target group ARNs. For multi-port NLBs, include one ARN per port/listener. The server registers instances with all specified target groups.
-- **Google Cloud**: `instance_group_name` (required) - Unmanaged instance group name. Nstance adds and removes instances from the unmanaged instance group; infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
+- **AWS**: `target_groups` (required) - Entries contain `arn`, `listener_port`, `target_port`, and `proxy_port`. Current registration derives and registers the ARN list.
+- **Google Cloud**: `network_endpoint_groups` and `frontends` (required) - NEG names plus forwarding-rule `ip` and `port` metadata.
+- **Tunnel**: `listeners` (required) - Entries contain `target_port` and `proxy_port`; no infrastructure provider registration API is called.
 
 For example, a Kubernetes deployment may define an `ingress` registration target for ports 80/443 and a `controlplane` registration target for port 6443. Those targets can sit behind separate provider load balancers or share one load balancer with different listeners; Nstance only needs the backend membership instance group handles. 
 

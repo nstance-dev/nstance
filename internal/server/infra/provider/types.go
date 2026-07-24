@@ -107,11 +107,36 @@ type ListInstancesResponse struct {
 	Total     int               `json:"total"`
 }
 
-// LoadBalancerConfig mirrors config.LoadBalancerConfig to avoid circular imports
+// LoadBalancerConfig defines provider-specific load balancer configuration.
 type LoadBalancerConfig struct {
-	Provider          string
-	TargetGroupArns   []string // AWS: multiple ARNs for multi-port NLBs
-	InstanceGroupName *string  // Google Cloud
+	Provider string `json:"provider" validate:"required,oneof=aws google tunnel"`
+
+	TargetGroups []AWSTargetGroupConfig `json:"target_groups,omitempty"`
+
+	NetworkEndpointGroups []string                  `json:"network_endpoint_groups,omitempty"`
+	Frontends             []GoogleNLBFrontendConfig `json:"frontends,omitempty"`
+
+	Listeners []TunnelListenerConfig `json:"listeners,omitempty"`
+}
+
+// AWSTargetGroupConfig identifies an AWS target group and its public, production, and proxy ports.
+type AWSTargetGroupConfig struct {
+	ARN          string `json:"arn"`
+	ListenerPort int    `json:"listener_port"`
+	TargetPort   int    `json:"target_port"`
+	ProxyPort    int    `json:"proxy_port"`
+}
+
+// GoogleNLBFrontendConfig identifies a Google Cloud forwarding-rule frontend.
+type GoogleNLBFrontendConfig struct {
+	IP   string `json:"ip"`
+	Port int    `json:"port"`
+}
+
+// TunnelListenerConfig identifies the production and local proxy ports for a tunnel listener.
+type TunnelListenerConfig struct {
+	TargetPort int `json:"target_port"`
+	ProxyPort  int `json:"proxy_port"`
 }
 
 // RegisterLBRequest contains parameters for registering an instance with a load balancer

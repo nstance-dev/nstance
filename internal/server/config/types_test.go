@@ -407,39 +407,58 @@ func TestConfigValidation(t *testing.T) {
 }
 
 func TestLoadBalancerValidation(t *testing.T) {
-	googleInstanceGroup := "example-ingress-ig"
-
 	tests := []struct {
 		name          string
 		loadBalancers map[string]LoadBalancerConfig
 		wantErr       string
 	}{
 		{
-			name: "google requires only instance group name",
+			name: "google valid",
 			loadBalancers: map[string]LoadBalancerConfig{
 				"ingress": {
-					Provider:          "google",
-					InstanceGroupName: &googleInstanceGroup,
+					Provider:              "google",
+					NetworkEndpointGroups: []string{"ingress-us-central1-a"},
+					Frontends:             []GoogleNLBFrontendConfig{{IP: "34.1.2.3", Port: 443}},
 				},
 			},
 		},
 		{
-			name: "google requires instance group name",
+			name: "google requires NEGs",
 			loadBalancers: map[string]LoadBalancerConfig{
 				"ingress": {
-					Provider: "google",
+					Provider:  "google",
+					Frontends: []GoogleNLBFrontendConfig{{IP: "34.1.2.3", Port: 443}},
 				},
 			},
-			wantErr: "must specify instance_group_name",
+			wantErr: "network_endpoint_groups",
 		},
 		{
-			name: "aws requires target group arns",
+			name: "aws requires target groups",
 			loadBalancers: map[string]LoadBalancerConfig{
 				"ingress": {
 					Provider: "aws",
 				},
 			},
-			wantErr: "must specify at least one target_group_arns entry",
+			wantErr: "must specify at least one target_groups entry",
+		},
+		{
+			name:          "aws validates ports",
+			loadBalancers: map[string]LoadBalancerConfig{"ingress": {Provider: "aws", TargetGroups: []AWSTargetGroupConfig{{ARN: "arn", ListenerPort: 443, TargetPort: 70000, ProxyPort: 8443}}}},
+			wantErr:       "target_groups[0].target_port must be a valid TCP port",
+		},
+		{
+			name:          "google validates frontend IP",
+			loadBalancers: map[string]LoadBalancerConfig{"ingress": {Provider: "google", NetworkEndpointGroups: []string{"ingress-us-central1-a"}, Frontends: []GoogleNLBFrontendConfig{{IP: "not-an-ip", Port: 443}}}},
+			wantErr:       "frontends[0].ip must be a valid IP address",
+		},
+		{
+			name:          "tunnel valid",
+			loadBalancers: map[string]LoadBalancerConfig{"tunnel": {Provider: "tunnel", Listeners: []TunnelListenerConfig{{TargetPort: 6443, ProxyPort: 16443}}}},
+		},
+		{
+			name:          "reject cross-provider fields",
+			loadBalancers: map[string]LoadBalancerConfig{"ingress": {Provider: "aws", TargetGroups: []AWSTargetGroupConfig{{ARN: "arn", ListenerPort: 443, TargetPort: 443, ProxyPort: 8443}}, Frontends: []GoogleNLBFrontendConfig{{IP: "34.1.2.3", Port: 443}}}},
+			wantErr:       "contains fields for another provider",
 		},
 	}
 

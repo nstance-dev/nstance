@@ -7,6 +7,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -219,15 +220,39 @@ type ExpiryConfig struct {
 	OndemandAge Duration `json:"ondemand_age,omitempty"` // Maximum age for on-demand instances before forced expiry
 }
 
-// LoadBalancerConfig defines load balancer configuration
+// LoadBalancerConfig defines provider-specific load balancer configuration.
 type LoadBalancerConfig struct {
-	Provider string `json:"provider" validate:"required,oneof=aws google"`
+	Provider string `json:"provider" validate:"required,oneof=aws google tunnel"`
 
 	// AWS-specific fields
-	TargetGroupArns []string `json:"target_group_arns,omitempty"` // Multiple ARNs for multi-port NLBs
+	TargetGroups []AWSTargetGroupConfig `json:"target_groups,omitempty"`
 
 	// Google Cloud-specific fields
-	InstanceGroupName *string `json:"instance_group_name,omitempty"`
+	NetworkEndpointGroups []string                  `json:"network_endpoint_groups,omitempty"`
+	Frontends             []GoogleNLBFrontendConfig `json:"frontends,omitempty"`
+
+	// Tunnel-specific fields
+	Listeners []TunnelListenerConfig `json:"listeners,omitempty"`
+}
+
+// AWSTargetGroupConfig identifies an AWS target group and its public, production, and proxy ports.
+type AWSTargetGroupConfig struct {
+	ARN          string `json:"arn"`
+	ListenerPort int    `json:"listener_port"`
+	TargetPort   int    `json:"target_port"`
+	ProxyPort    int    `json:"proxy_port"`
+}
+
+// GoogleNLBFrontendConfig identifies a Google Cloud forwarding-rule frontend.
+type GoogleNLBFrontendConfig struct {
+	IP   string `json:"ip"`
+	Port int    `json:"port"`
+}
+
+// TunnelListenerConfig identifies the production and local proxy ports for a tunnel listener.
+type TunnelListenerConfig struct {
+	TargetPort int `json:"target_port"`
+	ProxyPort  int `json:"proxy_port"`
 }
 
 // CertConfig defines certificate template configuration
@@ -450,17 +475,63 @@ func (c *Config) Validate() error {
 	for lbKey, lbConfig := range c.LoadBalancers {
 		switch lbConfig.Provider {
 		case "aws":
-			if len(lbConfig.TargetGroupArns) == 0 {
-				return fmt.Errorf("load balancer %s with provider aws must specify at least one target_group_arns entry", lbKey)
+			if len(lbConfig.TargetGroups) == 0 {
+				return fmt.Errorf("load balancer %s with provider aws must specify at least one target_groups entry", lbKey)
 			}
-			for i, arn := range lbConfig.TargetGroupArns {
-				if arn == "" {
-					return fmt.Errorf("load balancer %s with provider aws has empty target_group_arns entry at index %d", lbKey, i)
+			if len(lbConfig.NetworkEndpointGroups) > 0 || len(lbConfig.Frontends) > 0 || len(lbConfig.Listeners) > 0 {
+				return fmt.Errorf("load balancer %s with provider aws contains fields for another provider", lbKey)
+			}
+			for i, targetGroup := range lbConfig.TargetGroups {
+				if targetGroup.ARN == "" {
+					return fmt.Errorf("load balancer %s target_groups[%d].arn must not be empty", lbKey, i)
+				}
+				if err := validateLoadBalancerPort(lbKey, fmt.Sprintf("target_groups[%d].listener_port", i), targetGroup.ListenerPort); err != nil {
+					return err
+				}
+				if err := validateLoadBalancerPort(lbKey, fmt.Sprintf("target_groups[%d].target_port", i), targetGroup.TargetPort); err != nil {
+					return err
+				}
+				if err := validateLoadBalancerPort(lbKey, fmt.Sprintf("target_groups[%d].proxy_port", i), targetGroup.ProxyPort); err != nil {
+					return err
 				}
 			}
 		case "google":
-			if lbConfig.InstanceGroupName == nil || *lbConfig.InstanceGroupName == "" {
-				return fmt.Errorf("load balancer %s with provider google must specify instance_group_name", lbKey)
+			if len(lbConfig.NetworkEndpointGroups) == 0 {
+				return fmt.Errorf("load balancer %s with provider google must specify at least one network_endpoint_groups entry", lbKey)
+			}
+			if len(lbConfig.Frontends) == 0 {
+				return fmt.Errorf("load balancer %s with provider google must specify at least one frontends entry", lbKey)
+			}
+			if len(lbConfig.TargetGroups) > 0 || len(lbConfig.Listeners) > 0 {
+				return fmt.Errorf("load balancer %s with provider google contains fields for another provider", lbKey)
+			}
+			for i, name := range lbConfig.NetworkEndpointGroups {
+				if name == "" {
+					return fmt.Errorf("load balancer %s has empty network_endpoint_groups entry at index %d", lbKey, i)
+				}
+			}
+			for i, frontend := range lbConfig.Frontends {
+				if _, err := netip.ParseAddr(frontend.IP); err != nil {
+					return fmt.Errorf("load balancer %s frontends[%d].ip must be a valid IP address", lbKey, i)
+				}
+				if err := validateLoadBalancerPort(lbKey, fmt.Sprintf("frontends[%d].port", i), frontend.Port); err != nil {
+					return err
+				}
+			}
+		case "tunnel":
+			if len(lbConfig.Listeners) == 0 {
+				return fmt.Errorf("load balancer %s with provider tunnel must specify at least one listeners entry", lbKey)
+			}
+			if len(lbConfig.TargetGroups) > 0 || len(lbConfig.NetworkEndpointGroups) > 0 || len(lbConfig.Frontends) > 0 {
+				return fmt.Errorf("load balancer %s with provider tunnel contains fields for another provider", lbKey)
+			}
+			for i, listener := range lbConfig.Listeners {
+				if err := validateLoadBalancerPort(lbKey, fmt.Sprintf("listeners[%d].target_port", i), listener.TargetPort); err != nil {
+					return err
+				}
+				if err := validateLoadBalancerPort(lbKey, fmt.Sprintf("listeners[%d].proxy_port", i), listener.ProxyPort); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -619,6 +690,14 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	return nil
+}
+
+// validateLoadBalancerPort validates that port is in the TCP port number range.
+func validateLoadBalancerPort(lbKey, field string, port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("load balancer %s %s must be a valid TCP port (1..65535)", lbKey, field)
+	}
 	return nil
 }
 

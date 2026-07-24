@@ -379,6 +379,9 @@ func (s *Service) registerInstanceWithLB(ctx context.Context, instance *localdb.
 				"lb_key", lbKey)
 			continue
 		}
+		if lbConfig.Provider == "tunnel" {
+			continue
+		}
 
 		existing, err := s.localDB.GetLBInstance(lbKey, instance.ID)
 		if err != nil {
@@ -406,12 +409,8 @@ func (s *Service) registerInstanceWithLB(ctx context.Context, instance *localdb.
 
 		req := infra.RegisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
-			LBConfig: infra.LoadBalancerConfig{
-				Provider:          lbConfig.Provider,
-				TargetGroupArns:   lbConfig.TargetGroupArns,
-				InstanceGroupName: lbConfig.InstanceGroupName,
-			},
-			Zone: cfg.Shard.Infra.Zone,
+			LBConfig:           infra.LoadBalancerConfigForProvider(lbConfig),
+			Zone:               cfg.Shard.Infra.Zone,
 		}
 
 		if err := s.provider.RegisterWithLB(ctx, req); err != nil {
@@ -482,6 +481,9 @@ func (s *Service) reconcilePendingLBRegistrations(ctx context.Context, cfg *conf
 				"lb_key", lbInstance.LBKey)
 			continue
 		}
+		if lbConfig.Provider == "tunnel" {
+			continue
+		}
 
 		s.logger.Info("Retrying load balancer registration",
 			"instance_id", instance.ID,
@@ -490,12 +492,8 @@ func (s *Service) reconcilePendingLBRegistrations(ctx context.Context, cfg *conf
 
 		req := infra.RegisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
-			LBConfig: infra.LoadBalancerConfig{
-				Provider:          lbConfig.Provider,
-				TargetGroupArns:   lbConfig.TargetGroupArns,
-				InstanceGroupName: lbConfig.InstanceGroupName,
-			},
-			Zone: cfg.Shard.Infra.Zone,
+			LBConfig:           infra.LoadBalancerConfigForProvider(lbConfig),
+			Zone:               cfg.Shard.Infra.Zone,
 		}
 
 		if err := s.provider.RegisterWithLB(ctx, req); err != nil {
