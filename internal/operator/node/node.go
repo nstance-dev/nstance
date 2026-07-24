@@ -31,7 +31,7 @@ func FindByProviderID(ctx context.Context, c client.Client, providerInstanceID s
 // MatchesProviderID checks if the provider instance ID matches the node's providerID.
 // Handles cloud-specific providerID formats:
 //   - AWS: aws:///us-west-2a/i-1234567890abcdef0
-//   - GCP: gce://project/zone/instance-name
+//   - Google: gce://project/zone/instance-name
 func MatchesProviderID(nodeProviderID, providerInstanceID string) bool {
 	if nodeProviderID == "" || providerInstanceID == "" {
 		return false
@@ -54,7 +54,7 @@ func MatchesProviderID(nodeProviderID, providerInstanceID string) bool {
 		}
 	}
 
-	// GCP format: gce://project/zone/instance-name
+	// Google format: gce://project/zone/instance-name
 	if strings.HasPrefix(nodeProviderID, "gce://") {
 		parts := strings.Split(nodeProviderID, "/")
 		if len(parts) > 0 {

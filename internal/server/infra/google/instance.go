@@ -2,7 +2,7 @@
 // Copyright The Nstance Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package gcp
+package google
 
 import (
 	"context"
@@ -18,15 +18,15 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
-// CreateInstance creates a new GCP VM instance
+// CreateInstance creates a new Google Cloud VM instance
 func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.CreateInstanceResponse, error) {
-	p.logger.Info("Creating GCP VM instance",
+	p.logger.Info("Creating Google Cloud VM instance",
 		"instance_id", req.InstanceID,
 		"instance_type", req.InstanceType)
 
 	instanceName := req.InstanceID
 
-	// Build labels (GCP uses lowercase labels)
+	// Build labels (Google Cloud uses lowercase labels)
 	labels := make(map[string]string)
 	labels[labelInstanceID] = sanitizeLabel(req.InstanceID)
 	labels[labelNstanceManaged] = "true"
@@ -111,10 +111,10 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 		InstanceResource: instance,
 	})
 	if err != nil {
-		p.logger.Error("Failed to create GCP instance",
+		p.logger.Error("Failed to create Google Cloud instance",
 			"instance_id", req.InstanceID,
 			"error", err)
-		return nil, fmt.Errorf("failed to create GCP instance: %w", err)
+		return nil, fmt.Errorf("failed to create Google Cloud instance: %w", err)
 	}
 
 	// Wait for operation to complete
@@ -152,12 +152,12 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 		}
 	}
 
-	// Instance name is the hostname in GCP
+	// Instance name is the hostname in Google Cloud
 	if createdInstance.Name != nil {
 		response.Hostname = *createdInstance.Name
 	}
 
-	p.logger.Info("GCP instance created successfully",
+	p.logger.Info("Google Cloud instance created successfully",
 		"instance_id", req.InstanceID,
 		"provider_instance_id", response.ProviderInstanceID,
 		"status", response.Status)
@@ -165,9 +165,9 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 	return response, nil
 }
 
-// DeleteInstance terminates a GCP VM instance by provider instance ID (instance name)
+// DeleteInstance terminates a Google Cloud VM instance by provider instance ID (instance name)
 func (p *Provider) DeleteInstance(ctx context.Context, instanceID, providerInstanceID string) error {
-	p.logger.Info("Deleting GCP VM instance", "provider_instance_id", providerInstanceID)
+	p.logger.Info("Deleting Google Cloud VM instance", "provider_instance_id", providerInstanceID)
 
 	op, err := p.instancesClient.Delete(ctx, &computepb.DeleteInstanceRequest{
 		Project:  p.options.ProjectID,
@@ -176,7 +176,7 @@ func (p *Provider) DeleteInstance(ctx context.Context, instanceID, providerInsta
 	})
 	if err != nil {
 		if isNotFound(err) {
-			p.logger.Info("GCP VM already deleted", "provider_instance_id", providerInstanceID)
+			p.logger.Info("Google Cloud VM already deleted", "provider_instance_id", providerInstanceID)
 			return nil
 		}
 		return fmt.Errorf("failed to delete instance: %w", err)
@@ -186,7 +186,7 @@ func (p *Provider) DeleteInstance(ctx context.Context, instanceID, providerInsta
 		return fmt.Errorf("failed waiting for delete operation: %w", err)
 	}
 
-	p.logger.Info("GCP VM deleted", "provider_instance_id", providerInstanceID)
+	p.logger.Info("Google Cloud VM deleted", "provider_instance_id", providerInstanceID)
 	return nil
 }
 
@@ -223,7 +223,7 @@ func (p *Provider) GetInstanceStatus(ctx context.Context, instanceID, providerIn
 
 // ListInstances returns instances with pagination support
 func (p *Provider) ListInstances(ctx context.Context, req provider.ListInstancesRequest) (*provider.ListInstancesResponse, error) {
-	p.logger.Debug("Listing GCP VM instances", "cluster_id", req.ClusterID, "shard", req.Shard)
+	p.logger.Debug("Listing Google Cloud VM instances", "cluster_id", req.ClusterID, "shard", req.Shard)
 
 	// Build filter string
 	var filterParts []string
@@ -266,7 +266,7 @@ func (p *Provider) ListInstances(ctx context.Context, req provider.ListInstances
 		instances = append(instances, p.convertToInstanceStatus(instanceID, instance))
 	}
 
-	p.logger.Debug("Listed GCP VM instances", "count", len(instances))
+	p.logger.Debug("Listed Google Cloud VM instances", "count", len(instances))
 
 	total := len(instances)
 	limit := req.Limit
@@ -444,7 +444,7 @@ func (p *Provider) CheckSubnetCapacity(ctx context.Context, subnetName string) (
 	}
 
 	// Check IP CIDR range
-	// GCP provides the IP CIDR range, and we can check usage
+	// Google Cloud provides the IP CIDR range, and we can check usage
 	// For simplicity, we'll assume capacity is available if the subnet exists
 	// In production, you'd want to calculate actual CIDR utilization
 
@@ -463,7 +463,7 @@ func (p *Provider) CheckSubnetCapacity(ctx context.Context, subnetName string) (
 	return hasCapacity, nil
 }
 
-// convertToInstanceStatus converts a GCP instance to InstanceStatus
+// convertToInstanceStatus converts a Google Cloud instance to InstanceStatus
 func (p *Provider) convertToInstanceStatus(instanceID string, instance *computepb.Instance) *provider.InstanceStatus {
 	status := &provider.InstanceStatus{
 		InstanceID:         instanceID,
@@ -475,7 +475,7 @@ func (p *Provider) convertToInstanceStatus(instanceID string, instance *computep
 		Tags:               make(map[string]string),
 	}
 
-	// Instance name is the hostname in GCP
+	// Instance name is the hostname in Google Cloud
 	if instance.Name != nil {
 		status.Hostname = *instance.Name
 	}
@@ -523,7 +523,7 @@ func (p *Provider) convertToInstanceStatus(instanceID string, instance *computep
 	return status
 }
 
-// convertInstanceState converts GCP instance state to standard status
+// convertInstanceState converts Google Cloud instance state to standard status
 func (p *Provider) convertInstanceState(state *string) string {
 	if state == nil {
 		return provider.StatusUnknown
@@ -581,7 +581,7 @@ func (p *Provider) extractZone(zoneURL *string) string {
 	return *zoneURL
 }
 
-// applyProviderArgs applies provider-specific arguments to GCP instance configuration
+// applyProviderArgs applies provider-specific arguments to Google Cloud instance configuration
 func (p *Provider) applyProviderArgs(instance *computepb.Instance, args map[string]interface{}) error {
 	for key, val := range args {
 		switch key {

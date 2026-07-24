@@ -71,16 +71,16 @@ func TestAWSSecretsDefaults(t *testing.T) {
 	}
 }
 
-func TestGCPSecretsDefaults(t *testing.T) {
+func TestGoogleSecretsDefaults(t *testing.T) {
 	config := Config{
 		Cluster: ClusterConfig{ID: "example-cluster"},
-		Shard:   ShardConfig{Infra: InfraConfig{Provider: "gcp"}},
+		Shard:   ShardConfig{Infra: InfraConfig{Provider: "google"}},
 	}
 
 	config.SetDefaults()
 
-	if got := config.Cluster.Secrets.Provider; got != "gcp-secret-manager" {
-		t.Errorf("secrets provider = %q, want gcp-secret-manager", got)
+	if got := config.Cluster.Secrets.Provider; got != "google-secret-manager" {
+		t.Errorf("secrets provider = %q, want google-secret-manager", got)
 	}
 	if got := config.Cluster.Secrets.Prefix; got != "nstance-example-cluster-" {
 		t.Errorf("secrets prefix = %q, want nstance-example-cluster-", got)
@@ -97,36 +97,36 @@ func TestAWSParameterStoreProvidersValidate(t *testing.T) {
 	}
 }
 
-func TestGCPSecretManagerProjectIDValidation(t *testing.T) {
-	if err := validateSecretProviderConfig("secrets", "gcp-secret-manager", SecretProviderConfig{ProjectID: "example-project"}); err != nil {
+func TestGoogleSecretManagerProjectIDValidation(t *testing.T) {
+	if err := validateSecretProviderConfig("secrets", "google-secret-manager", SecretProviderConfig{ProjectID: "example-project"}); err != nil {
 		t.Fatalf("validation error = %v", err)
 	}
-	if err := validateSecretProviderConfig("secrets", "gcp-secret-manager", SecretProviderConfig{}); err == nil {
+	if err := validateSecretProviderConfig("secrets", "google-secret-manager", SecretProviderConfig{}); err == nil {
 		t.Fatal("validation succeeded without project_id")
 	}
 	if err := validateSecretProviderConfig("secrets", "aws-parameter-store", SecretProviderConfig{}); err != nil {
 		t.Fatalf("validation error = %v", err)
 	}
 	if err := validateSecretProviderConfig("secrets", "aws-parameter-store", SecretProviderConfig{ProjectID: "example-project"}); err == nil {
-		t.Fatal("validation succeeded with project_id for non-GCP provider")
+		t.Fatal("validation succeeded with project_id for non-Google Cloud provider")
 	}
 }
 
 func TestSecretProviderConfigJSONIsFlat(t *testing.T) {
 	cfg := SecretsConfig{
 		SecretProviderConfig: SecretProviderConfig{ProjectID: "example-project"},
-		Provider:             "gcp-secret-manager",
+		Provider:             "google-secret-manager",
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	if got := string(data); got != `{"project_id":"example-project","provider":"gcp-secret-manager"}` {
+	if got := string(data); got != `{"project_id":"example-project","provider":"google-secret-manager"}` {
 		t.Fatalf("Marshal() = %s", got)
 	}
 
 	var keyCfg EncryptionKeyConfig
-	if err := json.Unmarshal([]byte(`{"provider":"gcp-secret-manager","project_id":"example-project","source":"encryption-key"}`), &keyCfg); err != nil {
+	if err := json.Unmarshal([]byte(`{"provider":"google-secret-manager","project_id":"example-project","source":"encryption-key"}`), &keyCfg); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 	if keyCfg.ProjectID != "example-project" {
@@ -387,7 +387,7 @@ func TestConfigValidation(t *testing.T) {
 }
 
 func TestLoadBalancerValidation(t *testing.T) {
-	gcpInstanceGroup := "example-ingress-ig"
+	googleInstanceGroup := "example-ingress-ig"
 
 	tests := []struct {
 		name          string
@@ -395,19 +395,19 @@ func TestLoadBalancerValidation(t *testing.T) {
 		wantErr       string
 	}{
 		{
-			name: "gcp requires only instance group name",
+			name: "google requires only instance group name",
 			loadBalancers: map[string]LoadBalancerConfig{
 				"ingress": {
-					Provider:          "gcp",
-					InstanceGroupName: &gcpInstanceGroup,
+					Provider:          "google",
+					InstanceGroupName: &googleInstanceGroup,
 				},
 			},
 		},
 		{
-			name: "gcp requires instance group name",
+			name: "google requires instance group name",
 			loadBalancers: map[string]LoadBalancerConfig{
 				"ingress": {
-					Provider: "gcp",
+					Provider: "google",
 				},
 			},
 			wantErr: "must specify instance_group_name",

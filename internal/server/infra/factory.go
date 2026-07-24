@@ -11,7 +11,7 @@ import (
 	"os"
 
 	"github.com/nstance-dev/nstance/internal/server/infra/aws"
-	"github.com/nstance-dev/nstance/internal/server/infra/gcp"
+	"github.com/nstance-dev/nstance/internal/server/infra/google"
 	"github.com/nstance-dev/nstance/internal/server/infra/mock"
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 	"github.com/nstance-dev/nstance/internal/server/infra/proxmox"
@@ -58,8 +58,8 @@ func NewProviderWithOptions(opts ProviderOptions) (provider.Provider, error) {
 			Config: opts.Config,
 			Logger: opts.Logger,
 		})
-	case "gcp":
-		return gcp.NewProvider(gcp.Options{
+	case "google":
+		return google.NewProvider(google.Options{
 			Config: opts.Config,
 			Logger: opts.Logger,
 		})

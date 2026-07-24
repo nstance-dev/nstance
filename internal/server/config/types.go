@@ -100,7 +100,7 @@ type ShardConfig struct {
 
 // InfraConfig defines infrastructure provider configuration for the shard.
 type InfraConfig struct {
-	Provider string                 `json:"provider" validate:"required,oneof=aws gcp mock tmux proxmox"`
+	Provider string                 `json:"provider" validate:"required,oneof=aws google mock tmux proxmox"`
 	Region   string                 `json:"region" validate:"required"`
 	Zone     string                 `json:"zone" validate:"required"`
 	Options  map[string]interface{} `json:"options,omitempty"` // Provider-specific options
@@ -154,8 +154,8 @@ type ErrorExitJitterConfig struct {
 // LeaderNetworkConfig defines stable leader network configuration for shard leadership.
 // This enables a stable IP address to be assigned when acquiring leadership.
 type LeaderNetworkConfig struct {
-	IP          string `json:"ip,omitempty"`           // Stable leader IP address (ENI private IP for AWS, reserved IP for GCP)
-	InterfaceID string `json:"interface_id,omitempty"` // Provider resource ID: ENI ID for AWS; empty for GCP (which uses alias IP)
+	IP          string `json:"ip,omitempty"`           // Stable leader IP address (ENI private IP for AWS, reserved IP for Google Cloud)
+	InterfaceID string `json:"interface_id,omitempty"` // Provider resource ID: ENI ID for AWS; empty for Google Cloud (which uses alias IP)
 }
 
 // SecretProviderConfig defines fields shared by secrets provider configurations.
@@ -167,7 +167,7 @@ type SecretProviderConfig struct {
 type SecretsConfig struct {
 	SecretProviderConfig
 
-	Provider          string                `json:"provider" validate:"required,oneof=object-storage aws-parameter-store aws-secrets-manager gcp-secret-manager memory"`
+	Provider          string                `json:"provider" validate:"required,oneof=object-storage aws-parameter-store aws-secrets-manager google-secret-manager memory"`
 	Prefix            string                `json:"prefix,omitempty"`              // Prefix for secrets (S3 path or AWS name prefix)
 	EncryptionKey     *EncryptionKeyConfig  `json:"encryption_key,omitempty"`      // Current key (used for encryption)
 	OldEncryptionKeys []EncryptionKeyConfig `json:"old_encryption_keys,omitempty"` // Old keys (decryption only during rotation)
@@ -178,7 +178,7 @@ type SecretsConfig struct {
 type EncryptionKeyConfig struct {
 	SecretProviderConfig
 
-	Provider string `json:"provider" validate:"required,oneof=env file aws-parameter-store aws-secrets-manager gcp-secret-manager"`
+	Provider string `json:"provider" validate:"required,oneof=env file aws-parameter-store aws-secrets-manager google-secret-manager"`
 	Source   string `json:"source" validate:"required"` // Env var, file path, parameter name, secret name, or secret ARN
 }
 
@@ -221,12 +221,12 @@ type ExpiryConfig struct {
 
 // LoadBalancerConfig defines load balancer configuration
 type LoadBalancerConfig struct {
-	Provider string `json:"provider" validate:"required,oneof=aws gcp"`
+	Provider string `json:"provider" validate:"required,oneof=aws google"`
 
 	// AWS-specific fields
 	TargetGroupArns []string `json:"target_group_arns,omitempty"` // Multiple ARNs for multi-port NLBs
 
-	// GCP-specific fields
+	// Google Cloud-specific fields
 	InstanceGroupName *string `json:"instance_group_name,omitempty"`
 }
 
@@ -458,9 +458,9 @@ func (c *Config) Validate() error {
 					return fmt.Errorf("load balancer %s with provider aws has empty target_group_arns entry at index %d", lbKey, i)
 				}
 			}
-		case "gcp":
+		case "google":
 			if lbConfig.InstanceGroupName == nil || *lbConfig.InstanceGroupName == "" {
-				return fmt.Errorf("load balancer %s with provider gcp must specify instance_group_name", lbKey)
+				return fmt.Errorf("load balancer %s with provider google must specify instance_group_name", lbKey)
 			}
 		}
 	}
@@ -695,11 +695,11 @@ func (c *Config) validateProxmoxArgs() error {
 }
 
 func validateSecretProviderConfig(path, provider string, cfg SecretProviderConfig) error {
-	if provider == "gcp-secret-manager" && cfg.ProjectID == "" {
-		return fmt.Errorf("%s.project_id is required for gcp-secret-manager", path)
+	if provider == "google-secret-manager" && cfg.ProjectID == "" {
+		return fmt.Errorf("%s.project_id is required for google-secret-manager", path)
 	}
-	if provider != "gcp-secret-manager" && cfg.ProjectID != "" {
-		return fmt.Errorf("%s.project_id is only valid for gcp-secret-manager", path)
+	if provider != "google-secret-manager" && cfg.ProjectID != "" {
+		return fmt.Errorf("%s.project_id is only valid for google-secret-manager", path)
 	}
 	return nil
 }
@@ -738,10 +738,10 @@ func (c *Config) SetDefaults() {
 		c.Cluster.Secrets.Prefix = "/nstance/" + c.Cluster.ID + "/"
 	}
 	// Google Cloud defaults to Secret Manager for secrets.
-	if c.Cluster.Secrets.Provider == "" && c.Shard.Infra.Provider == "gcp" {
-		c.Cluster.Secrets.Provider = "gcp-secret-manager"
+	if c.Cluster.Secrets.Provider == "" && c.Shard.Infra.Provider == "google" {
+		c.Cluster.Secrets.Provider = "google-secret-manager"
 	}
-	if c.Cluster.Secrets.Provider == "gcp-secret-manager" && c.Cluster.Secrets.Prefix == "" {
+	if c.Cluster.Secrets.Provider == "google-secret-manager" && c.Cluster.Secrets.Prefix == "" {
 		c.Cluster.Secrets.Prefix = "nstance-" + c.Cluster.ID + "-"
 	}
 

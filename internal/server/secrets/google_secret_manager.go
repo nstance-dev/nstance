@@ -15,24 +15,24 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GCPSecretManager implements secrets Store using GCP Secret Manager
-type GCPSecretManager struct {
+// GoogleSecretManager implements secrets Store using Google Cloud Secret Manager
+type GoogleSecretManager struct {
 	client  *secretmanager.Client
 	project string
 	prefix  string
 }
 
-// NewGCPSecretManagerStore creates a new GCP Secret Manager store
-func NewGCPSecretManagerStore(client *secretmanager.Client, project, prefix string) *GCPSecretManager {
-	return &GCPSecretManager{
+// NewGoogleSecretManagerStore creates a new Google Cloud Secret Manager store
+func NewGoogleSecretManagerStore(client *secretmanager.Client, project, prefix string) *GoogleSecretManager {
+	return &GoogleSecretManager{
 		client:  client,
 		project: project,
 		prefix:  prefix,
 	}
 }
 
-// Get retrieves a secret from GCP Secret Manager
-func (g *GCPSecretManager) Get(ctx context.Context, name string) ([]byte, error) {
+// Get retrieves a secret from Google Cloud Secret Manager
+func (g *GoogleSecretManager) Get(ctx context.Context, name string) ([]byte, error) {
 	secretName := g.secretVersionName(name)
 
 	req := &secretmanagerpb.AccessSecretVersionRequest{
@@ -54,8 +54,8 @@ func (g *GCPSecretManager) Get(ctx context.Context, name string) ([]byte, error)
 	return resp.Payload.Data, nil
 }
 
-// Set stores a secret in GCP Secret Manager
-func (g *GCPSecretManager) Set(ctx context.Context, name string, data []byte) error {
+// Set stores a secret in Google Cloud Secret Manager
+func (g *GoogleSecretManager) Set(ctx context.Context, name string, data []byte) error {
 	secretID := g.prefix + name
 	parent := fmt.Sprintf("projects/%s", g.project)
 	secretPath := fmt.Sprintf("%s/secrets/%s", parent, secretID)
@@ -105,8 +105,8 @@ func (g *GCPSecretManager) Set(ctx context.Context, name string, data []byte) er
 	return nil
 }
 
-// Delete removes a secret from GCP Secret Manager
-func (g *GCPSecretManager) Delete(ctx context.Context, name string) error {
+// Delete removes a secret from Google Cloud Secret Manager
+func (g *GoogleSecretManager) Delete(ctx context.Context, name string) error {
 	secretID := g.prefix + name
 	secretPath := fmt.Sprintf("projects/%s/secrets/%s", g.project, secretID)
 
@@ -126,7 +126,7 @@ func (g *GCPSecretManager) Delete(ctx context.Context, name string) error {
 }
 
 // List returns all secret names with the given prefix
-func (g *GCPSecretManager) List(ctx context.Context) ([]string, error) {
+func (g *GoogleSecretManager) List(ctx context.Context) ([]string, error) {
 	parent := fmt.Sprintf("projects/%s", g.project)
 
 	req := &secretmanagerpb.ListSecretsRequest{
@@ -151,7 +151,7 @@ func (g *GCPSecretManager) List(ctx context.Context) ([]string, error) {
 }
 
 // secretVersionName returns the full resource name for the latest version of a secret
-func (g *GCPSecretManager) secretVersionName(name string) string {
+func (g *GoogleSecretManager) secretVersionName(name string) string {
 	secretID := g.prefix + name
 	return fmt.Sprintf("projects/%s/secrets/%s/versions/latest", g.project, secretID)
 }

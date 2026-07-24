@@ -40,10 +40,10 @@ locals {
     nstance_version = local.nstance_version
     github_repo     = local.github_repo
     binary_url      = var.nstance_server_binary_url
-    provider        = "gcp"
+    provider        = "google"
     storage         = "gcs"
     aws_region      = ""
-    gcp_project     = local.project_id
+    google_project  = local.project_id
     bucket          = var.cluster.bucket
     shard           = var.shard
     enable_ssm      = false

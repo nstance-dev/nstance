@@ -16,7 +16,7 @@ locals {
     nstance_version       = local.nstance_version
     github_repo           = local.github_repo
     binary_url            = var.nstance_agent_binary_url
-    provider              = "gcp"
+    provider              = "google"
     enable_ssm            = false
     agent_debug           = var.agent_debug
     agent_environment     = var.agent_environment
@@ -116,12 +116,12 @@ resource "google_storage_bucket_object" "shard_config" {
                   provider = var.cluster.encryption_key_provider
                   source   = var.cluster.encryption_key_source
                 },
-                var.cluster.encryption_key_provider == "gcp-secret-manager" ? {
+                var.cluster.encryption_key_provider == "google-secret-manager" ? {
                   project_id = var.cluster.project_id
                 } : {},
               )
             } : {},
-            var.cluster.secrets_provider == "gcp-secret-manager" ? {
+            var.cluster.secrets_provider == "google-secret-manager" ? {
               project_id = var.cluster.project_id
             } : {},
           )
@@ -132,7 +132,7 @@ resource "google_storage_bucket_object" "shard_config" {
         {
           id = var.shard
           infra = {
-            provider = "gcp"
+            provider = "google"
             region   = local.region
             zone     = var.zone
             options = {
@@ -165,7 +165,7 @@ resource "google_storage_bucket_object" "shard_config" {
       templates    = local.templates
       load_balancers = {
         for lb_key, lb in var.network.load_balancers : lb_key => {
-          provider            = "gcp"
+          provider            = "google"
           instance_group_name = try(lb.instance_groups[var.zone], "")
         }
         if try(lb.instance_groups[var.zone], "") != ""

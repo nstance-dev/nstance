@@ -111,7 +111,7 @@ type ListInstancesResponse struct {
 type LoadBalancerConfig struct {
 	Provider          string
 	TargetGroupArns   []string // AWS: multiple ARNs for multi-port NLBs
-	InstanceGroupName *string  // GCP
+	InstanceGroupName *string  // Google Cloud
 }
 
 // RegisterLBRequest contains parameters for registering an instance with a load balancer
@@ -144,16 +144,16 @@ type ProviderConfig struct {
 
 // Common instance statuses - standardized across all cloud providers
 const (
-	StatusPending    = "pending"    // AWS: "pending", GCP: "PROVISIONING"/"STAGING", mock: on create
-	StatusRunning    = "running"    // AWS: "running", GCP: "RUNNING", Proxmox: "running", tmux: window alive, mock: after create
-	StatusStopping   = "stopping"   // AWS: "stopping", GCP: "STOPPING"
-	StatusStopped    = "stopped"    // AWS: "stopped", GCP: "STOPPED", Proxmox: "stopped"
-	StatusSuspending = "suspending" // GCP: "SUSPENDING"
-	StatusSuspended  = "suspended"  // GCP: "SUSPENDED", Proxmox: "paused"
+	StatusPending    = "pending"    // AWS: "pending", Google Cloud: "PROVISIONING"/"STAGING", mock: on create
+	StatusRunning    = "running"    // AWS: "running", Google Cloud: "RUNNING", Proxmox: "running", tmux: window alive, mock: after create
+	StatusStopping   = "stopping"   // AWS: "stopping", Google Cloud: "STOPPING"
+	StatusStopped    = "stopped"    // AWS: "stopped", Google Cloud: "STOPPED", Proxmox: "stopped"
+	StatusSuspending = "suspending" // Google Cloud: "SUSPENDING"
+	StatusSuspended  = "suspended"  // Google Cloud: "SUSPENDED", Proxmox: "paused"
 	StatusDeleting   = "deleting"   // AWS: "shutting-down", mock: on delete
-	StatusDeleted    = "deleted"    // AWS: "terminated", GCP: "TERMINATED", tmux: window dead/missing, mock: after delete
-	StatusRepairing  = "repairing"  // GCP: "REPAIRING" (live migration)
-	StatusUnknown    = "unknown"    // AWS/GCP/Proxmox: any unrecognised state (not in IsUnhealthy, not filtered by SQL)
+	StatusDeleted    = "deleted"    // AWS: "terminated", Google Cloud: "TERMINATED", tmux: window dead/missing, mock: after delete
+	StatusRepairing  = "repairing"  // Google Cloud: "REPAIRING" (live migration)
+	StatusUnknown    = "unknown"    // AWS/Google Cloud/Proxmox: any unrecognised state (not in IsUnhealthy, not filtered by SQL)
 )
 
 // IsUnhealthy checks if an instance status indicates it needs replacement
@@ -172,6 +172,6 @@ func IsUnhealthy(status string) bool {
 // LeaderNetwork contains the stable network configuration for shard leadership.
 // This is used to assign/release a stable IP address when acquiring/losing leadership.
 type LeaderNetwork struct {
-	IP          string // Stable leader IP address: AWS wait-for-routable, GCP alias IP.
-	InterfaceID string // Provider resource ID: ENI ID for AWS, empty for GCP.
+	IP          string // Stable leader IP address: AWS wait-for-routable, Google Cloud alias IP.
+	InterfaceID string // Provider resource ID: ENI ID for AWS, empty for Google Cloud.
 }

@@ -43,7 +43,7 @@ type ServerData struct {
 
 // ProviderData contains provider information for template processing
 type ProviderData struct {
-	Kind   string `json:"kind"` // aws, azure, gcp
+	Kind   string `json:"kind"` // aws, azure, google
 	Region string `json:"region"`
 	Zone   string `json:"zone"`
 }

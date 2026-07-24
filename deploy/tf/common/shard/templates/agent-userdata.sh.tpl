@@ -15,7 +15,7 @@
 #   .Server.OperatorAddr     - Operator service address (host:port)
 #   .Cluster.ID              - Cluster ID
 #   .Cluster.CACert          - CA certificate PEM
-#   .Provider.Kind           - Provider (aws, gcp, proxmox)
+#   .Provider.Kind           - Provider (aws, google, proxmox)
 #   .Provider.Region         - Provider region
 #   .Provider.Zone           - Provider zone
 #   .Vars.EXAMPLE            - Custom variables from config

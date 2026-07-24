@@ -2,7 +2,7 @@
 // Copyright The Nstance Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package gcp
+package google
 
 import (
 	"context"
@@ -13,16 +13,16 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
-// RegisterWithLB registers an instance with a GCP instance group
+// RegisterWithLB registers an instance with a Google Cloud instance group
 func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRequest) error {
 	if req.LBConfig.InstanceGroupName == nil || *req.LBConfig.InstanceGroupName == "" {
-		return fmt.Errorf("instance group name is required for GCP load balancer registration")
+		return fmt.Errorf("instance group name is required for Google Cloud load balancer registration")
 	}
 	if req.Zone == "" {
-		return fmt.Errorf("zone is required for GCP load balancer registration")
+		return fmt.Errorf("zone is required for Google Cloud load balancer registration")
 	}
 
-	p.logger.Info("Registering instance with GCP instance group",
+	p.logger.Info("Registering instance with Google Cloud instance group",
 		"provider_instance_id", req.ProviderInstanceID,
 		"instance_group", *req.LBConfig.InstanceGroupName,
 		"zone", req.Zone)
@@ -62,16 +62,16 @@ func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRe
 	return nil
 }
 
-// DeregisterFromLB removes an instance from a GCP instance group
+// DeregisterFromLB removes an instance from a Google Cloud instance group
 func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.DeregisterLBRequest) error {
 	if req.LBConfig.InstanceGroupName == nil || *req.LBConfig.InstanceGroupName == "" {
-		return fmt.Errorf("instance group name is required for GCP load balancer deregistration")
+		return fmt.Errorf("instance group name is required for Google Cloud load balancer deregistration")
 	}
 	if req.Zone == "" {
-		return fmt.Errorf("zone is required for GCP load balancer deregistration")
+		return fmt.Errorf("zone is required for Google Cloud load balancer deregistration")
 	}
 
-	p.logger.Info("Deregistering instance from GCP instance group",
+	p.logger.Info("Deregistering instance from Google Cloud instance group",
 		"provider_instance_id", req.ProviderInstanceID,
 		"instance_group", *req.LBConfig.InstanceGroupName,
 		"zone", req.Zone)
@@ -111,16 +111,16 @@ func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.Deregister
 	return nil
 }
 
-// ListLBInstances lists all instances currently registered with a GCP instance group
+// ListLBInstances lists all instances currently registered with a Google Cloud instance group
 func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInstancesRequest) ([]string, error) {
 	if req.LBConfig.InstanceGroupName == nil || *req.LBConfig.InstanceGroupName == "" {
-		return nil, fmt.Errorf("instance group name is required for listing GCP instance group instances")
+		return nil, fmt.Errorf("instance group name is required for listing Google Cloud instance group instances")
 	}
 	if req.Zone == "" {
-		return nil, fmt.Errorf("zone is required for listing GCP instance group instances")
+		return nil, fmt.Errorf("zone is required for listing Google Cloud instance group instances")
 	}
 
-	p.logger.Debug("Listing instances in GCP instance group",
+	p.logger.Debug("Listing instances in Google Cloud instance group",
 		"instance_group", *req.LBConfig.InstanceGroupName,
 		"zone", req.Zone)
 
@@ -156,7 +156,7 @@ func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInsta
 	return instanceIDs, nil
 }
 
-// extractInstanceIDFromURL extracts the instance ID from a GCP instance URL
+// extractInstanceIDFromURL extracts the instance ID from a Google Cloud instance URL
 // Example: projects/my-project/zones/us-central1-a/instances/my-instance -> my-instance
 func extractInstanceIDFromURL(url string) string {
 	for i := len(url) - 1; i >= 0; i-- {

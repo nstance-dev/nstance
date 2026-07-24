@@ -507,8 +507,8 @@ Generates shared cluster resources:
 | `shards` | Optional list of valid shard IDs for validation | `[]` |
 | `bucket` | Existing S3/GCS bucket (if empty, a new bucket is created) | `""` |
 | `versioning` | Enable object versioning on the bucket (increases storage costs) | `false` |
-| `secrets_provider` | Secrets storage provider: `aws-parameter-store`, `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `gcp-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `gcp-secret-manager` on Google Cloud) |
-| `encryption_key_provider` | Key source for object storage: `aws-parameter-store`, `aws-secrets-manager`, or `gcp-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `gcp-secret-manager` on Google Cloud) |
+| `secrets_provider` | Secrets storage provider: `aws-parameter-store`, `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `google-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `google-secret-manager` on Google Cloud) |
+| `encryption_key_provider` | Key source for object storage: `aws-parameter-store`, `aws-secrets-manager`, or `google-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `google-secret-manager` on Google Cloud) |
 | `encryption_key` | Existing encryption key source (AWS Parameter Store name or Secrets Manager ARN; Google Cloud secret name). Only used with `object-storage`; if empty, created. | `""` |
 | `server_config` | Server configuration (if specified, merged over defaults) | `{}` |
 

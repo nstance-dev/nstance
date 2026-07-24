@@ -32,7 +32,7 @@ apt-get install -y -o Acquire::Retries=3 jq sqlite3
 mkdir -p /var/lib/nstance-server
 
 # Get instance ID
-%{ if provider == "gcp" ~}
+%{ if provider == "google" ~}
 INSTANCE_ID=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name || true)
 %{ else ~}
 INSTANCE_ID=$(cat /var/lib/cloud/data/instance-id 2>/dev/null || true)
@@ -77,7 +77,7 @@ Type=simple
 User=root
 Environment=NSTANCE_PROVIDER=${provider}
 Environment=AWS_REGION=${aws_region}
-Environment=GCP_PROJECT=${gcp_project}
+Environment=GOOGLE_PROJECT=${google_project}
 ExecStart=/usr/local/bin/nstance-server --storage ${storage} --bucket ${bucket} --shard ${shard} --id $INSTANCE_ID --cachedir /var/lib/nstance-server/cache
 Restart=always
 RestartSec=5

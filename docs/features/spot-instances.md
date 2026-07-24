@@ -11,7 +11,7 @@ Nstance Agent supports automatic detection and handling of spot instance termina
 ## Provider Detection
 
 The agent determines the cloud provider through:
-1. **Environment Variable**: `NSTANCE_PROVIDER` can explicitly set the provider (`aws`, `gcp`, `proxmox`)
+1. **Environment Variable**: `NSTANCE_PROVIDER` can explicitly set the provider (`aws`, `google`, `proxmox`)
 2. **Auto-Detection**: Falls back to checking provider-specific metadata endpoints
 
 ## Spot Instance Detection
@@ -57,7 +57,7 @@ When running on a spot instance, the Agent starts a background monitor that poll
 }
 ```
 
-**Note**: Each provider has different metadata formats and termination notice mechanisms. The Agent normalizes these into a common `termination_notice` structure for health reports. The `deadline` field is optional - AWS provides a termination time (typically 2 minutes notice), but GCP does not provide a specific deadline (for GCP, we only know about preemption after termination has started).
+**Note**: Each provider has different metadata formats and termination notice mechanisms. The Agent normalizes these into a common `termination_notice` structure for health reports. The `deadline` field is optional - AWS provides a termination time (typically 2 minutes notice), but Google Cloud does not provide a specific deadline (for Google Cloud, we only know about preemption after termination has started).
 
 ## Health Report Integration
 
@@ -85,7 +85,7 @@ When a spot termination notice is detected:
 }
 ```
 
-**Note**: The `deadline` field is optional - AWS provides a termination time (typically 2 minutes notice), but GCP does not provide a specific deadline.
+**Note**: The `deadline` field is optional - AWS provides a termination time (typically 2 minutes notice), but Google Cloud does not provide a specific deadline.
 
 ## Server-Side Termination Handling
 
@@ -99,7 +99,7 @@ When a health report contains a spot termination notice:
 
 **Termination Notice Structure:**
 - `action`: Action type (e.g., "terminate", "stop", "hibernate")
-- `deadline`: Optional timestamp when cloud provider will terminate the instance (AWS provides this with typically 2 minutes notice, GCP does not)
+- `deadline`: Optional timestamp when cloud provider will terminate the instance (AWS provides this with typically 2 minutes notice, Google Cloud does not)
 
 **Processing Logic:**
 - Server treats spot termination notices similar to unhealthy instance detection

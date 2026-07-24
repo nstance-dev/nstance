@@ -14,23 +14,23 @@ import (
 	"github.com/nstance-dev/nstance/pkg/health"
 )
 
-type gcpProvider struct {
+type googleProvider struct {
 	client *http.Client
 }
 
-func newGCPProvider() *gcpProvider {
-	return &gcpProvider{
+func newGoogleProvider() *googleProvider {
+	return &googleProvider{
 		client: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
-func (p *gcpProvider) Kind() string {
-	return "gcp"
+func (p *googleProvider) Kind() string {
+	return "google"
 }
 
-func (p *gcpProvider) GetInstanceID(ctx context.Context) (string, error) {
+func (p *googleProvider) GetInstanceID(ctx context.Context) (string, error) {
 	// Try cloud-init cache first (fast path)
-	if id, _ := GetCloudInitInstanceID("gcp"); id != "" {
+	if id, _ := GetCloudInitInstanceID("google"); id != "" {
 		return id, nil
 	}
 
@@ -59,7 +59,7 @@ func (p *gcpProvider) GetInstanceID(ctx context.Context) (string, error) {
 	return string(body), nil
 }
 
-func (p *gcpProvider) IsSpot(ctx context.Context) (bool, error) {
+func (p *googleProvider) IsSpot(ctx context.Context) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://metadata.google.internal/computeMetadata/v1/instance/scheduling/preemptible", nil)
 	if err != nil {
 		return false, err
@@ -68,7 +68,7 @@ func (p *gcpProvider) IsSpot(ctx context.Context) (bool, error) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("failed to query GCP preemptible status: %w", err)
+		return false, fmt.Errorf("failed to query Google Cloud preemptible status: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -78,13 +78,13 @@ func (p *gcpProvider) IsSpot(ctx context.Context) (bool, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return false, fmt.Errorf("failed to read GCP response: %w", err)
+		return false, fmt.Errorf("failed to read Google Cloud response: %w", err)
 	}
 
 	return string(body) == "TRUE", nil
 }
 
-func (p *gcpProvider) GetTerminationNotice(ctx context.Context) (*health.TerminationNotice, error) {
+func (p *googleProvider) GetTerminationNotice(ctx context.Context) (*health.TerminationNotice, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://metadata.google.internal/computeMetadata/v1/instance/preempted", nil)
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func (p *gcpProvider) GetTerminationNotice(ctx context.Context) (*health.Termina
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read GCP preemption response: %w", err)
+		return nil, fmt.Errorf("failed to read Google Cloud preemption response: %w", err)
 	}
 
 	if string(body) == "TRUE" {

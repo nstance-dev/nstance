@@ -74,9 +74,9 @@ Below is an example/reference configuration file for Nstance Server, using examp
     },
     // Optional: stable leader network configuration for shard leadership.
     "leader_network": {
-      // AWS requires both ip and interface_id (ENI ID). GCP uses ip and leaves interface_id empty.
-      "ip": "10.0.0.100",                    // Stable leader IP address (ENI private IP for AWS, reserved IP for GCP)
-      "interface_id": "eni-0abc123def456789" // AWS ENI ID (required for AWS, not used for GCP)
+      // AWS requires both ip and interface_id (ENI ID). Google Cloud uses ip and leaves interface_id empty.
+      "ip": "10.0.0.100",                    // Stable leader IP address (ENI private IP for AWS, reserved IP for Google Cloud)
+      "interface_id": "eni-0abc123def456789" // AWS ENI ID (required for AWS, not used for Google Cloud)
     },
     "subnet_pools": {
       "control-plane": ["subnet-12345678"],            // Maps subnet pools to provider subnet IDs
@@ -118,7 +118,7 @@ Below is an example/reference configuration file for Nstance Server, using examp
     }
   },
   // Optional: logical backend registration targets that groups can reference by key.
-  // AWS targets use target group ARNs; GCP targets use unmanaged instance groups.
+  // AWS targets use target group ARNs; Google Cloud targets use unmanaged instance groups.
   "load_balancers": {
     "www": {
       "provider": "aws",
@@ -428,7 +428,7 @@ The `cluster` block defines cluster-scoped configuration shared by all shards:
 The `shard` block defines the Nstance Server process and shard-local infrastructure behavior:
 
 * `id` - unique shard identifier.
-* `infra` - infrastructure provider (`aws`, `gcp`, `mock`, `tmux`, or `proxmox`), region, zone, and provider-specific options.
+* `infra` - infrastructure provider (`aws`, `google`, `mock`, `tmux`, or `proxmox`), region, zone, and provider-specific options.
 * `bind` - addresses the server listens on.
 * `advertise` - addresses clients should connect to.
 * `leader_network` - stable shard leader IP configuration.
@@ -458,16 +458,16 @@ AWS load balancers use:
 }
 ```
 
-GCP load balancers use:
+Google Cloud load balancers use:
 
 ```jsonc
 {
-  "provider": "gcp",
+  "provider": "google",
   "instance_group_name": "example-instance-group"
 }
 ```
 
-For GCP, Nstance adds and removes instances from the unmanaged instance group. Infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
+For Google Cloud, Nstance adds and removes instances from the unmanaged instance group. Infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
 
 ## `certificates` and template files
 

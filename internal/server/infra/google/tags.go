@@ -2,14 +2,14 @@
 // Copyright The Nstance Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package gcp
+package google
 
 import (
 	"strings"
 )
 
-// GCP label keys for instance metadata.
-// GCP labels must be lowercase with hyphens (no colons allowed).
+// Google Cloud label keys for instance metadata.
+// Google Cloud labels must be lowercase with hyphens (no colons allowed).
 // Uses "nstance-" prefix.
 const (
 	labelInstanceID     = "nstance-instance-id"
@@ -21,7 +21,7 @@ const (
 	labelShard          = "nstance-shard"
 )
 
-// sanitizeLabel converts a value to valid GCP label format (lowercase, hyphens only)
+// sanitizeLabel converts a value to valid Google Cloud label format (lowercase, hyphens only)
 func sanitizeLabel(s string) string {
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, "_", "-")

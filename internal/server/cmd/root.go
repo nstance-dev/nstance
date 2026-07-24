@@ -220,7 +220,7 @@ func NewRootCmd() *cobra.Command {
 			logger.Debug("Environment variables",
 				"AWS_REGION", os.Getenv("AWS_REGION"),
 				"AWS_PROFILE", os.Getenv("AWS_PROFILE"),
-				"GCP_PROJECT", os.Getenv("GCP_PROJECT"))
+				"GOOGLE_PROJECT", os.Getenv("GOOGLE_PROJECT"))
 		}
 
 		// create base storage client from --storage and --bucket CLI flags

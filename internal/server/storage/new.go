@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"os"
 
-	gcpStorage "cloud.google.com/go/storage"
+	googleStorage "cloud.google.com/go/storage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -33,7 +33,7 @@ func New(ctx context.Context, logger *slog.Logger, provider, bucket string) (Sto
 	switch provider {
 	case "gcs":
 		logger.Info("Using GCS storage backend", "bucket", bucket)
-		gcsClient, err := gcpStorage.NewClient(ctx)
+		gcsClient, err := googleStorage.NewClient(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create gcs client: %w", err)
 		}
@@ -70,7 +70,7 @@ func NewWithOptions(ctx context.Context, logger *slog.Logger, opts StorageOption
 	switch opts.Provider {
 	case "gcs":
 		logger.Info("Using GCS storage backend", "bucket", opts.Bucket)
-		gcsClient, err := gcpStorage.NewClient(ctx)
+		gcsClient, err := googleStorage.NewClient(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create gcs client: %w", err)
 		}

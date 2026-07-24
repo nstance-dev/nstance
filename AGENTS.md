@@ -40,7 +40,7 @@
   - `docs/motivation.md`: Project motivation and design rationale
 - `examples/`: Example configuration files (e.g. server config files, groups config file)
 - `deploy/`: Deployment configurations (Helm charts, OpenTofu/Terraform modules, Proxmox scripts)
-  - OpenTofu/Terraform modules use `deploy/tf/common/` as the source of truth for shared files. Provider-specific modules (`aws/`, `gcp/`) symlink `variables.tf` and `templates/` back to `common/`, so edits to the common files automatically apply to all providers.
+  - OpenTofu/Terraform modules use `deploy/tf/common/` as the source of truth for shared files. Provider-specific modules (`aws/`, `google/`) symlink `variables.tf` and `templates/` back to `common/`, so edits to the common files automatically apply to all providers.
 - `images/`: Container image Dockerfiles for each component
 - `internal/`: Private packages, with component-specific nesting (e.g. nstance-agent specific packages under `internal/agent`)
 - `pkg/`: Public packages (clients, health, instance metadata, TOPSIS)
@@ -97,7 +97,7 @@ internal/
 │   ├── images/              # Periodic image resolution and caching across providers
 │   ├── infra/               # Infrastructure provider abstraction and factory
 │   │   ├── aws/             # AWS EC2 and NLB provider implementation
-│   │   ├── gcp/             # Google Cloud Compute Engine provider implementation
+│   │   ├── google/          # Google Cloud Compute Engine provider implementation
 │   │   ├── mock/            # Test mock provider implementation
 │   │   ├── provider/        # Infrastructure provider interface definition
 │   │   ├── proxmox/         # Proxmox VE provider implementation

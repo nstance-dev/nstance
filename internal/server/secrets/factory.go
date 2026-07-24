@@ -22,7 +22,7 @@ type StoreOptions struct {
 	Prefix         string
 	CacheTTL       time.Duration
 	EncryptionKeys []KeyConfig // Only used for object-storage provider
-	ProjectID      string      // Required for gcp-secret-manager provider
+	ProjectID      string      // Required for google-secret-manager provider
 	Storage        storage.Storage
 }
 
@@ -59,15 +59,15 @@ func NewStore(ctx context.Context, opts StoreOptions) (Store, error) {
 		client := ssm.NewFromConfig(awsCfg)
 		store = NewAWSParameterStore(client, opts.Prefix)
 
-	case "gcp-secret-manager":
+	case "google-secret-manager":
 		if opts.ProjectID == "" {
-			return nil, fmt.Errorf("project_id is required for gcp-secret-manager provider")
+			return nil, fmt.Errorf("project_id is required for google-secret-manager provider")
 		}
 		client, err := secretmanager.NewClient(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("create GCP Secret Manager client: %w", err)
+			return nil, fmt.Errorf("create Google Cloud Secret Manager client: %w", err)
 		}
-		store = NewGCPSecretManagerStore(client, opts.ProjectID, opts.Prefix)
+		store = NewGoogleSecretManagerStore(client, opts.ProjectID, opts.Prefix)
 
 	case "memory":
 		store = NewMemoryStore()

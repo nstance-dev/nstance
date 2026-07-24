@@ -21,7 +21,7 @@ The admin CLI has three modes of operation:
 ### For Cluster Commands
 
 Cluster commands (`nstance-admin cluster nonce`, `nstance-admin cluster register-operator`) access storage and secrets directly. They require:
-- Storage credentials (AWS/GCP credentials or file system access)
+- Storage credentials (AWS/Google Cloud credentials or file system access)
 - For `object-storage` secrets provider: an encryption key
 
 ### For Shard Commands
@@ -89,13 +89,13 @@ All `nstance-admin cluster` commands share these persistent flags:
 | `--storage-provider` | `s3` | Storage provider (s3, gcs, file) |
 | `--storage-bucket` | *(required)* | Storage bucket name |
 | `--storage-prefix` | `cluster/` | Storage prefix for cluster data |
-| `--secrets-provider` | *(required)* | Secrets provider (object-storage, aws-parameter-store, aws-secrets-manager, gcp-secret-manager) |
+| `--secrets-provider` | *(required)* | Secrets provider (object-storage, aws-parameter-store, aws-secrets-manager, google-secret-manager) |
 | `--secrets-prefix` | `secret/` | Secrets prefix |
-| `--secrets-gcp-project` | | GCP project ID (required for gcp-secret-manager) |
-| `--key-provider` | | Encryption key provider (env, file, aws-parameter-store, aws-secrets-manager, gcp-secret-manager) - required for object-storage |
+| `--secrets-project` | | Project ID (required for google-secret-manager) |
+| `--key-provider` | | Encryption key provider (env, file, aws-parameter-store, aws-secrets-manager, google-secret-manager) - required for object-storage |
 | `--key-source` | | Key source (environment variable, file, Parameter Store name, or secret ARN) - defaults to `NSTANCE_ENCRYPTION_KEY` for env provider, otherwise required |
 
-`nstance-admin cluster` does not infer a cloud provider, so `--secrets-provider` must be specified explicitly. When managing an AWS deployment that uses Parameter Store, pass `--secrets-provider aws-parameter-store` and a prefix under `/nstance/<cluster-id>/`. For a Google Cloud deployment that uses Secret Manager, pass `--secrets-provider gcp-secret-manager`, `--secrets-gcp-project`, and the deployment's secrets prefix.
+`nstance-admin cluster` does not infer a cloud provider, so `--secrets-provider` must be specified explicitly. When managing an AWS deployment that uses Parameter Store, pass `--secrets-provider aws-parameter-store` and a prefix under `/nstance/<cluster-id>/`. For a Google Cloud deployment that uses Secret Manager, pass `--secrets-provider google-secret-manager`, `--secrets-project`, and the deployment's secrets prefix.
 
 ### `nstance-admin cluster nonce`
 

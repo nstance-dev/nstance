@@ -52,4 +52,4 @@ AWS uses `aws-parameter-store` as its default direct secrets backend. `aws-secre
 
 Nstance exposes secret values as `[]byte`, while Parameter Store stores raw `SecureString` text without a base64 envelope. Writes containing invalid UTF-8 are rejected, and standard-tier values are limited to 4 KiB. Nstance calls `GetParameter` with decryption, `PutParameter`, and `DeleteParameter`. This is AWS Systems Manager (SSM) **Parameter Store**, which is separate from SSM Session Manager.
 
-Google Cloud uses `gcp-secret-manager` as its default direct secrets backend. Encrypted `object-storage` remains an explicit alternative, with Google Cloud Secret Manager holding its encryption key.
+Google Cloud uses `google-secret-manager` as its default direct secrets backend. Encrypted `object-storage` remains an explicit alternative, with Google Cloud Secret Manager holding its encryption key.

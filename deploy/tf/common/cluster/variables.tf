@@ -57,13 +57,13 @@ variable "versioning" {
 }
 
 variable "secrets_provider" {
-  description = "Secrets storage provider. Null selects the cloud-specific default (AWS: aws-parameter-store; Google Cloud: gcp-secret-manager)."
+  description = "Secrets storage provider. Null selects the cloud-specific default (AWS: aws-parameter-store; Google Cloud: google-secret-manager)."
   type        = string
   default     = null
 
   validation {
-    condition     = var.secrets_provider == null || contains(["object-storage", "aws-parameter-store", "aws-secrets-manager", "gcp-secret-manager"], var.secrets_provider)
-    error_message = "secrets_provider must be one of: object-storage, aws-parameter-store, aws-secrets-manager, gcp-secret-manager"
+    condition     = var.secrets_provider == null || contains(["object-storage", "aws-parameter-store", "aws-secrets-manager", "google-secret-manager"], var.secrets_provider)
+    error_message = "secrets_provider must be one of: object-storage, aws-parameter-store, aws-secrets-manager, google-secret-manager"
   }
 }
 
@@ -73,8 +73,8 @@ variable "encryption_key_provider" {
   default     = null
 
   validation {
-    condition     = var.encryption_key_provider == null || contains(["aws-parameter-store", "aws-secrets-manager", "gcp-secret-manager"], var.encryption_key_provider)
-    error_message = "encryption_key_provider must be one of: aws-parameter-store, aws-secrets-manager, gcp-secret-manager"
+    condition     = var.encryption_key_provider == null || contains(["aws-parameter-store", "aws-secrets-manager", "google-secret-manager"], var.encryption_key_provider)
+    error_message = "encryption_key_provider must be one of: aws-parameter-store, aws-secrets-manager, google-secret-manager"
   }
 }
 

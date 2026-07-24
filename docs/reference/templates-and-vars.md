@@ -70,7 +70,7 @@ Currently this feature is only useful for AWS.
 Different cloud providers handle image references differently:
 
 - **AWS (EC2)**: Uses region-specific AMI IDs that must be looked up. Nstance automatically queries EC2 DescribeImages API with filters and caching.
-- **GCP (Compute Engine)**: Uses image families (e.g., `projects/debian-cloud/global/images/family/debian-13`) that automatically resolve to latest. No lookup needed.
+- **Google Cloud (Compute Engine)**: Uses image families (e.g., `projects/debian-cloud/global/images/family/debian-13`) that automatically resolve to latest. No lookup needed.
 - **Oracle Cloud (OCI)**: Would benefit from lookup mechanism (similar to AWS), and may be added in the future.
 
 ## Configuration
@@ -144,7 +144,7 @@ Cache persists across server restarts and does not expire (persists until next s
 
 ## Args
 
-Args are passed to the provider VM creation SDK function call. Args are provider-specific and support different fields for AWS (`RunInstances`) and GCP (`Instance`) configurations. For example on AWS, Args effectively becomes AWS `RunInstances` input.
+Args are passed to the provider VM creation SDK function call. Args are provider-specific and support different fields for AWS (`RunInstances`) and Google Cloud (`Instance`) configurations. For example on AWS, Args effectively becomes AWS `RunInstances` input.
 
 Args are processed as a `text/template` after the merge strategy has applied, recursively interpolating string values in nested objects and arrays. Note that templating can only be used inside JSON string values, for example:
 
@@ -158,17 +158,17 @@ Args are processed as a `text/template` after the merge strategy has applied, re
 
 AWS Args map directly to `RunInstances` input fields. You cannot set `InstanceType`, `SubnetId`, `UserData`, `MinCount`, or `MaxCount` (these are managed by Nstance). 
 
-## GCP Args
+## Google Cloud Args
 
-GCP Args are applied to the `computepb.Instance` resource. The following fields are supported:
+Google Cloud Args are applied to the `computepb.Instance` resource. The following fields are supported:
 
 | Arg | Type | Description |
 |-----|------|-------------|
 | `SourceImage` | string | Boot disk image (e.g., `"projects/debian-cloud/global/images/family/debian-13"`) |
 | `ServiceAccount` | string | Service account email. Sets `cloud-platform` scope automatically. |
 | `ServiceAccounts` | array | Full service account config (alternative to `ServiceAccount` for custom scopes) |
-| `Labels` | object | Additional GCP labels merged with Nstance-managed labels |
-| `NetworkTags` | array | GCP network tags for firewall rule targeting (e.g., `["nstance-agent-us-central1-a"]`) |
+| `Labels` | object | Additional Google Cloud labels merged with Nstance-managed labels |
+| `NetworkTags` | array | Google Cloud network tags for firewall rule targeting (e.g., `["nstance-agent-us-central1-a"]`) |
 | `Preemptible` | bool | Use preemptible VM scheduling |
 | `ProvisioningModel` | string | VM provisioning model (e.g., `"SPOT"`) |
 | `OnHostMaintenance` | string | Host maintenance behavior (e.g., `"TERMINATE"`) |
@@ -206,7 +206,7 @@ GCP Args are applied to the `computepb.Instance` resource. The following fields 
 }
 ```
 
-**Note:** Nstance automatically manages core GCP labels (`nstance-managed`, `nstance-instance-id`, `nstance-cluster-id`, `nstance-shard`, `nstance-group`, `nstance-template`, `nstance-instance-kind`) and uses these labels (not network tags) for instance identification and filtering.
+**Note:** Nstance automatically manages core Google Cloud labels (`nstance-managed`, `nstance-instance-id`, `nstance-cluster-id`, `nstance-shard`, `nstance-group`, `nstance-template`, `nstance-instance-kind`) and uses these labels (not network tags) for instance identification and filtering.
 
 ## Vars
 

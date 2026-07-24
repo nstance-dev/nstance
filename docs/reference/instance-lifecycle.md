@@ -112,7 +112,7 @@ Non-authoritative informational data, not used for filtering or reconciliation. 
 
 Annotations are stored differently per provider:
 - **AWS**: Additional tags with `nstance:` prefix (e.g., `nstance:group`)
-- **GCP**: Additional labels with `nstance-` prefix (e.g., `nstance-group`). GCP labels are key-value metadata equivalent to AWS tags. GCP network tags are a separate concept used only for firewall rule targeting and are not used for instance identification.
+- **Google Cloud**: Additional labels with `nstance-` prefix (e.g., `nstance-group`). Google Cloud labels are key-value metadata equivalent to AWS tags. Google Cloud network tags are a separate concept used only for firewall rule targeting and are not used for instance identification.
 - **Private cloud providers (Proxmox VE)**: VM description/notes field (not tags)
 
 **Identifier Validation**

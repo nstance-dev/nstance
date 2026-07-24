@@ -36,7 +36,7 @@ func TestMatchesProviderID(t *testing.T) {
 			want:               true,
 		},
 		{
-			name:               "gcp format",
+			name:               "google format",
 			nodeProviderID:     "gce://project/zone/instance-name",
 			providerInstanceID: "instance-name",
 			want:               true,

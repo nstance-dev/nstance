@@ -17,7 +17,7 @@ import (
 // before the IP is actually usable on the host. This function polls by attempting a
 // test net.Listen on the IP with an ephemeral port (port 0), closing the listener
 // immediately on success. This approach works regardless of whether the IP was added via
-// interface assignment (e.g. AWS ENI attached via DHCP) or local route (e.g. GCP guest
+// interface assignment (e.g. AWS ENI attached via DHCP) or local route (e.g. Google Cloud guest
 // agent's "ip route add to local"), both of which make the IP bindable without necessarily
 // adding it to net.InterfaceAddrs.
 func WaitForIPBindable(ctx context.Context, logger *slog.Logger, ipAddr string) error {

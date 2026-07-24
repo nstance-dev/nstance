@@ -64,7 +64,7 @@ Secret Manager is the default Google Cloud secrets backend for secure storage of
 - Secrets are encrypted at rest and in transit
 - Secret names are prefixed (for example, `nstance-<cluster-id>-`) to avoid collisions
 
-**Configuration:** The Google Cloud Terraform/OpenTofu modules configure `gcp-secret-manager` and the project ID by default. In a manually managed server configuration, set `secrets.provider` to `gcp-secret-manager` and provide `secrets.project_id`. Alternatively, select `object-storage` with an encryption key to store secrets in GCS.
+**Configuration:** The Google Cloud Terraform/OpenTofu modules configure `google-secret-manager` and the project ID by default. In a manually managed server configuration, set `secrets.provider` to `google-secret-manager` and provide `secrets.project_id`. Alternatively, select `object-storage` with an encryption key to store secrets in GCS.
 
 ### 4. Instance Groups (Load Balancing)
 
@@ -146,7 +146,7 @@ storage.objects.list
 storage.buckets.get
 ```
 
-### Secret Manager Permissions (if using `gcp-secret-manager`)
+### Secret Manager Permissions (if using `google-secret-manager`)
 
 ```
 secretmanager.versions.access
@@ -166,7 +166,7 @@ secretmanager.secrets.list
 
 ## Instance Labels
 
-GCP uses **labels** (not tags) for instance metadata and identification. Labels must be lowercase with hyphens only (no colons or underscores allowed). Nstance automatically manages the following labels on all instances:
+Google Cloud uses **labels** (not tags) for instance metadata and identification. Labels must be lowercase with hyphens only (no colons or underscores allowed). Nstance automatically manages the following labels on all instances:
 
 | Label Key | Example Value | Purpose |
 |-----------|---------------|---------|
@@ -182,11 +182,11 @@ Label values are automatically sanitized: converted to lowercase with underscore
 
 Additional custom labels can be added via the `Labels` arg in configuration.
 
-> **Important:** GCP network tags are used only for firewall rule targeting and are not used for instance identification or filtering. Use the `NetworkTags` arg to apply firewall tags to instances.
+> **Important:** Google Cloud network tags are used only for firewall rule targeting and are not used for instance identification or filtering. Use the `NetworkTags` arg to apply firewall tags to instances.
 
 ## Agent Instance Metadata
 
-Nstance Agent on GCP uses the [Instance Metadata Service](https://cloud.google.com/compute/docs/metadata/overview) (IMDS) at `http://metadata.google.internal/computeMetadata/v1/` to discover its own identity. All requests require the `Metadata-Flavor: Google` header.
+Nstance Agent on Google Cloud uses the [Instance Metadata Service](https://cloud.google.com/compute/docs/metadata/overview) (IMDS) at `http://metadata.google.internal/computeMetadata/v1/` to discover its own identity. All requests require the `Metadata-Flavor: Google` header.
 
 - **`instance/name`** — Retrieve provider instance ID
 - **`instance/scheduling/preemptible`** — Detect if running as a preemptible/Spot VM
@@ -196,7 +196,7 @@ The agent also supports reading instance ID from the cloud-init cache as a fast 
 
 ## Leader Network Management
 
-On GCP, leader network assignment uses **alias IP ranges** instead of ENIs (as on AWS):
+On Google Cloud, leader network assignment uses **alias IP ranges** instead of ENIs (as on AWS):
 
 - **Assign**: Adds a `/32` alias IP range to the instance's primary network interface (`nic0`)
 - **Release**: Removes the alias IP range from the network interface

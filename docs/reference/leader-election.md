@@ -16,7 +16,7 @@ Used for managing which Nstance Server is the leader for a given zone shard.
 
 This enables having multiple running Nstance Server processes for a single shard, commonly used to run a hot-standby in the event the leader fails (e.g. VM is rescheduled).
 
-Once successfully elected leader, the Nstance Server assigns the leader network (e.g., attaching an ENI on AWS, or assigning an alias IP on GCP) to ensure a stable IP address is available for all Nstance Agents and the Nstance Operator to communicate with it as leader for that shard.
+Once successfully elected leader, the Nstance Server assigns the leader network (e.g., attaching an ENI on AWS, or assigning an alias IP on Google Cloud) to ensure a stable IP address is available for all Nstance Agents and the Nstance Operator to communicate with it as leader for that shard.
 
 The expected failover time is 11-15 seconds for inbound requests to the per-shard.
 

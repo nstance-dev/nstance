@@ -2,7 +2,7 @@
 // Copyright The Nstance Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package gcp
+package google
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
-// Provider implements both the provider.Provider and provider.LoadBalancerProvider interfaces for GCP
+// Provider implements both the provider.Provider and provider.LoadBalancerProvider interfaces for Google Cloud
 type Provider struct {
 	// For instance operations (using newer REST API)
 	instancesClient *compute.InstancesClient
@@ -31,18 +31,18 @@ type Provider struct {
 	options ProviderOptions
 }
 
-// ProviderOptions contains GCP-specific configuration options
+// ProviderOptions contains Google Cloud-specific configuration options
 type ProviderOptions struct {
 	ProjectID string `json:"project_id"`
 }
 
-// Options contains options for creating a GCP provider
+// Options contains options for creating a Google Cloud provider
 type Options struct {
 	Config provider.ProviderConfig
 	Logger *slog.Logger
 }
 
-// NewProvider creates a new unified GCP provider that implements both instance and load balancer interfaces
+// NewProvider creates a new unified Google Cloud provider that implements both instance and load balancer interfaces
 func NewProvider(opts Options) (*Provider, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -52,15 +52,15 @@ func NewProvider(opts Options) (*Provider, error) {
 	if opts.Config.Options != nil {
 		optBytes, err := json.Marshal(opts.Config.Options)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal GCP options: %w", err)
+			return nil, fmt.Errorf("failed to marshal Google Cloud options: %w", err)
 		}
 		if err := json.Unmarshal(optBytes, &providerOpts); err != nil {
-			return nil, fmt.Errorf("invalid GCP options: %w", err)
+			return nil, fmt.Errorf("invalid Google Cloud options: %w", err)
 		}
 	}
 
 	if providerOpts.ProjectID == "" {
-		return nil, fmt.Errorf("project_id is required for GCP provider")
+		return nil, fmt.Errorf("project_id is required for Google Cloud provider")
 	}
 
 	ctx := context.Background()
@@ -94,5 +94,5 @@ func NewProvider(opts Options) (*Provider, error) {
 }
 
 func (p *Provider) Kind() string {
-	return "gcp"
+	return "google"
 }

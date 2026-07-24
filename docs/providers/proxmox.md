@@ -77,7 +77,7 @@ export AWS_SECRET_ACCESS_KEY=...
 ```bash
 nstance-server --storage gcs --bucket nstance --shard <shard> --id <id>
 
-# Standard GCP SDK authentication
+# Standard Google Cloud SDK authentication
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 

@@ -300,7 +300,7 @@ Note that the NstanceMachinePool CRD does not have a size field, as we use the `
 
 **Service Discovery:**
 - Server endpoints use stable leader network IPs (configured per shard)
-- Active shard leader assigns the leader network (ENI attachment on AWS, alias IP on GCP) via s3lect election
+- Active shard leader assigns the leader network (ENI attachment on AWS, alias IP on Google Cloud) via s3lect election
 - IP address remains stable as leadership changes between server instances
 - Health endpoint (`/leader/health`) indicates current leader status
 - Operator should retry failed connections with exponential backoff

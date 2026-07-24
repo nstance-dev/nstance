@@ -44,7 +44,7 @@ type CloudInitProviderMeta struct {
 		SubscriptionId    string `json:"subscriptionId"`
 	} `json:"compute"`
 
-	// GCP fields
+	// Google Cloud fields
 	Name      string `json:"name"`
 	Zone      string `json:"zone"`
 	ProjectID string `json:"project-id"`
@@ -90,7 +90,7 @@ func GetCloudInitInstanceID(providerName string) (string, error) {
 			return data.DS.MetaData.Compute.Name, nil
 		}
 		return "", nil
-	case "gcp":
+	case "google":
 		return data.DS.MetaData.Name, nil
 	default:
 		return "", nil

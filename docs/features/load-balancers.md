@@ -10,7 +10,7 @@ Nstance supports automatic registration/de-registration of instances with cloud 
 
 ## Configuration
 
-Load balancers are defined in the `load_balancers` configuration section. Each entry is a logical registration target: an AWS target group set or a GCP unmanaged instance group that is already attached to the provider load balancer topology.
+Load balancers are defined in the `load_balancers` configuration section. Each entry is a logical registration target: an AWS target group set or a Google Cloud unmanaged instance group that is already attached to the provider load balancer topology.
 
 ```jsonc
 {
@@ -23,7 +23,7 @@ Load balancers are defined in the `load_balancers` configuration section. Each e
       ]
     },
     "internal": {
-      "provider": "gcp",
+      "provider": "google",
       "instance_group_name": "internal-ig"
     }
   },
@@ -44,7 +44,7 @@ Load balancers are defined in the `load_balancers` configuration section. Each e
 
 **Provider-Specific Fields:**
 - **AWS**: `target_group_arns` (required) - Array of NLB target group ARNs. For multi-port NLBs, include one ARN per port/listener. The server registers instances with all specified target groups.
-- **GCP**: `instance_group_name` (required) - Unmanaged instance group name. Nstance adds and removes instances from the unmanaged instance group; infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
+- **Google Cloud**: `instance_group_name` (required) - Unmanaged instance group name. Nstance adds and removes instances from the unmanaged instance group; infrastructure tooling such as Terraform should create the instance group, create the load balancer, and configure its backend service(s) to use that instance group.
 
 For example, a Kubernetes deployment may define an `ingress` registration target for ports 80/443 and a `controlplane` registration target for port 6443. Those targets can sit behind separate provider load balancers or share one load balancer with different listeners; Nstance only needs the backend membership instance group handles. 
 

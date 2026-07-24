@@ -16,13 +16,13 @@ import (
 
 // Provider defines the interface for querying cloud instance metadata.
 type Provider interface {
-	// Kind returns the provider kind (aws, azure, gcp).
+	// Kind returns the provider kind (aws, azure, google).
 	Kind() string
 
 	// GetInstanceID returns the provider-specific instance ID.
 	// For AWS: instance-id (e.g., i-abc123)
 	// For Azure: VM name
-	// For GCP: instance name
+	// For Google: instance name
 	GetInstanceID(ctx context.Context) (string, error)
 
 	// IsSpot returns true if running on a spot/preemptible instance.
@@ -83,8 +83,8 @@ func detectProvider() (Provider, error) {
 	if isAWS() {
 		return newAWSProvider(), nil
 	}
-	if isGCP() {
-		return newGCPProvider(), nil
+	if isGoogle() {
+		return newGoogleProvider(), nil
 	}
 	if isAzure() {
 		return newAzureProvider(), nil
@@ -97,8 +97,8 @@ func newProviderByName(name string) (Provider, error) {
 	switch name {
 	case "aws":
 		return newAWSProvider(), nil
-	case "gcp":
-		return newGCPProvider(), nil
+	case "google":
+		return newGoogleProvider(), nil
 	case "azure":
 		return newAzureProvider(), nil
 	default:
@@ -116,7 +116,7 @@ func isAWS() bool {
 	return resp.StatusCode == 200
 }
 
-func isGCP() bool {
+func isGoogle() bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequest("GET", "http://metadata.google.internal/computeMetadata/v1/instance/id", nil)
 	req.Header.Set("Metadata-Flavor", "Google")

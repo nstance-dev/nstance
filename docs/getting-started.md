@@ -61,32 +61,32 @@ See the [OpenTofu/Terraform reference](../reference/opentofu-terraform.md) for f
 Create a new Nstance cluster in Google Cloud using OpenTofu:
 
 ```bash
-export GCP_PROJECT=
-export GCP_REGION=us-central1
+export GOOGLE_PROJECT=
+export GOOGLE_REGION=us-central1
 gcloud auth application-default login # or set GOOGLE_APPLICATION_CREDENTIALS
 
 curl -O https://raw.githubusercontent.com/nstance-dev/terraform-google-nstance/refs/heads/main/examples/single-shard/main.tf
 
 tofu init
 
-tofu apply -var="project=${GCP_PROJECT}" -var="region=${GCP_REGION}" -var="cluster_id=test"
+tofu apply -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="cluster_id=test"
 ```
 
 Destroy:
 ```bash
-export GCP_PROJECT=
-export GCP_REGION=us-central1
+export GOOGLE_PROJECT=
+export GOOGLE_REGION=us-central1
 gcloud auth application-default login # or set GOOGLE_APPLICATION_CREDENTIALS
 
 # 1. Destroy the nstance-server instance group manager to stop it from managing instances
-tofu destroy -var="project=${GCP_PROJECT}" -var="region=${GCP_REGION}" -var="cluster_id=test" -target=module.shard.google_compute_instance_group_manager.server
+tofu destroy -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="cluster_id=test" -target=module.shard.google_compute_instance_group_manager.server
 
 # 2. Delete all Nstance-managed instances to avoid orphaned resources or subnet deletion failures
 gcloud compute instances list \
-  --project="${GCP_PROJECT}" \
+  --project="${GOOGLE_PROJECT}" \
   --filter="labels.nstance-managed=true AND labels.nstance-cluster-id=test" \
   --format="value(name,zone)" | while read NAME ZONE; do
-    gcloud compute instances delete "$NAME" --zone="$ZONE" --project="${GCP_PROJECT}" --quiet
+    gcloud compute instances delete "$NAME" --zone="$ZONE" --project="${GOOGLE_PROJECT}" --quiet
   done
 
 # 3. Force-delete the GCS bucket holding nstance cluster state
@@ -95,7 +95,7 @@ gcloud storage rm -r "gs://${BUCKET_NAME}"
 tofu state rm 'module.cluster.google_storage_bucket.nstance[0]'
 
 # 4. Destroy all remaining Nstance cluster resources
-tofu destroy -var="project=${GCP_PROJECT}" -var="region=${GCP_REGION}" -var="cluster_id=test"
+tofu destroy -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="cluster_id=test"
 ```
 
 See the [OpenTofu/Terraform reference](../reference/opentofu-terraform.md) for full module documentation and advanced configurations.

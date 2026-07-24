@@ -69,7 +69,7 @@ locals {
     provider        = "aws"
     storage         = "s3"
     aws_region      = local.region
-    gcp_project     = ""
+    google_project  = ""
     bucket          = var.cluster.bucket
     shard           = var.shard
     enable_ssm      = var.enable_ssm

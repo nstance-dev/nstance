@@ -33,7 +33,7 @@ The `server.subnet_pools` configuration maps subnet pools to provider subnet IDs
 
 **Important**: The values are **provider subnet IDs**, not CIDR blocks:
 - AWS: `subnet-12345678` (VPC subnet IDs)
-- GCP: Subnet self-links or names
+- Google Cloud: Subnet self-links or names
 - Proxmox: `vmbr0` (bridge names)
 
 ### Dynamic Subnet Pools
@@ -261,7 +261,7 @@ module "shard" {
 - Capacity checking uses `DescribeSubnets` API to get `AvailableIpAddressCount`
 - Subnets should be in the same availability zone as the shard
 
-### GCP
+### Google Cloud
 
 - Subnet IDs are subnet names (e.g., `workers-subnet`)
 - The nstance-server constructs the full resource path as `projects/{project}/regions/{region}/subnetworks/{subnet}` using the project ID and region from provider config

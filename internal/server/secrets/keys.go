@@ -45,16 +45,16 @@ func LoadEncryptionKeys(ctx context.Context, keys ...KeyConfig) ([][]byte, error
 	// Create required clients
 	var awsSecretsClient secretsManagerKeyClient
 	var awsParameterClient parameterStoreKeyClient
-	var gcpClient *secretmanager.Client
-	var needAWSSecrets, needAWSParameters, needGCP bool
+	var googleClient *secretmanager.Client
+	var needAWSSecrets, needAWSParameters, needGoogle bool
 	for _, k := range keys {
 		switch k.Provider {
 		case "aws-secrets-manager":
 			needAWSSecrets = true
 		case "aws-parameter-store":
 			needAWSParameters = true
-		case "gcp-secret-manager":
-			needGCP = true
+		case "google-secret-manager":
+			needGoogle = true
 		}
 	}
 	if needAWSSecrets || needAWSParameters {
@@ -69,19 +69,19 @@ func LoadEncryptionKeys(ctx context.Context, keys ...KeyConfig) ([][]byte, error
 			awsParameterClient = ssm.NewFromConfig(awsCfg)
 		}
 	}
-	if needGCP {
+	if needGoogle {
 		client, err := secretmanager.NewClient(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("create GCP Secret Manager client: %w", err)
+			return nil, fmt.Errorf("create Google Cloud Secret Manager client: %w", err)
 		}
-		gcpClient = client
-		defer func() { _ = gcpClient.Close() }()
+		googleClient = client
+		defer func() { _ = googleClient.Close() }()
 	}
 
 	// Load each key
 	result := make([][]byte, 0, len(keys))
 	for _, cfg := range keys {
-		key, err := loadKey(ctx, cfg, awsSecretsClient, awsParameterClient, gcpClient)
+		key, err := loadKey(ctx, cfg, awsSecretsClient, awsParameterClient, googleClient)
 		if err != nil {
 			return nil, err
 		}
@@ -90,7 +90,7 @@ func LoadEncryptionKeys(ctx context.Context, keys ...KeyConfig) ([][]byte, error
 	return result, nil
 }
 
-func loadKey(ctx context.Context, cfg KeyConfig, awsSecretsClient secretsManagerKeyClient, awsParameterClient parameterStoreKeyClient, gcpClient *secretmanager.Client) ([]byte, error) {
+func loadKey(ctx context.Context, cfg KeyConfig, awsSecretsClient secretsManagerKeyClient, awsParameterClient parameterStoreKeyClient, googleClient *secretmanager.Client) ([]byte, error) {
 	var key []byte
 
 	switch cfg.Provider {
@@ -145,22 +145,22 @@ func loadKey(ctx context.Context, cfg KeyConfig, awsSecretsClient secretsManager
 		}
 		key = []byte(*result.Parameter.Value)
 
-	case "gcp-secret-manager":
-		if gcpClient == nil {
-			return nil, fmt.Errorf("GCP client required for gcp-secret-manager key provider")
+	case "google-secret-manager":
+		if googleClient == nil {
+			return nil, fmt.Errorf("google-secret-manager key provider requires a client")
 		}
 		if cfg.ProjectID == "" {
-			return nil, fmt.Errorf("project_id is required for gcp-secret-manager key provider")
+			return nil, fmt.Errorf("project_id is required for google-secret-manager key provider")
 		}
 		name := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", cfg.ProjectID, cfg.Source)
-		result, err := gcpClient.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+		result, err := googleClient.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
 			Name: name,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("get secret %s from GCP: %w", cfg.Source, err)
+			return nil, fmt.Errorf("get secret %s from Google Cloud: %w", cfg.Source, err)
 		}
 		if result.Payload == nil || len(result.Payload.Data) == 0 {
-			return nil, fmt.Errorf("GCP secret %s is empty", cfg.Source)
+			return nil, fmt.Errorf("secret %s in Google Cloud is empty", cfg.Source)
 		}
 		key = result.Payload.Data
 
