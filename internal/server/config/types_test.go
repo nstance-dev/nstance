@@ -66,8 +66,8 @@ func TestAWSSecretsDefaults(t *testing.T) {
 	if got := config.Cluster.Secrets.Provider; got != "aws-parameter-store" {
 		t.Errorf("secrets provider = %q, want aws-parameter-store", got)
 	}
-	if got := config.Cluster.Secrets.Prefix; got != "/nstance/example-cluster/" {
-		t.Errorf("secrets prefix = %q, want /nstance/example-cluster/", got)
+	if got := config.Cluster.Secrets.Prefix; got != "/nstance/" {
+		t.Errorf("secrets prefix = %q, want /nstance/", got)
 	}
 }
 
@@ -82,8 +82,28 @@ func TestGoogleSecretsDefaults(t *testing.T) {
 	if got := config.Cluster.Secrets.Provider; got != "google-secret-manager" {
 		t.Errorf("secrets provider = %q, want google-secret-manager", got)
 	}
-	if got := config.Cluster.Secrets.Prefix; got != "nstance-example-cluster-" {
-		t.Errorf("secrets prefix = %q, want nstance-example-cluster-", got)
+	if got := config.Cluster.Secrets.Prefix; got != "nstance-" {
+		t.Errorf("secrets prefix = %q, want nstance-", got)
+	}
+}
+
+func TestAWSSecretsManagerPrefixDefault(t *testing.T) {
+	config := Config{Cluster: ClusterConfig{
+		Secrets: SecretsConfig{Provider: "aws-secrets-manager"},
+	}}
+	config.SetDefaults()
+	if got := config.Cluster.Secrets.Prefix; got != "nstance/" {
+		t.Errorf("secrets prefix = %q, want nstance/", got)
+	}
+}
+
+func TestExplicitSecretsPrefixUnchanged(t *testing.T) {
+	config := Config{Cluster: ClusterConfig{
+		Secrets: SecretsConfig{Provider: "aws-parameter-store", Prefix: "/explicit/"},
+	}}
+	config.SetDefaults()
+	if got := config.Cluster.Secrets.Prefix; got != "/explicit/" {
+		t.Errorf("secrets prefix = %q, want /explicit/", got)
 	}
 }
 

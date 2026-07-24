@@ -15,6 +15,7 @@ variable "cluster" {
     bucket                  = string
     bucket_arn              = optional(string, "")
     secrets_provider        = string
+    secrets_prefix          = optional(string, "")
     encryption_key_provider = optional(string, "")
     encryption_key_source   = optional(string, "")
     project_id              = optional(string, "")
@@ -272,16 +273,6 @@ variable "certificates" {
   description = "Certificate templates available to instance template files."
   type        = any
   default     = {}
-}
-
-################################################################################
-# Resource Tags
-################################################################################
-
-variable "name_prefix" {
-  description = "Prefix for all resource names. Defaults to cluster.name_prefix if not set."
-  type        = string
-  default     = null
 }
 
 variable "tags" {

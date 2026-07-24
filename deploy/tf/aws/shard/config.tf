@@ -116,8 +116,10 @@ resource "aws_s3_object" "shard_config" {
             }
             } : {
             provider       = var.cluster.secrets_provider
-            prefix         = var.cluster.secrets_provider == "aws-parameter-store" ? "/nstance/${var.cluster.id}/" : "nstance/${var.cluster.id}/"
             encryption_key = null
+            prefix = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : (
+              var.cluster.secrets_provider == "aws-parameter-store" ? "/${var.cluster.name_prefix}/" : "${var.cluster.name_prefix}/"
+            )
           }
         },
         length(local.cluster_leader_election_config) > 0 ? { leader_election = local.cluster_leader_election_config } : {}

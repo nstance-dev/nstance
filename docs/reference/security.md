@@ -155,7 +155,7 @@ When using the `object-storage` secrets provider, Nstance performs client-side e
 - Key sources: Encryption keys can be loaded from multiple providers:
   - `env` — environment variable
   - `file` — local file path
-  - `aws-parameter-store` — AWS Systems Manager Parameter Store `SecureString` (by parameter name, such as `/nstance/<cluster-id>/encryption-key`)
+  - `aws-parameter-store` — AWS Systems Manager Parameter Store `SecureString` (by parameter name, such as `/<name-prefix>/encryption-key`)
   - `aws-secrets-manager` — AWS Secrets Manager secret (by ARN or name)
   - `google-secret-manager` — Google Cloud Secret Manager secret (by name, with the `project_id` field)
 - Key rotation: The configuration supports a primary `encryption_key` (used for all new writes) and a list of `old_encryption_keys` (used for decryption only). On read, Nstance attempts decryption with each configured key in order until one succeeds, allowing a rotation window where old ciphertexts remain readable while new writes use the current key.

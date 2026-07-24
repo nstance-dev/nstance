@@ -13,7 +13,7 @@ data "google_client_config" "current" {}
 locals {
   project_id  = data.google_client_config.current.project
   region      = regex("^([a-z]+-[a-z]+[0-9]+)", var.zone)[0]
-  name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
+  name_prefix = var.cluster.name_prefix
   shards      = var.cluster.shards
 
   # Extract port numbers from addr strings for firewall rules and leader-service binds

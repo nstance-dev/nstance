@@ -108,9 +108,9 @@ resource "google_storage_bucket_object" "shard_config" {
           secrets = merge(
             {
               provider = var.cluster.secrets_provider == "object-storage" ? "object-storage" : var.cluster.secrets_provider
-              prefix   = var.cluster.secrets_provider == "object-storage" ? "secret/" : "nstance-${var.cluster.id}-"
             },
             var.cluster.secrets_provider == "object-storage" ? {
+              prefix = "secret/"
               encryption_key = merge(
                 {
                   provider = var.cluster.encryption_key_provider
@@ -123,6 +123,9 @@ resource "google_storage_bucket_object" "shard_config" {
             } : {},
             var.cluster.secrets_provider == "google-secret-manager" ? {
               project_id = var.cluster.project_id
+            } : {},
+            var.cluster.secrets_provider != "object-storage" ? {
+              prefix = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.name_prefix}-"
             } : {},
           )
         },

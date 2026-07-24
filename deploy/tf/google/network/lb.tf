@@ -44,7 +44,7 @@ locals {
 resource "google_compute_address" "lb" {
   for_each = var.load_balancers
 
-  name   = "${var.name_prefix}-${each.key}-ip"
+  name   = "${local.name_prefix}-${each.key}-ip"
   region = local.region
 }
 
@@ -55,7 +55,7 @@ resource "google_compute_address" "lb" {
 resource "google_compute_region_health_check" "nstance" {
   for_each = local.lb_ports
 
-  name   = "${var.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-health"
+  name   = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-health"
   region = local.region
 
   tcp_health_check {
@@ -76,7 +76,7 @@ resource "google_compute_region_health_check" "nstance" {
 resource "google_compute_instance_group" "nstance" {
   for_each = local.lb_instance_groups
 
-  name    = "${var.name_prefix}-${each.value.lb_key}-ig-${each.value.zone}"
+  name    = "${local.name_prefix}-${each.value.lb_key}-ig-${each.value.zone}"
   zone    = each.value.zone
   network = local.vpc_id
 
@@ -97,7 +97,7 @@ resource "google_compute_instance_group" "nstance" {
 resource "google_compute_region_backend_service" "nstance" {
   for_each = local.lb_ports
 
-  name                  = "${var.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-backend"
+  name                  = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-backend"
   region                = local.region
   protocol              = "TCP"
   load_balancing_scheme = each.value.public ? "EXTERNAL" : "INTERNAL"
@@ -119,7 +119,7 @@ resource "google_compute_region_backend_service" "nstance" {
 resource "google_compute_forwarding_rule" "nstance" {
   for_each = local.lb_ports
 
-  name                  = "${var.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-fwd"
+  name                  = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-fwd"
   region                = local.region
   load_balancing_scheme = each.value.public ? "EXTERNAL" : "INTERNAL"
   port_range            = each.value.listener_port

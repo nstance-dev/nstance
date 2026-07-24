@@ -9,13 +9,13 @@ variable "aws_profile" {
 }
 
 variable "name_prefix" {
-  description = "Prefix for resource names"
+  description = "Prefix for resource names. Must be 2-23 characters: lowercase letters, digits, and hyphens; start with a letter and end with a letter or digit."
   type        = string
   default     = "nstance"
 
   validation {
-    condition     = var.name_prefix != null && var.name_prefix != ""
-    error_message = "name_prefix must not be empty or null"
+    condition     = try(length(var.name_prefix) <= 23 && can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", var.name_prefix)), false)
+    error_message = "name_prefix must be 2-23 characters, contain only lowercase letters, digits, and hyphens, start with a letter, and end with a letter or digit"
   }
 }
 
@@ -65,6 +65,12 @@ variable "secrets_provider" {
     condition     = var.secrets_provider == null || contains(["object-storage", "aws-parameter-store", "aws-secrets-manager", "google-secret-manager"], var.secrets_provider)
     error_message = "secrets_provider must be one of: object-storage, aws-parameter-store, aws-secrets-manager, google-secret-manager"
   }
+}
+
+variable "secrets_prefix" {
+  description = "Explicit prefix for direct cloud secret names. When empty, names are derived from name_prefix."
+  type        = string
+  default     = ""
 }
 
 variable "encryption_key_provider" {

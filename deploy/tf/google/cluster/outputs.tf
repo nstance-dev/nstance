@@ -37,6 +37,11 @@ output "secrets_provider" {
   value       = local.secrets_provider
 }
 
+output "secrets_prefix" {
+  description = "Explicit prefix for direct cloud secret names"
+  value       = var.secrets_prefix
+}
+
 output "encryption_key_provider" {
   description = "Provider holding the object-storage encryption key"
   value       = local.secrets_provider == "object-storage" ? local.encryption_key_provider : ""

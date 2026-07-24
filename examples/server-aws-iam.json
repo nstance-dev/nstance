@@ -38,7 +38,7 @@
         "ssm:PutParameter",
         "ssm:DeleteParameter"
       ],
-      "Resource": "arn:aws:ssm:*:*:parameter/nstance/YOUR_CLUSTER_ID/*"
+      "Resource": "arn:aws:ssm:*:*:parameter/YOUR_RESOURCE_NAME_PREFIX/*"
     },
     {
       "Sid": "SecretsManagerAccess",
@@ -49,7 +49,7 @@
         "secretsmanager:CreateSecret",
         "secretsmanager:DeleteSecret"
       ],
-      "Resource": "arn:aws:secretsmanager:*:*:secret:nstance/YOUR_CLUSTER_ID/*"
+      "Resource": "arn:aws:secretsmanager:*:*:secret:YOUR_RESOURCE_NAME_PREFIX/*"
     },
     {
       "Sid": "ELBAccess",

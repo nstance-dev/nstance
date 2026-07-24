@@ -12,7 +12,7 @@ data "aws_region" "current" {}
 
 locals {
   region      = data.aws_region.current.region
-  name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
+  name_prefix = var.cluster.name_prefix
   shards      = var.cluster.shards
 
   # Extract port numbers from addr strings for security group rules and leader-service binds

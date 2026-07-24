@@ -38,12 +38,6 @@ variable "enable_ipv6" {
   default     = true
 }
 
-variable "name_prefix" {
-  description = "Prefix for resource names. Defaults to cluster.name_prefix if not set."
-  type        = string
-  default     = null
-}
-
 variable "enable_ssm" {
   description = "Enable VPC endpoints for SSM (AWS only)"
   type        = bool

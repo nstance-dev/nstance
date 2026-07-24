@@ -423,7 +423,7 @@ All modules support these common variables for consistent naming and tagging:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `name_prefix` | Prefix for all resource names | `"nstance"` |
+| `name_prefix` | Prefix for all resource names: 2-23 lowercase letters, digits, or hyphens; starts with a letter and ends with a letter or digit | `"nstance"` |
 | `tags` | Resource tags/labels (map of strings) | `{}` |
 
 ### Server Config Object
@@ -508,9 +508,12 @@ Generates shared cluster resources:
 | `bucket` | Existing S3/GCS bucket (if empty, a new bucket is created) | `""` |
 | `versioning` | Enable object versioning on the bucket (increases storage costs) | `false` |
 | `secrets_provider` | Secrets storage provider: `aws-parameter-store`, `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `google-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `google-secret-manager` on Google Cloud) |
+| `secrets_prefix` | Explicit prefix for direct cloud secret names; when empty, derived from `name_prefix` | `""` |
 | `encryption_key_provider` | Key source for object storage: `aws-parameter-store`, `aws-secrets-manager`, or `google-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `google-secret-manager` on Google Cloud) |
 | `encryption_key` | Existing encryption key source (AWS Parameter Store name or Secrets Manager ARN; Google Cloud secret name). Only used with `object-storage`; if empty, created. | `""` |
 | `server_config` | Server configuration (if specified, merged over defaults) | `{}` |
+
+Terraform always writes an effective `cluster.secrets.prefix` to generated shard configs. When `secrets_prefix` is empty, it derives `/<name_prefix>/` for AWS Parameter Store, `<name_prefix>/` for AWS Secrets Manager, or `<name_prefix>-` for Google Secret Manager. Explicit `secrets_prefix` and `encryption_key` values are passed through unchanged. When Terraform creates an object-storage encryption key, its name follows `name_prefix`.
 
 **Outputs:**
 | Name | Description |
@@ -535,7 +538,6 @@ Creates IAM roles/service accounts:
 | Name | Description | Default |
 |------|-------------|---------|
 | `cluster` | Cluster module output | - |
-| `name_prefix` | Prefix for resource names (defaults to `cluster.name_prefix`) | `null` |
 | `enable_ssm` | Enable SSM access (AWS) | `true` |
 
 **Outputs:**
@@ -562,7 +564,6 @@ Creates VPC/network infrastructure:
 | `cluster` | Cluster module output (required) | - |
 | `vpc_id` | Existing VPC ID (if set, skips VPC/IGW creation) | `""` |
 | `vpc_cidr_ipv4` | VPC IPv4 CIDR block (required when creating new VPC, must be empty when using existing) | `""` |
-| `name_prefix` | Prefix for resource names (defaults to `cluster.name_prefix`) | `null` |
 | `enable_ipv6` | Enable IPv6 dual-stack support | `true` |
 | `enable_ssm` | Create SSM VPC endpoints (AWS) | `true` |
 | `subnets` | Subnet definitions by role key and zone (see below) | `{}` |
@@ -709,7 +710,6 @@ When `cluster.shards` is non-empty, the shard module validates that `var.shard` 
 | `network` | Network module output (includes `subnets` with metadata) | - |
 | `shard` | Unique shard identifier (must be in `cluster.shards` if set) | - |
 | `zone` | Availability zone | - |
-| `name_prefix` | Prefix for resource names (defaults to `cluster.name_prefix`) | `null` |
 | `server_subnet` | Subnet role key from `network.subnets` for server instances | `"nstance"` |
 | `dynamic_subnet_pools` | List of subnet pools allowed for dynamic groups (empty = all) | `[]` |
 | `groups` | Map of group configurations (each group references a role from network subnets) | - |

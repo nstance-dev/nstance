@@ -15,7 +15,7 @@ data "aws_vpc" "existing" {
 
 locals {
   region      = data.aws_region.current.region
-  name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
+  name_prefix = var.cluster.name_prefix
   shards      = var.cluster.shards
 
   # Use existing VPC or create new one

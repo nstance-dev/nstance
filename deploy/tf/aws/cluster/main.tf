@@ -88,7 +88,7 @@ ephemeral "random_password" "encryption_key" {
 resource "aws_ssm_parameter" "encryption_key" {
   count = local.create_encryption_key && local.encryption_key_provider == "aws-parameter-store" ? 1 : 0
 
-  name             = "/nstance/${var.cluster_id}/encryption-key"
+  name             = "/${var.name_prefix}/encryption-key"
   description      = "Encryption key for Nstance Server"
   type             = "SecureString"
   tier             = "Standard"
@@ -105,7 +105,7 @@ resource "aws_ssm_parameter" "encryption_key" {
 # Secrets Manager remains available as an explicit object-storage key provider.
 resource "aws_secretsmanager_secret" "encryption_key" {
   count                   = local.create_encryption_key && local.encryption_key_provider == "aws-secrets-manager" ? 1 : 0
-  name                    = "nstance/${var.name_prefix}/encryption-key"
+  name                    = "${var.name_prefix}/encryption-key"
   description             = "Encryption key for Nstance Server"
   recovery_window_in_days = 7
 

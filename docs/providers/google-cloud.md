@@ -62,7 +62,7 @@ Secret Manager is the default Google Cloud secrets backend for secure storage of
 - Secrets are automatically versioned — each write creates a new version
 - The `latest` version alias is used for reads
 - Secrets are encrypted at rest and in transit
-- Secret names are prefixed (for example, `nstance-<cluster-id>-`) to avoid collisions
+- Secret names use `<secrets_prefix><secret>` (for example, `nstance-ca-key`) to avoid collisions; Terraform derives the prefix from `name_prefix` unless overridden
 
 **Configuration:** The Google Cloud Terraform/OpenTofu modules configure `google-secret-manager` and the project ID by default. In a manually managed server configuration, set `secrets.provider` to `google-secret-manager` and provide `secrets.project_id`. Alternatively, select `object-storage` with an encryption key to store secrets in GCS.
 

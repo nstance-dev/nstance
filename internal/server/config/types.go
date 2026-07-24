@@ -735,14 +735,17 @@ func (c *Config) SetDefaults() {
 		c.Cluster.Secrets.Provider = "aws-parameter-store"
 	}
 	if c.Cluster.Secrets.Provider == "aws-parameter-store" && c.Cluster.Secrets.Prefix == "" {
-		c.Cluster.Secrets.Prefix = "/nstance/" + c.Cluster.ID + "/"
+		c.Cluster.Secrets.Prefix = "/nstance/"
+	}
+	if c.Cluster.Secrets.Provider == "aws-secrets-manager" && c.Cluster.Secrets.Prefix == "" {
+		c.Cluster.Secrets.Prefix = "nstance/"
 	}
 	// Google Cloud defaults to Secret Manager for secrets.
 	if c.Cluster.Secrets.Provider == "" && c.Shard.Infra.Provider == "google" {
 		c.Cluster.Secrets.Provider = "google-secret-manager"
 	}
 	if c.Cluster.Secrets.Provider == "google-secret-manager" && c.Cluster.Secrets.Prefix == "" {
-		c.Cluster.Secrets.Prefix = "nstance-" + c.Cluster.ID + "-"
+		c.Cluster.Secrets.Prefix = "nstance-"
 	}
 
 	// Cluster leader election defaults

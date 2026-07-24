@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 locals {
-  name_prefix = coalesce(var.name_prefix, var.cluster.name_prefix)
+  name_prefix = var.cluster.name_prefix
 }
 
 # ============================================================================

@@ -10,16 +10,11 @@ variable "cluster" {
     bucket_arn              = optional(string, "")
     bucket_name             = optional(string, "")
     secrets_provider        = string
+    secrets_prefix          = optional(string, "")
     encryption_key_provider = optional(string, "")
     encryption_key_source   = optional(string, "")
     project_id              = optional(string, "")
   })
-}
-
-variable "name_prefix" {
-  description = "Prefix for all resource names. Defaults to cluster.name_prefix if not set."
-  type        = string
-  default     = null
 }
 
 variable "enable_ssm" {

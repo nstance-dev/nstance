@@ -45,7 +45,7 @@ See [Data Storage](../reference/data-storage.md) for the full bucket layout.
 
 ### 3. AWS Systems Manager Parameter Store
 
-Parameter Store is the default AWS secrets backend. Configure the direct store with `provider: "aws-parameter-store"` and a path such as `/nstance/<cluster-id>/`. It can also supply the 32-byte encryption key when `object-storage` is selected explicitly.
+Parameter Store is the default AWS secrets backend. Its server default is `/nstance/`; Terraform derives `/<name_prefix>/` unless `secrets_prefix` is set. It can also supply the 32-byte encryption key when `object-storage` is selected explicitly.
 
 Nstance values remain `[]byte` at its boundaries, but Parameter Store writes them as raw `SecureString` text without a base64 envelope. Writes must therefore be valid UTF-8 and fit the standard-tier 4 KiB value limit.
 
@@ -129,7 +129,7 @@ Nstance Server requires a dedicated IAM role with specific permissions. The comp
 ### Key Considerations
 
 - **Resource Scoping**: S3 permissions are scoped to specific buckets
-- **Secret Prefixing**: Parameter Store access is limited to `/nstance/<cluster-id>/`; direct Secrets Manager access is limited to `nstance/<cluster-id>/` when that alternative is selected
+- **Secret Prefixing**: Parameter Store and direct Secrets Manager access are limited to the effective `secrets_prefix`
 - **Regional Scope**: All permissions should be scoped to the deployment region
 - **Tag-Based Access**: Consider adding tag-based conditions for EC2 resources
 
