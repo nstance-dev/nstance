@@ -1,3 +1,7 @@
+# Nstance <https://nstance.dev>
+# Copyright The Nstance Authors
+# SPDX-License-Identifier: Apache-2.0
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

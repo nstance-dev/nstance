@@ -148,6 +148,11 @@ manifests: ## Generate Kubernetes manifests
 	cd $(CURRENT) && controller-gen object:headerFile="config/boilerplate.go.txt" paths="./api/..."
 	cd $(CURRENT) && controller-gen crd:crdVersions=v1 paths="./api/..." output:crd:artifacts:config=config/crd/bases
 	cd $(CURRENT) && controller-gen rbac:roleName=nstance-operator-role paths="./internal/operator/controller/..." output:rbac:artifacts:config=config/rbac
+	@for file in $(CURRENT)config/crd/bases/*.yaml $(CURRENT)config/rbac/role.yaml; do \
+		if ! head -n 1 "$$file" | grep -Fqx '# Nstance <https://nstance.dev>'; then \
+			tmp="$$file.tmp"; printf '%b\n\n' "$(YAML_HEADER)" > "$$tmp"; cat "$$file" >> "$$tmp"; mv "$$tmp" "$$file"; \
+		fi; \
+	done
 	@echo "Syncing CRDs to Helm chart..."
 	@rm -f $(CURRENT)deploy/helm/crds/*.yaml
 	@cd $(CURRENT) && kustomize build config/crd/ | awk ' \
