@@ -99,14 +99,14 @@ func (s *Service) RefreshConfig(ctx context.Context, req *emptypb.Empty) (*proto
 		if !exists {
 			groupsUpdated = true
 			s.NotifyGroupEvent(identity.Tenant, &proto.GroupEvent{
-				Type:  proto.GroupEvent_DELETE,
+				Type:  proto.GroupEvent_TYPE_DELETE,
 				Group: &proto.GroupStatus{Tenant: identity.Tenant, Key: identity.Group},
 			})
 			continue
 		}
 		if oldStatus.Etag != newStatus.Etag {
 			groupsUpdated = true
-			s.NotifyGroupEvent(identity.Tenant, &proto.GroupEvent{Type: proto.GroupEvent_UPSERT, Group: newStatus})
+			s.NotifyGroupEvent(identity.Tenant, &proto.GroupEvent{Type: proto.GroupEvent_TYPE_UPSERT, Group: newStatus})
 		}
 	}
 	for identity, newStatus := range newStatuses {
@@ -114,7 +114,7 @@ func (s *Service) RefreshConfig(ctx context.Context, req *emptypb.Empty) (*proto
 			continue
 		}
 		groupsUpdated = true
-		s.NotifyGroupEvent(identity.Tenant, &proto.GroupEvent{Type: proto.GroupEvent_UPSERT, Group: newStatus})
+		s.NotifyGroupEvent(identity.Tenant, &proto.GroupEvent{Type: proto.GroupEvent_TYPE_UPSERT, Group: newStatus})
 	}
 
 	// The response reports whether the static configuration object changed.

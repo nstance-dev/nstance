@@ -324,10 +324,17 @@ func TestRegistrationServiceIntegration(t *testing.T) {
 			t.Error("Expires at should not be nil")
 		}
 
-		// Try to register again (should fail)
-		_, err = client.RegisterOperator(ctx, req)
-		if err == nil {
-			t.Error("Expected error when registering same operator twice")
+		// Retrying after a lost response is safe with the same key.
+		if _, err = client.RegisterOperator(ctx, req); err != nil {
+			t.Fatalf("same-key replay failed: %v", err)
+		}
+		wrongKey, _, err := keys.GenerateTestEd25519KeyPair()
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.PublicKeyPem = wrongKey
+		if _, err = client.RegisterOperator(ctx, req); err == nil {
+			t.Error("different-key replay succeeded")
 		}
 	})
 

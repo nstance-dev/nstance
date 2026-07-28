@@ -97,12 +97,7 @@ func serializeReportRequest(report health.Report) (*proto.HealthReportRequest, e
 		Uptime:            (time.Duration(report.Uptime) * time.Second).String(),
 		Files:             map[string]*proto.FileStatus{},
 		Version:           report.Version,
-		Started:           timestamppb.New(report.Started),
-		WindowStart:       timestamppb.New(report.WindowStart),
-		WindowEnd:         timestamppb.New(report.WindowEnd),
-		OneMinute:         serializeMetrics(report.OneMinute),
-		FiveMinutes:       serializeMetrics(report.FiveMinutes),
-		FifteenMinutes:    serializeMetrics(report.FifteenMinutes),
+		Metrics:           serializeMetrics(report.Metrics),
 		TerminationNotice: serializeTerminationNotice(report.TerminationNotice),
 		ConfigHash:        report.ConfigHash,
 	}
@@ -136,18 +131,35 @@ func serializeReportRequest(report health.Report) (*proto.HealthReportRequest, e
 	return req, nil
 }
 
+// serializeInterfaceMetrics converts optional interface metrics to protobuf.
+func serializeInterfaceMetrics(value *health.InterfaceMetrics) *proto.InterfaceMetrics {
+	if value == nil {
+		return nil
+	}
+	return &proto.InterfaceMetrics{
+		InterfaceName: value.InterfaceName,
+		RxBytes:       value.RXBytes,
+		TxBytes:       value.TXBytes,
+		RxPackets:     value.RXPackets,
+		TxPackets:     value.TXPackets,
+		RxDrops:       value.RXDrops,
+		TxDrops:       value.TXDrops,
+	}
+}
+
 // serializeMetrics converts a health Metrics struct to a gRPC Metrics message
 func serializeMetrics(metrics health.Metrics) *proto.Metrics {
 	return &proto.Metrics{
-		CpuUsage:             metrics.CPUUsage,
-		CpuCoreUsage:         metrics.CPUCoreUsage,
-		MemoryUsage:          metrics.MemoryUsage,
-		NetworkBytesSent:     metrics.NetworkBytesSent,
-		NetworkBytesReceived: metrics.NetworkBytesReceived,
-		DiskUsed:             metrics.DiskUsed,
-		DiskInodesUsed:       metrics.DiskInodesUsed,
-		DiskBytesRead:        metrics.DiskBytesRead,
-		DiskBytesWritten:     metrics.DiskBytesWritten,
+		CpuUsage:              metrics.CPUUsage,
+		CpuCoreUsage:          metrics.CPUCoreUsage,
+		MemoryUsage:           metrics.MemoryUsage,
+		NetworkInterface:      serializeInterfaceMetrics(metrics.NetworkInterface),
+		NetworkInterfaceError: metrics.NetworkInterfaceError,
+		EbpfCounters:          metrics.EBPFCounters,
+		EbpfError:             metrics.EBPFError,
+		ConntrackCount:        metrics.ConntrackCount,
+		ConntrackMax:          metrics.ConntrackMax,
+		ConntrackError:        metrics.ConntrackError,
 	}
 }
 

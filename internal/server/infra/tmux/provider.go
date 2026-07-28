@@ -130,7 +130,7 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 	paneName := devPanePrefix + req.InstanceID
 
 	agentCmd := fmt.Sprintf(
-		`env NSTANCE_SERVER_REGISTRATION_ADDR=%s NSTANCE_SERVER_AGENT_ADDR=%s NSTANCE_INSTANCE_ID=%s NSTANCE_INSTANCE_HOSTNAME=%s NSTANCE_IDENTITY_DIR=%s NSTANCE_KEYS_DIR=%s NSTANCE_RECV_DIR=%s NSTANCE_METRICS_INTERVAL=1s %s`,
+		`env NSTANCE_SERVER_REGISTRATION_ADDR=%s NSTANCE_SERVER_AGENT_ADDR=%s NSTANCE_INSTANCE_ID=%s NSTANCE_INSTANCE_HOSTNAME=%s NSTANCE_IDENTITY_DIR=%s NSTANCE_KEYS_DIR=%s NSTANCE_RECV_DIR=%s NSTANCE_REPORT_INTERVAL=1s %s`,
 		p.registrationAddr, p.agentAddr, req.InstanceID, req.InstanceID, identityDir, keysDir, recvDir, agentBinaryPath,
 	)
 	tmuxCmd := exec.CommandContext(ctx, "tmux", "new-window", "-t", p.tmuxSession, "-n", paneName, agentCmd)

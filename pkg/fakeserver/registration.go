@@ -13,8 +13,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/pkg/nonce"
 )
 
 type registrationService struct {
@@ -24,21 +24,20 @@ type registrationService struct {
 
 // RegisterAgent validates a prepared nonce and returns a client certificate for the agent.
 func (r *registrationService) RegisterAgent(ctx context.Context, req *proto.RegisterClientRequest) (*proto.RegisterClientResponse, error) {
-	validator := api.NewJWTValidator(r.s.nonceKey.Public().(ed25519.PublicKey))
-	claims, err := validator.ValidateRegistrationNonce(req.RegistrationNonceJwt, "agent")
+	claims, err := nonce.Validate(req.RegistrationNonceJwt, r.s.nonceKey.Public().(ed25519.PublicKey), "agent")
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "invalid registration nonce: %v", err)
 	}
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()
-	inst, err := r.s.getInstance(ctx, claims.Sub)
+	inst, err := r.s.getInstance(ctx, claims.Subject)
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "nonce not found")
 	}
 	if inst.NonceJWT != req.RegistrationNonceJwt || inst.Registered {
 		return nil, status.Errorf(codes.Unauthenticated, "nonce already used or unknown")
 	}
-	cert, exp, err := pki.GenerateClientCertificate(r.s.caCertPEM, r.s.caKeyPEM, req.PublicKeyPem, claims.Sub, "agent", claims.Tenant, 8760)
+	cert, exp, err := pki.GenerateClientCertificate(r.s.caCertPEM, r.s.caKeyPEM, req.PublicKeyPem, claims.Subject, "agent", claims.Tenant, 8760)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "generate certificate: %v", err)
 	}

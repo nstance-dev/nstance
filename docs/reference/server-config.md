@@ -18,6 +18,7 @@ The top-level shape is:
 * `defaults` - global args, vars, and userdata inherited by templates/groups.
 * `templates` - instance templates referenced by groups and on-demand instances.
 * `groups` - tenant-scoped static group configuration.
+* `nat` - optional tenant-scoped Podplane Managed NAT configuration.
 
 Below is an example/reference configuration file for Nstance Server, using example data for a fictional AWS-backed Kubernetes cluster:
 
@@ -79,6 +80,7 @@ Below is an example/reference configuration file for Nstance Server, using examp
       "interface_id": "eni-0abc123def456789" // AWS ENI ID (required for AWS, not used for Google Cloud)
     },
     "subnet_pools": {
+      "nat": ["subnet-00000000"],                 // Reserved small-cluster NAT node subnet
       "control-plane": ["subnet-12345678"],            // Maps subnet pools to provider subnet IDs
       "ingress": ["subnet-23456789"],                  // Subnets for ingress/load balancer nodes
       "workers": ["subnet-87654321", "subnet-abcdef"] // Each key can map to multiple subnets for capacity
@@ -383,7 +385,7 @@ Below is an example/reference configuration file for Nstance Server, using examp
     "default": {
       "nat": {
         "template": "nat",
-        "size": 1,
+        "instance_type": "t4g.small",
         "subnet_pool": "control-plane" // Subnet pool ID (resolved via shard.subnet_pools)
       },
       "main": {
@@ -409,6 +411,32 @@ Below is an example/reference configuration file for Nstance Server, using examp
         "subnet_pool": "workers",
         "drain_timeout": "10m",
         "vars": {}
+      }
+    }
+  },
+  "nat": {
+    "default": {
+      "group": "nat",
+      "network_identity_pool": "default-nat-identities",
+      "last_node_grace_period": "10m",
+      "instance_type_ladder": ["t4g.small", "t4g.medium", "t4g.large"],
+      "scale_up_thresholds": {
+        "throughput_percent": 80,
+        "packets_per_second_percent": 80,
+        "conntrack_percent": 80,
+        "cpu_percent": 80,
+        "packet_drops_per_second": 1
+      },
+      "scale_down_thresholds": {
+        "throughput_percent": 30,
+        "packets_per_second_percent": 30,
+        "conntrack_percent": 30,
+        "cpu_percent": 30,
+        "packet_drops_per_second": 0
+      },
+      "small_cluster": {
+        "initial_subnet": "nat",
+        "max_instances": 10
       }
     }
   }
@@ -497,3 +525,26 @@ Template `files` support these kinds:
 * `groups` are nested by tenant: `groups.<tenant>.<group>`.
 
 For more information see: [Image Resolution](templates-and-vars.md#image-resolution), [Args & Vars Merge Strategy](templates-and-vars.md#args-and-vars-merge-strategy), [Args](templates-and-vars.md#args), [Vars](templates-and-vars.md#vars), and [Userdata Templates](templates-and-vars.md#userdata-templates).
+
+## `nat`
+
+`nat.<tenant>` enables Podplane Managed NAT for that tenant. It must contain
+`group`, `small_cluster`, or both. `group` is a singular reference to a group in
+the same tenant, so at most one dedicated NAT group can be configured. A
+dedicated group must omit `size` and set its starting `instance_type`. The
+tenant NAT configuration contains `instance_type_ladder`, ordered from lowest
+to highest capacity, scale-up and scale-down thresholds, `scale_up_window` (2m-5m),
+`scale_down_window` (20m-30m), `cooldown` (at least 10m), and
+`replacement_timeout`. Window defaults are 3m, 25m, 10m, and 10m respectively.
+Utilization thresholds default to 80% up and 30% down; packet-drop thresholds
+default to 1 and 0 drops/second.
+
+`network_identity_pool` names the pre-provisioned stable NAT network identities,
+such as AWS ENIs and addresses or GCP reserved addresses, and is required with a
+dedicated group. `last_node_grace_period` defaults to 10m.
+`small_cluster.initial_subnet` references a subnet-pool key and
+`small_cluster.max_instances` must be positive. The initial subnet is exclusively
+reserved for that tenant: it cannot appear in templates, groups, the dynamic
+subnet allowlist, or another tenant's NAT entry. Because an empty dynamic subnet
+allowlist permits every pool, small-cluster NAT requires an explicit allowlist
+that excludes its initial subnet.

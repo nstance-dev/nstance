@@ -16,10 +16,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/keys"
 	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/pkg/nonce"
 )
 
 // persistedInstance is the fake server's durable state for one prepared instance.
@@ -110,7 +110,7 @@ func (s *Server) loadOrCreateNonceKey(ctx context.Context) ([]byte, ed25519.Priv
 // registrationJWT signs a one-use agent registration nonce for an instance request.
 func (s *Server) registrationJWT(req InstanceRequest, tenant *TenantConfig) (string, error) {
 	now := time.Now()
-	claims := api.RegistrationNonceClaims{
+	claims := nonce.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   req.InstanceID,
 			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
@@ -118,14 +118,13 @@ func (s *Server) registrationJWT(req InstanceRequest, tenant *TenantConfig) (str
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
 		Kind:       "agent",
-		Sub:        req.InstanceID,
 		ConfigHash: tenantRuntimeConfigHash(tenant),
 		ClusterID:  s.cfg.ClusterID,
 		Shard:      s.cfg.ShardID,
 		Group:      "local",
 		Tenant:     req.TenantID,
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims).SignedString(s.nonceKey)
+	return nonce.Sign(s.nonceKey, claims)
 }
 
 // tenantRuntimeConfigHash computes the runtime config hash for a tenant using

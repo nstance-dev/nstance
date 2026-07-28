@@ -7,7 +7,7 @@ package instances
 import (
 	"fmt"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 )
 
 // StorageKey converts a puidv7 instance ID to S3 key format: "uuid-prefix"

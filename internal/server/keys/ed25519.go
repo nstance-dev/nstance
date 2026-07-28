@@ -14,13 +14,16 @@ import (
 
 // ParseEd25519PrivateKey parses a PEM-encoded Ed25519 private key
 func ParseEd25519PrivateKey(data []byte) (ed25519.PrivateKey, error) {
-	block, _ := pem.Decode(data)
+	block, rest := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
 	}
 
 	if block.Type != "PRIVATE KEY" {
 		return nil, fmt.Errorf("invalid PEM block type: %s (expected PRIVATE KEY)", block.Type)
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("unexpected data after PEM block")
 	}
 
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)

@@ -7,7 +7,7 @@ package instances
 import (
 	"testing"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 )
 
 func TestStorageKey(t *testing.T) {

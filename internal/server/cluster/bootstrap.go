@@ -12,6 +12,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/election"
+	"github.com/nstance-dev/nstance/internal/server/keys"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
 	"github.com/nstance-dev/nstance/internal/server/storage"
@@ -19,6 +20,9 @@ import (
 
 // ErrCAGenerationRequiresLeadership is returned when CA needs generation but this server is not leader.
 var ErrCAGenerationRequiresLeadership = errors.New("CA certificate needs generating, but this instance is not cluster leader")
+
+// registrationNonceKeyName is the secrets-provider key for the registration nonce signing key.
+const registrationNonceKeyName = "registration-nonce.key"
 
 // BootstrapConfig contains configuration for cluster bootstrap.
 type BootstrapConfig struct {
@@ -74,7 +78,7 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig, leaderElectionEnabled b
 		logger.Info("Cluster leader election disabled")
 
 		// Verify required secrets exist when leader election is disabled
-		requiredSecrets := []string{"ca.crt", "ca.key", "registration-nonce.key"}
+		requiredSecrets := []string{"ca.crt", "ca.key", registrationNonceKeyName}
 		for _, secret := range requiredSecrets {
 			var exists bool
 			if secret == "ca.crt" {
@@ -127,7 +131,7 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig, leaderElectionEnabled b
 
 	// Ensure registration nonce key exists (or create if leader) and warm the cache
 	isLeader := cfg.ElectionManager != nil && cfg.ElectionManager.IsClusterLeader()
-	if _, err := pki.EnsureRegistrationNonceKey(ctx, cfg.SecretsStore, isLeader, logger); err != nil {
+	if err := ensureRegistrationNonceKey(ctx, cfg.SecretsStore, isLeader, logger); err != nil {
 		return nil, fmt.Errorf("failed to ensure registration nonce key: %w", err)
 	}
 	logger.Info("Registration nonce key ready")
@@ -136,4 +140,34 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig, leaderElectionEnabled b
 		CACert: caCertData,
 		CAKey:  caKeyData,
 	}, nil
+}
+
+// ensureRegistrationNonceKey loads the registration nonce signing key or
+// creates and stores one when this server is the cluster leader.
+func ensureRegistrationNonceKey(ctx context.Context, secretsStore secrets.Store, isClusterLeader bool, logger *slog.Logger) error {
+	if _, err := secretsStore.Get(ctx, registrationNonceKeyName); err == nil {
+		logger.Info("Registration nonce private key loaded successfully")
+		return nil
+	} else if !errors.Is(err, secrets.ErrNotFound) {
+		return fmt.Errorf("failed to load registration nonce key: %w", err)
+	}
+
+	if !isClusterLeader {
+		return fmt.Errorf("registration nonce key missing and this server is not the leader")
+	}
+
+	logger.Info("Generating new registration nonce private key as leader")
+	privateKey, err := keys.GenerateEd25519Key()
+	if err != nil {
+		return fmt.Errorf("failed to generate registration nonce private key: %w", err)
+	}
+	keyPEM, err := keys.MarshalEd25519PrivateKey(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to encode registration nonce private key: %w", err)
+	}
+	if err := secretsStore.Set(ctx, registrationNonceKeyName, keyPEM); err != nil {
+		return fmt.Errorf("failed to store registration nonce private key: %w", err)
+	}
+	logger.Info("Registration nonce private key generated and stored successfully")
+	return nil
 }

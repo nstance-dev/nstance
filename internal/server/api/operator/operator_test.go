@@ -361,7 +361,7 @@ func TestService(t *testing.T) {
 		}
 
 		operatorService.NotifyGroupEvent("red", &proto.GroupEvent{
-			Type:  proto.GroupEvent_UPSERT,
+			Type:  proto.GroupEvent_TYPE_UPSERT,
 			Group: &proto.GroupStatus{Tenant: "red", Key: "workers"},
 		})
 		operatorService.NotifyError("blue", &proto.ErrorEvent{Group: "workers", Error: "failed"})
@@ -402,7 +402,7 @@ func TestService(t *testing.T) {
 			t.Fatalf("group events = %d, want 1", len(stream.events))
 		}
 		event := stream.events[0]
-		if event.Type != proto.GroupEvent_UPSERT || event.Group.Tenant != "default" || event.Group.Key != "main" || event.Group.Size != 1 || !event.Group.IsStatic {
+		if event.Type != proto.GroupEvent_TYPE_UPSERT || event.Group.Tenant != "default" || event.Group.Key != "main" || event.Group.Size != 1 || !event.Group.IsStatic {
 			t.Fatalf("unexpected restored static group event: %#v", event)
 		}
 		if len(event.Group.Vars) != 1 || event.Group.Vars["mode"] != "static" {

@@ -82,6 +82,37 @@ func (f *FileStorage) PutIfMatch(ctx context.Context, key string, data []byte, e
 	}
 
 	filePath := filepath.Join(f.baseDir, key)
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	if etag == "" {
+		temp, err := os.CreateTemp(dir, ".nstance-create-")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary file: %w", err)
+		}
+		tempPath := temp.Name()
+		defer func() { _ = os.Remove(tempPath) }()
+		if err := temp.Chmod(0644); err != nil {
+			_ = temp.Close()
+			return fmt.Errorf("failed to set file permissions: %w", err)
+		}
+		if _, err := temp.Write(data); err != nil {
+			_ = temp.Close()
+			return fmt.Errorf("failed to write temporary file: %w", err)
+		}
+		if err := temp.Close(); err != nil {
+			return fmt.Errorf("failed to close temporary file: %w", err)
+		}
+		if err := os.Link(tempPath, filePath); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return ErrPrecondition
+			}
+			return fmt.Errorf("failed to publish file: %w", err)
+		}
+		return nil
+	}
 
 	// Check current state
 	currentMeta, err := f.GetMetadata(ctx, key)
@@ -95,24 +126,11 @@ func (f *FileStorage) PutIfMatch(ctx context.Context, key string, data []byte, e
 	}
 
 	// Validate precondition
-	if etag == "" {
-		// Must not exist
-		if currentETag != "" {
-			return ErrPrecondition
-		}
-	} else {
-		// Must match
-		if currentETag != etag {
-			return ErrPrecondition
-		}
+	if currentETag != etag {
+		return ErrPrecondition
 	}
 
 	// Write file
-	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}

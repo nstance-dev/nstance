@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 )
 
 // Operator represents an operator registration record in the local database
@@ -21,24 +21,6 @@ type Operator struct {
 	RegisteredAt time.Time  `json:"registered_at"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    *time.Time `json:"updated_at"`
-}
-
-// ValidateOperatorNonce checks if an operator nonce is valid.
-// Operator nonces must NOT exist in operators table (external nonce, first use).
-func (db *DB) ValidateOperatorNonce(nonce string) error {
-	query := `SELECT COUNT(*) FROM operators WHERE nonce = ?`
-
-	var count int
-	err := db.conn.QueryRow(query, nonce).Scan(&count)
-	if err != nil {
-		return err
-	}
-
-	if count > 0 {
-		return fmt.Errorf("nonce already used")
-	}
-
-	return nil
 }
 
 // CreateOperatorRegistrationRecord inserts a new record for operator registration

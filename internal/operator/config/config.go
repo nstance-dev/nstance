@@ -253,9 +253,26 @@ func (l *Loader) LoadCertificate(ctx context.Context, secretName string, caCert 
 			return nil, nil, fmt.Errorf("failed to add CA certificate to pool")
 		}
 		tlsConfig.RootCAs = caCertPool
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse client certificate: %w", err)
+		}
+		if _, err := leaf.Verify(x509.VerifyOptions{Roots: caCertPool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+			return nil, nil, fmt.Errorf("failed to verify client certificate: %w", err)
+		}
 	}
 
 	return tlsConfig, privateKey, nil
+}
+
+// DeleteNonce deletes only the dedicated bootstrap nonce Secret. Missing is success.
+func (l *Loader) DeleteNonce(ctx context.Context, secretName string) error {
+	secret := &corev1.Secret{}
+	secret.Name, secret.Namespace = secretName, l.namespace
+	if err := l.client.Delete(ctx, secret); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("delete nonce Secret %s/%s: %w", l.namespace, secretName, err)
+	}
+	return nil
 }
 
 // BuildTLSConfig builds a TLS config from certificate and key PEM data with CA verification
@@ -324,6 +341,22 @@ func (l *Loader) StoreCertificate(ctx context.Context, secretName string, certPE
 
 	// Secret exists, update it
 	return l.client.Update(ctx, &secret)
+}
+
+// CompleteRegistration durably stores and reloads the certificate, verifies
+// its key and CA chain, and only then deletes the dedicated nonce Secret.
+func (l *Loader) CompleteRegistration(ctx context.Context, certSecretName, nonceSecretName string, certPEM, keyPEM, caPEM []byte) (*tls.Config, ed25519.PrivateKey, error) {
+	if err := l.StoreCertificate(ctx, certSecretName, certPEM, keyPEM); err != nil {
+		return nil, nil, err
+	}
+	tlsConfig, key, err := l.LoadCertificate(ctx, certSecretName, caPEM)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := l.DeleteNonce(ctx, nonceSecretName); err != nil {
+		return nil, nil, err
+	}
+	return tlsConfig, key, nil
 }
 
 // parsePrivateKey parses PEM-encoded Ed25519 private key

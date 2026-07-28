@@ -17,6 +17,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
+	"github.com/nstance-dev/nstance/pkg/nonce"
 )
 
 // TestConfigureTenantAndInstanceEnv verifies tenant and instance setup returns agent environment variables.
@@ -189,9 +190,9 @@ func (*fakeReceiveFilesStream) RecvMsg(any) error            { return nil }
 // decodeNonceClaims parses the unverified registration nonce JWT and returns
 // its typed claims for assertions. The fake server's signing key is internal,
 // so tests skip signature verification here.
-func decodeNonceClaims(t *testing.T, nonceJWT string) *api.RegistrationNonceClaims {
+func decodeNonceClaims(t *testing.T, nonceJWT string) *nonce.Claims {
 	t.Helper()
-	claims := &api.RegistrationNonceClaims{}
+	claims := &nonce.Claims{}
 	parser := jwt.NewParser()
 	if _, _, err := parser.ParseUnverified(nonceJWT, claims); err != nil {
 		t.Fatalf("parse nonce JWT: %v", err)

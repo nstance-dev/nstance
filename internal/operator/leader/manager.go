@@ -120,9 +120,13 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Step 2: Check for existing client certificate
 	certSecretName := config.GetEnv("NSTANCE_CERT_SECRET", "nstance-operator-cert")
+	nonceSecretName := config.GetEnv("NSTANCE_NONCE_SECRET", "nstance-operator-nonce")
 	logger.Info("checking for existing certificate", "secret", certSecretName)
 	tlsConfig, privateKey, err := loader.LoadCertificate(ctx, certSecretName, caCert)
 	if err == nil {
+		if err := loader.DeleteNonce(ctx, nonceSecretName); err != nil {
+			return err
+		}
 		// Extract the x509 certificate from the TLS config for renewal logic
 		if len(tlsConfig.Certificates) > 0 && len(tlsConfig.Certificates[0].Certificate) > 0 {
 			cert, err := x509.ParseCertificate(tlsConfig.Certificates[0].Certificate[0])
@@ -163,7 +167,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 
 	// Step 4: Register with server
-	nonceSecretName := config.GetEnv("NSTANCE_NONCE_SECRET", "nstance-operator-nonce")
 	logger.Info("loading registration nonce", "secret", nonceSecretName)
 	nonce, err := loader.LoadNonce(ctx, nonceSecretName)
 	if err != nil {
@@ -241,19 +244,12 @@ func (m *Manager) Start(ctx context.Context) error {
 		Bytes: privateKeyBytes,
 	})
 
-	if err := loader.StoreCertificate(ctx, certSecretName, certPEM, privateKeyPEM); err != nil {
-		logger.Error(err, "failed to store certificate")
-		return err
-	}
-
-	logger.Info("certificate stored successfully")
-
-	// Build TLS config directly from the certificate we just received
-	tlsConfig, err = config.BuildTLSConfig(certPEM, privateKeyPEM, caCert)
+	tlsConfig, privateKey, err = loader.CompleteRegistration(ctx, certSecretName, nonceSecretName, certPEM, privateKeyPEM, caCert)
 	if err != nil {
-		logger.Error(err, "failed to build TLS config")
+		logger.Error(err, "failed to durably store and verify certificate")
 		return err
 	}
+	logger.Info("certificate stored and verified successfully")
 
 	// Parse the newly received certificate for renewal logic
 	certBlock, _ := pem.Decode(certPEM)

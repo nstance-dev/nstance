@@ -18,7 +18,7 @@ The persistent stream connection also enables instant disconnect detection - whe
 
 **Connection Type**: Persistent client streaming (agent maintains long-lived connection)
 
-**Frequency**: Default 60 seconds (configurable via `NSTANCE_METRICS_INTERVAL`)
+**Frequency**: Default 60 seconds (configurable via `NSTANCE_REPORT_INTERVAL`)
 
 Agents establish a persistent gRPC stream to the Nstance Server and send health reports periodically on this stream. The server monitors the stream for disconnections, enabling instant detection of agent failures.
 
@@ -34,30 +34,23 @@ Note: the actual payloads will be sent via gRPC, not JSON.
   "instance_id": "knc0000000001r010000000000000",
   "count": 1234,
   "timestamp": "2024-01-01T00:00:00Z",
-  "started": "2024-01-01T00:00:00Z",
-  "window_start": "2024-01-01T00:00:00Z",
-  "window_end": "2024-01-01T00:15:00Z",
   "uptime": 262215,
-  "one_minute": {
-    "cpu_usage": 15.2,
-    "memory_usage": 45.8,
-    "network_bytes_sent": 1234567,
-    "network_bytes_received": 7654321,
-    "disk_used": 42.5
-  },
-  "five_minutes": {
-    "cpu_usage": 12.1,
-    "memory_usage": 44.2,
-    "network_bytes_sent": 1234567,
-    "network_bytes_received": 7654321,
-    "disk_used": 42.5
-  },
-  "fifteen_minutes": {
-    "cpu_usage": 10.8,
-    "memory_usage": 43.1,
-    "network_bytes_sent": 1234567,
-    "network_bytes_received": 7654321,
-    "disk_used": 42.5
+  "metrics": {
+    "cpu_usage": 12.5,
+    "cpu_core_usage": [10.0, 15.0],
+    "memory_usage": 38.2,
+    "ebpf_counters": {"443": 0, "6443": 1},
+    "network_interface": {
+      "interface_name": "eth0",
+      "rx_bytes": 125000000,
+      "tx_bytes": 118000000,
+      "rx_packets": 900000,
+      "tx_packets": 850000,
+      "rx_drops": 0,
+      "tx_drops": 0
+    },
+    "conntrack_count": 1200,
+    "conntrack_max": 131072
   },
   "files": {
     "ca.crt": "2024-01-01T00:00:00Z",
@@ -67,6 +60,32 @@ Note: the actual payloads will be sent via gRPC, not JSON.
   "config_hash": "sha256:abc123..."
 }
 ```
+
+Each report contains the agent's latest purpose-specific metrics observation.
+Nstance Server evaluates configured activity and scaling durations from
+successive reports using constant-size state per relevant instance.
+
+| Field | Unit | Observation semantics |
+|---|---|---|
+| `cpu_usage` | percent | CPU usage measured while building the report. |
+| `cpu_core_usage` | percent | Per-core CPU usage measured while building the report. |
+| `memory_usage` | percent | Current memory utilization at report time. |
+| `ebpf_counters[port]` | connections | Exact active TCP connection count at report time. |
+| `ebpf_error` | text | Latest eBPF collection or pinned-link validation error; omitted on success or when no proxy listeners are configured. |
+| `network_interface.rx_bytes`, `tx_bytes` | bytes | Cumulative interface counters at report time. |
+| `network_interface.rx_packets`, `tx_packets` | packets | Cumulative interface counters at report time. |
+| `network_interface.rx_drops`, `tx_drops` | packets | Cumulative dropped-packet counters at report time. |
+| `network_interface_error` | text | Latest configured-interface collection error; omitted on success or when collection is disabled. |
+| `conntrack_count` | entries | Current conntrack entry count at report time. |
+| `conntrack_max` | entries | Current configured conntrack maximum at report time. |
+| `conntrack_error` | text | Latest conntrack collection error; omitted on success or when interface collection is disabled. |
+
+Interface and conntrack collection is enabled by setting
+`NSTANCE_METRICS_INTERFACE`; without it those fields are omitted. eBPF
+collection is enabled when the instance has configured proxy listeners;
+without them the eBPF fields are omitted. A missing or stale required
+observation is not treated as zero. Nstance Server calculates interface rates
+from counter differences and elapsed time between successive reports.
 
 ## Health Report Processing
 

@@ -10,24 +10,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/nstance-dev/nstance/pkg/nonce"
 )
 
 // JWTSigner handles signing of registration nonce JWTs
 type JWTSigner struct {
 	privateKey ed25519.PrivateKey
-}
-
-// RegistrationNonceClaims represents the claims in a registration nonce JWT
-type RegistrationNonceClaims struct {
-	jwt.RegisteredClaims
-	Kind       string `json:"kind"`        // "agent" or "operator"
-	Sub        string `json:"sub"`         // instance ID or cluster ID
-	ConfigHash string `json:"config_hash"` // group runtime config hash at provision time
-	ClusterID  string `json:"cluster_id"`  // cluster ID
-	Shard      string `json:"shard"`       // shard/zone
-	Group      string `json:"group"`       // group key
-	OnDemand   bool   `json:"on_demand"`   // is on-demand instance
-	Tenant     string `json:"tenant"`      // tenant identifier
 }
 
 // NewJWTSigner creates a new JWT signer
@@ -57,7 +46,7 @@ func (s *JWTSigner) GenerateRegistrationNonce(params RegistrationNonceParams) (s
 	}
 
 	now := time.Now().UTC()
-	claims := &RegistrationNonceClaims{
+	claims := nonce.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   params.SubjectID,
 			ExpiresAt: jwt.NewNumericDate(now.Add(params.Expiry)),
@@ -66,7 +55,6 @@ func (s *JWTSigner) GenerateRegistrationNonce(params RegistrationNonceParams) (s
 			Issuer:    "nstance-server",
 		},
 		Kind:       params.Kind,
-		Sub:        params.SubjectID,
 		ConfigHash: params.ConfigHash,
 		ClusterID:  params.ClusterID,
 		Shard:      params.Shard,
@@ -75,8 +63,7 @@ func (s *JWTSigner) GenerateRegistrationNonce(params RegistrationNonceParams) (s
 		Tenant:     params.Tenant,
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	tokenString, err := token.SignedString(s.privateKey)
+	tokenString, err := nonce.Sign(s.privateKey, claims)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign JWT: %w", err)
 	}

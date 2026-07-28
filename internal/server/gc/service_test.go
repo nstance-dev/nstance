@@ -16,7 +16,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/instances"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/storage"
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 )
 
 func TestInstanceGarbageCollector(t *testing.T) {

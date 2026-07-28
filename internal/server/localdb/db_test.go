@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 )
 
 // Helper function for creating time pointers
@@ -232,27 +232,14 @@ func TestDatabase(t *testing.T) {
 		}
 	})
 
-	t.Run("ValidateOperatorNonce", func(t *testing.T) {
+	t.Run("OperatorRegistration", func(t *testing.T) {
 		nonce := "test-validate-operator-nonce"
 		clusterID, _ := puidv7.New("cls")
 
-		// Validate nonce that doesn't exist (should be valid for operators)
-		err := db.ValidateOperatorNonce(nonce)
-		if err != nil {
-			t.Errorf("Unused operator nonce should be valid: %v", err)
-		}
-
-		// Create registration record (simulates operator registration)
 		publicKey := []byte("test-public-key")
-		err = db.CreateOperatorRegistrationRecord(clusterID, "default", nonce, publicKey)
+		err := db.CreateOperatorRegistrationRecord(clusterID, "default", nonce, publicKey)
 		if err != nil {
 			t.Fatalf("Failed to create registration record: %v", err)
-		}
-
-		// Validate same nonce again (should now be invalid/used)
-		err = db.ValidateOperatorNonce(nonce)
-		if err == nil {
-			t.Error("Expected error when validating used operator nonce")
 		}
 
 		// Verify operator record can be retrieved by cluster ID

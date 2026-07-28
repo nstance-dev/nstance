@@ -466,6 +466,13 @@ func TestLoadBalancerValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config := newTestConfig()
 			config.LoadBalancers = tt.loadBalancers
+			var references []string
+			for key := range tt.loadBalancers {
+				references = append(references, key)
+			}
+			config.Groups = map[string]map[string]GroupConfig{
+				"default": {"control-plane": {Template: "knc", LoadBalancers: references}},
+			}
 			config.SetDefaults()
 
 			err := config.Validate()

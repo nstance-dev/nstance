@@ -249,6 +249,7 @@ func (s *Service) storeHealthRecord(req *proto.HealthReportRequest) error {
 		"uptime":        req.Uptime,
 		"files":         convertFileStatusMap(req.Files),
 		"last_reported": time.Now().UTC(),
+		"metrics":       req.Metrics,
 	}
 
 	healthData, err := json.Marshal(healthRecord)

@@ -32,7 +32,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	t.Setenv("NSTANCE_SERVER_REGISTRATION_ADDR", "example.com:8992")
 	t.Setenv("NSTANCE_SERVER_AGENT_ADDR", "example.com:8994")
 	t.Setenv("NSTANCE_INSTANCE_ID", "knc0000000001r010000000000000")
-	t.Setenv("NSTANCE_METRICS_INTERVAL", "")
+	t.Setenv("NSTANCE_REPORT_INTERVAL", "")
 	t.Setenv("NSTANCE_IDENTITY_MODE", "")
 	t.Setenv("NSTANCE_KEYS_MODE", "")
 	t.Setenv("NSTANCE_RECV_MODE", "")
@@ -52,8 +52,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.Environment != "development" {
 		t.Errorf("Environment = %q, want development", cfg.Environment)
 	}
-	if cfg.MetricsInterval != 60*time.Second {
-		t.Errorf("MetricsInterval = %v, want 60s", cfg.MetricsInterval)
+	if cfg.ReportInterval != 60*time.Second {
+		t.Errorf("ReportInterval = %v, want 60s", cfg.ReportInterval)
 	}
 
 	if cfg.IdentityDir != identityDir {
@@ -117,7 +117,8 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("NSTANCE_INSTANCE_FQDN", "agent.example.com")
 	t.Setenv("NSTANCE_INSTANCE_IPV4", "192.0.2.1")
 	t.Setenv("NSTANCE_INSTANCE_IPV6", "2001:db8::1")
-	t.Setenv("NSTANCE_METRICS_INTERVAL", "0")
+	t.Setenv("NSTANCE_REPORT_INTERVAL", "0")
+	t.Setenv("NSTANCE_METRICS_INTERFACE", "eth0")
 
 	cfg, err := Load()
 	if err != nil {
@@ -130,8 +131,11 @@ func TestLoadOverrides(t *testing.T) {
 	if cfg.Environment != "production" {
 		t.Errorf("Environment = %q, want production", cfg.Environment)
 	}
-	if cfg.MetricsInterval != 0 {
-		t.Errorf("MetricsInterval = %v, want 0", cfg.MetricsInterval)
+	if cfg.ReportInterval != 0 {
+		t.Errorf("ReportInterval = %v, want 0", cfg.ReportInterval)
+	}
+	if cfg.MetricsInterface != "eth0" {
+		t.Errorf("MetricsInterface = %q, want eth0", cfg.MetricsInterface)
 	}
 
 	if cfg.IdentityDir != identityDir {
@@ -201,13 +205,13 @@ func TestLoadInvalidValue(t *testing.T) {
 	t.Setenv("NSTANCE_KEYS_DIR", keysDir)
 	t.Setenv("NSTANCE_RECV_DIR", recvDir)
 	t.Setenv("NSTANCE_INSTANCE_ID", "knc0000000001r010000000000002")
-	t.Setenv("NSTANCE_METRICS_INTERVAL", "invalid")
+	t.Setenv("NSTANCE_REPORT_INTERVAL", "invalid")
 
 	_, err := Load()
 	if err == nil {
 		t.Fatalf("Load() error = nil, want parse error")
 	}
-	if !strings.Contains(err.Error(), "MetricsInterval") || !strings.Contains(err.Error(), "invalid duration") {
+	if !strings.Contains(err.Error(), "ReportInterval") || !strings.Contains(err.Error(), "invalid duration") {
 		t.Errorf("error = %q, want duration parsing error", err)
 	}
 }

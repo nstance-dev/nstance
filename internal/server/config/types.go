@@ -48,7 +48,8 @@ type Config struct {
 	Certificates  map[string]CertConfig             `json:"certificates"`
 	Defaults      DefaultsConfig                    `json:"defaults"`
 	Templates     map[string]TemplateConfig         `json:"templates" validate:"required"`
-	Groups        map[string]map[string]GroupConfig `json:"groups"` // tenant -> group key -> config
+	Groups        map[string]map[string]GroupConfig `json:"groups"`        // tenant -> group key -> config
+	NAT           map[string]NATConfig              `json:"nat,omitempty"` // tenant -> managed NAT config
 }
 
 // ClusterConfig defines cluster-scoped configuration shared across all shards.
@@ -360,6 +361,36 @@ type GroupConfig struct {
 	LoadBalancers []string               `json:"load_balancers,omitempty"` // References to load balancer keys
 }
 
+// NATConfig defines the Podplane Managed NAT mechanisms for one tenant.
+type NATConfig struct {
+	Group               string                 `json:"group,omitempty"`
+	SmallCluster        *SmallClusterNATConfig `json:"small_cluster,omitempty"`
+	NetworkIdentityPool string                 `json:"network_identity_pool,omitempty"`
+	LastNodeGracePeriod Duration               `json:"last_node_grace_period,omitempty"`
+	InstanceTypeLadder  []string               `json:"instance_type_ladder,omitempty"`
+	ScaleUpThresholds   NATThresholds          `json:"scale_up_thresholds"`
+	ScaleDownThresholds NATThresholds          `json:"scale_down_thresholds"`
+	ScaleUpWindow       Duration               `json:"scale_up_window,omitempty"`
+	ScaleDownWindow     Duration               `json:"scale_down_window,omitempty"`
+	Cooldown            Duration               `json:"cooldown,omitempty"`
+	ReplacementTimeout  Duration               `json:"replacement_timeout,omitempty"`
+}
+
+// SmallClusterNATConfig configures shard-leader NAT for a tenant's initial subnet.
+type SmallClusterNATConfig struct {
+	InitialSubnet string `json:"initial_subnet"`
+	MaxInstances  int    `json:"max_instances"`
+}
+
+// NATThresholds contains utilization percentages and a packet-drop rate.
+type NATThresholds struct {
+	ThroughputPercent       float64 `json:"throughput_percent"`
+	PacketsPerSecondPercent float64 `json:"packets_per_second_percent"`
+	ConntrackPercent        float64 `json:"conntrack_percent"`
+	CPUPercent              float64 `json:"cpu_percent"`
+	PacketDropsPerSecond    float64 `json:"packet_drops_per_second"`
+}
+
 // GetSize returns the size value, defaulting to 0 if nil
 func (g GroupConfig) GetSize() int {
 	if g.Size == nil {
@@ -452,6 +483,9 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	if err := c.validateNAT(); err != nil {
+		return err
+	}
 
 	// Validate cluster ID format and length
 	if err := identifiers.Validate("cluster ID", c.Cluster.ID); err != nil {
@@ -534,6 +568,9 @@ func (c *Config) Validate() error {
 				}
 			}
 		}
+	}
+	if _, err := c.ProxyConfig(); err != nil {
+		return err
 	}
 
 	// Validate operator and agent certificate TTLs if specified
@@ -913,6 +950,33 @@ func (c *Config) SetDefaults() {
 			}
 			c.Groups[tenant][key] = group
 		}
+	}
+
+	for tenant, nat := range c.NAT {
+		if nat.LastNodeGracePeriod == 0 {
+			nat.LastNodeGracePeriod = Duration(10 * time.Minute)
+		}
+		if nat.ScaleUpThresholds == (NATThresholds{}) {
+			nat.ScaleUpThresholds = NATThresholds{80, 80, 80, 80, 1}
+		}
+		if nat.ScaleDownThresholds == (NATThresholds{}) {
+			nat.ScaleDownThresholds = NATThresholds{30, 30, 30, 30, 0}
+		}
+		if nat.Group != "" {
+			if nat.ScaleUpWindow == 0 {
+				nat.ScaleUpWindow = Duration(3 * time.Minute)
+			}
+			if nat.ScaleDownWindow == 0 {
+				nat.ScaleDownWindow = Duration(25 * time.Minute)
+			}
+			if nat.Cooldown == 0 {
+				nat.Cooldown = Duration(10 * time.Minute)
+			}
+			if nat.ReplacementTimeout == 0 {
+				nat.ReplacementTimeout = Duration(10 * time.Minute)
+			}
+		}
+		c.NAT[tenant] = nat
 	}
 
 	// Defaults initialization

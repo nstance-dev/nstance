@@ -17,7 +17,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/go-playground/validator/v10"
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -39,7 +39,8 @@ type Config struct {
 	InstanceFQDN     string        `env:"INSTANCE_FQDN" validate:"omitempty,fqdn"`
 	InstanceIPv4     string        `env:"INSTANCE_IPV4" validate:"omitempty,ipv4"`
 	InstanceIPv6     string        `env:"INSTANCE_IPV6" validate:"omitempty,ipv6"`
-	MetricsInterval  time.Duration `env:"METRICS_INTERVAL" envDefault:"60s" validate:"gte=0"`
+	ReportInterval   time.Duration `env:"REPORT_INTERVAL" envDefault:"60s" validate:"gte=0"`
+	MetricsInterface string        `env:"METRICS_INTERFACE"`
 	SpotPollInterval time.Duration `env:"SPOT_POLL_INTERVAL" envDefault:"2s" validate:"gte=0"`
 }
 

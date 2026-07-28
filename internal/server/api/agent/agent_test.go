@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"

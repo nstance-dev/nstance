@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 	"github.com/spf13/cobra"
 
 	"github.com/nstance-dev/nstance/internal/files"

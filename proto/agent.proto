@@ -51,28 +51,38 @@ message HealthReportRequest {
   string instance_id = 2;
   google.protobuf.Timestamp timestamp = 3;
   int64 count = 4; // Health report sequence number
-  google.protobuf.Timestamp started = 5; // When metrics collection started
-  google.protobuf.Timestamp window_start = 6; // Current metrics window start
-  google.protobuf.Timestamp window_end = 7; // Current metrics window end
-  string uptime = 8; // Uptime duration string
-  Metrics one_minute = 9; // 1-minute averages
-  Metrics five_minutes = 10; // 5-minute averages
-  Metrics fifteen_minutes = 11; // 15-minute averages
-  map<string, FileStatus> files = 12; // File status map
-  TerminationNotice termination_notice = 13; // Optional termination notice for spot instances
-  string config_hash = 14; // Runtime config hash from /opt/nstance-agent/identity/config.hash
+  string uptime = 5; // Uptime duration string
+  Metrics metrics = 6; // Metrics observed for this report
+  map<string, FileStatus> files = 7; // File status map
+  TerminationNotice termination_notice = 8; // Optional termination notice for spot instances
+  string config_hash = 9; // Runtime config hash from /opt/nstance-agent/identity/config.hash
 }
 
+// Metrics observed by the agent for one health report
+
 message Metrics {
-  double cpu_usage = 1; // CPU usage percentage
+  optional double cpu_usage = 1; // CPU usage percentage
   repeated double cpu_core_usage = 2; // Per-core CPU usage percentages
-  double memory_usage = 3; // Memory usage percentage
-  double network_bytes_sent = 4; // Network bytes sent
-  double network_bytes_received = 5; // Network bytes received
-  double disk_used = 6; // Disk usage percentage
-  double disk_inodes_used = 7; // Disk inode usage percentage
-  double disk_bytes_read = 8; // Disk bytes read
-  double disk_bytes_written = 9; // Disk bytes written
+  optional double memory_usage = 3; // Memory usage percentage
+  optional InterfaceMetrics network_interface = 4;
+  optional string network_interface_error = 5;
+  map<uint32, uint64> ebpf_counters = 6; // Active TCP connections keyed by target port
+  optional string ebpf_error = 7;
+  optional uint64 conntrack_count = 8;
+  optional uint64 conntrack_max = 9;
+  optional string conntrack_error = 10;
+}
+
+// Metrics for one explicitly configured network interface
+
+message InterfaceMetrics {
+  string interface_name = 1;
+  uint64 rx_bytes = 2;
+  uint64 tx_bytes = 3;
+  uint64 rx_packets = 4;
+  uint64 tx_packets = 5;
+  uint64 rx_drops = 6;
+  uint64 tx_drops = 7;
 }
 
 message FileStatus {

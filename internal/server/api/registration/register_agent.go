@@ -13,6 +13,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/pkg/nonce"
 )
 
 func (s *Service) RegisterAgent(ctx context.Context, req *proto.RegisterClientRequest) (*proto.RegisterClientResponse, error) {
@@ -22,7 +23,7 @@ func (s *Service) RegisterAgent(ctx context.Context, req *proto.RegisterClientRe
 
 	s.logger.Info("Processing agent registration request")
 
-	claims, err := s.jwtValidator.ValidateRegistrationNonce(req.RegistrationNonceJwt, "agent")
+	claims, err := nonce.Validate(req.RegistrationNonceJwt, s.noncePublicKey, "agent")
 	if err != nil {
 		s.logger.Warn("Agent registration failed: invalid JWT", "error", err)
 		return nil, status.Errorf(codes.Unauthenticated, "invalid registration nonce: %v", err)
@@ -57,7 +58,7 @@ func (s *Service) RegisterAgent(ctx context.Context, req *proto.RegisterClientRe
 		return nil, status.Errorf(codes.Unauthenticated, "nonce already used")
 	}
 
-	instanceID := claims.Sub
+	instanceID := claims.Subject
 	tenant := claims.Tenant
 
 	ttl := s.getCertificateTTL("agent")

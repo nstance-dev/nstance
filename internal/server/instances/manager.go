@@ -15,7 +15,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra"
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/keys"

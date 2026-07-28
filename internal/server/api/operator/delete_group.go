@@ -49,12 +49,12 @@ func (s *Service) DeleteGroup(ctx context.Context, req *proto.DeleteGroupRequest
 	staticGroup, isStatic := s.configLoader.GetCurrent().Groups[tenant][req.Key]
 	if isStatic {
 		s.NotifyGroupEvent(tenant, &proto.GroupEvent{
-			Type:  proto.GroupEvent_UPSERT,
+			Type:  proto.GroupEvent_TYPE_UPSERT,
 			Group: s.buildGroupStatus(tenant, req.Key, staticGroup, true),
 		})
 	} else {
 		s.NotifyGroupEvent(tenant, &proto.GroupEvent{
-			Type:  proto.GroupEvent_DELETE,
+			Type:  proto.GroupEvent_TYPE_DELETE,
 			Group: &proto.GroupStatus{Key: req.Key, Tenant: tenant},
 		})
 	}

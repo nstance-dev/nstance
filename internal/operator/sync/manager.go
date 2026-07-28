@@ -301,11 +301,11 @@ func (m *Manager) applyGroupEvent(ctx context.Context, shard string, event *prot
 	}
 
 	switch event.Type {
-	case proto.GroupEvent_UPSERT:
+	case proto.GroupEvent_TYPE_UPSERT:
 		m.logger.Info("group upserted", "shard", shard, "group", event.Group.Key, "size", event.Group.Size)
 		m.shardGroups[shard][event.Group.Key] = event.Group
 
-	case proto.GroupEvent_DELETE:
+	case proto.GroupEvent_TYPE_DELETE:
 		m.logger.Info("group deleted", "shard", shard, "group", event.Group.Key)
 		delete(m.shardGroups[shard], event.Group.Key)
 	}

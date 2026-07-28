@@ -6,7 +6,6 @@ package registration
 
 import (
 	"context"
-	"crypto/ed25519"
 	"log/slog"
 	"os"
 	"testing"
@@ -169,7 +168,7 @@ func TestService(t *testing.T) {
 		}
 
 		// Generate valid JWT for operator
-		clusterID := "example-cluster"
+		clusterID := "test-cluster"
 		jwt, err := api.GenerateTestJWT(noncePrivateKey, "operator", clusterID, 30*time.Minute)
 		if err != nil {
 			t.Fatalf("Failed to generate JWT: %v", err)
@@ -194,10 +193,44 @@ func TestService(t *testing.T) {
 			t.Error("Expires at should not be nil")
 		}
 
-		// Try to register the same operator again (should fail)
-		_, err = service.RegisterOperator(ctx, req)
-		if err == nil {
-			t.Error("Expected error when registering same operator twice")
+		// A retry after a lost response succeeds for the persisted key.
+		if _, err = service.RegisterOperator(ctx, req); err != nil {
+			t.Fatalf("same-key registration replay failed: %v", err)
+		}
+		wrongKey, _, err := keys.GenerateTestEd25519KeyPair()
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.PublicKeyPem = wrongKey
+		if _, err = service.RegisterOperator(ctx, req); err == nil {
+			t.Error("different-key registration replay succeeded")
+		}
+
+		// The durable binding survives local database and leader replacement.
+		otherDB, err := localdb.Open(t.TempDir() + "/nstance.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = otherDB.Close() }()
+		otherService, err := New(Options{
+			ShardStorage:    mockStorage,
+			ClusterStorage:  mockStorage,
+			SecretsStore:    secretsStore,
+			LocalDB:         otherDB,
+			ConfigLoader:    configLoader,
+			IsShardLeader:   func() bool { return true },
+			IsClusterLeader: func() bool { return true },
+			Logger:          slog.Default(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = otherService.RegisterOperator(ctx, req); err == nil {
+			t.Error("different-key registration replay succeeded after leader replacement")
+		}
+		req.PublicKeyPem = operatorPublicKeyPEM
+		if _, err = otherService.RegisterOperator(ctx, req); err != nil {
+			t.Fatalf("same-key registration replay failed after leader replacement: %v", err)
 		}
 	})
 
@@ -264,67 +297,6 @@ func TestService(t *testing.T) {
 		_, err = service.RegisterAgent(ctx, req)
 		if err == nil {
 			t.Error("Expected error for expired JWT")
-		}
-	})
-}
-
-func TestJWTValidator(t *testing.T) {
-	// Generate test key pair
-	_, privateKeyPEM, err := keys.GenerateTestEd25519KeyPair()
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
-
-	privateKey, err := keys.ParseEd25519PrivateKey(privateKeyPEM)
-	if err != nil {
-		t.Fatalf("Failed to parse private key: %v", err)
-	}
-
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-	validator := api.NewJWTValidator(publicKey)
-
-	t.Run("ValidJWT", func(t *testing.T) {
-		// Generate valid JWT
-		jwt, err := api.GenerateTestJWT(privateKey, "agent", "test-instance", 5*time.Minute)
-		if err != nil {
-			t.Fatalf("Failed to generate JWT: %v", err)
-		}
-
-		// Validate JWT
-		claims, err := validator.ValidateRegistrationNonce(jwt, "agent")
-		if err != nil {
-			t.Fatalf("Valid JWT should not error: %v", err)
-		}
-
-		if claims.Kind != "agent" {
-			t.Errorf("Expected kind 'agent', got '%s'", claims.Kind)
-		}
-		if claims.Sub != "test-instance" {
-			t.Errorf("Expected sub 'test-instance', got '%s'", claims.Sub)
-		}
-	})
-
-	t.Run("WrongSigningKey", func(t *testing.T) {
-		// Generate JWT with different key
-		_, wrongPrivateKeyPEM, err := keys.GenerateTestEd25519KeyPair()
-		if err != nil {
-			t.Fatalf("Failed to generate wrong key: %v", err)
-		}
-
-		wrongPrivateKey, err := keys.ParseEd25519PrivateKey(wrongPrivateKeyPEM)
-		if err != nil {
-			t.Fatalf("Failed to parse wrong private key: %v", err)
-		}
-
-		jwt, err := api.GenerateTestJWT(wrongPrivateKey, "agent", "test-instance", 5*time.Minute)
-		if err != nil {
-			t.Fatalf("Failed to generate JWT: %v", err)
-		}
-
-		// Should fail validation
-		_, err = validator.ValidateRegistrationNonce(jwt, "agent")
-		if err == nil {
-			t.Error("Expected error for JWT signed with wrong key")
 		}
 	})
 }

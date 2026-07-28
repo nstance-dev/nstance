@@ -39,7 +39,8 @@ All environment variables use the `NSTANCE_` prefix.
 | `NSTANCE_INSTANCE_FQDN` | *(optional)* | Instance FQDN |
 | `NSTANCE_INSTANCE_IPV4` | *(optional)* | Instance IPv4 address |
 | `NSTANCE_INSTANCE_IPV6` | *(optional)* | Instance IPv6 address |
-| `NSTANCE_METRICS_INTERVAL` | `60s` | Health report interval (`0` to disable) |
+| `NSTANCE_REPORT_INTERVAL` | `60s` | Health report interval (`0` to disable) |
+| `NSTANCE_METRICS_INTERFACE` | *(optional)* | Network interface to collect rate and conntrack metrics for |
 | `NSTANCE_SPOT_POLL_INTERVAL` | `2s` | Spot termination polling interval |
 
 ## Agent Lifecycle
@@ -78,7 +79,7 @@ When the server needs a new certificate issued for this instance, it sends a key
 
 ### 5. Health Reporting
 
-The agent periodically sends health reports to the server at the configured interval (`NSTANCE_METRICS_INTERVAL`). Reports include system-level metrics such as CPU, memory, and disk usage. Health reporting can be disabled by setting the interval to `0`.
+The agent periodically sends health reports to the server at the configured interval (`NSTANCE_REPORT_INTERVAL`). Reports include operational metadata and the latest purpose-specific metrics observation. Health reporting can be disabled by setting the interval to `0`.
 
 ### 6. Spot Monitoring
 

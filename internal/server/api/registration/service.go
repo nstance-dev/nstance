@@ -15,10 +15,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/refreshjs/puidv7"
+	"github.com/puidv7/puidv7-go"
 
 	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/instances"
 	"github.com/nstance-dev/nstance/internal/server/keys"
@@ -37,7 +36,7 @@ type Service struct {
 	localDB         *localdb.DB
 	instanceManager *instances.Manager
 	configLoader    *config.Loader
-	jwtValidator    *api.JWTValidator
+	noncePublicKey  ed25519.PublicKey
 	caCertPEM       []byte
 	caKeyPEM        []byte
 	isShardLeader   func() bool
@@ -132,8 +131,7 @@ func (s *Service) initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to parse registration nonce private key: %w", err)
 	}
 
-	noncePublicKey := noncePrivateKey.Public().(ed25519.PublicKey)
-	s.jwtValidator = api.NewJWTValidator(noncePublicKey)
+	s.noncePublicKey = noncePrivateKey.Public().(ed25519.PublicKey)
 
 	caCertData, _, err := s.clusterStorage.Get(ctx, "ca.crt")
 	if err != nil {

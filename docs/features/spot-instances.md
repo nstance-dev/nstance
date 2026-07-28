@@ -77,10 +77,6 @@ When a spot termination notice is detected:
   "termination_notice": {
     "action": "terminate",
     "deadline": "2024-01-01T12:00:00Z"
-  },
-  "one_minute": {
-    "cpu_usage": 15.2,
-    "memory_usage": 45.8
   }
 }
 ```

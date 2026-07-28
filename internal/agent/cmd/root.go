@@ -233,28 +233,29 @@ func NewRootCmd() *cobra.Command {
 			go spotMonitor.Start(ctx)
 		}
 
-		// start reporting metrics on interval
-		metricsReportingInterval := cfg.MetricsInterval
-		if metricsReportingInterval > 0 {
-			logger.Info("starting metrics reporter", "interval", metricsReportingInterval, "instance_id", cfg.InstanceID)
+		// Start reporting health on the configured interval.
+		reportInterval := cfg.ReportInterval
+		if reportInterval > 0 {
+			logger.Info("starting health reporter", "interval", reportInterval, "instance_id", cfg.InstanceID)
 			getTerminationNotice := func() *health.TerminationNotice {
 				if spotMonitor != nil {
 					return spotMonitor.GetTerminationNotice()
 				}
 				return nil
 			}
-			metricsCfg := health.ReportConfig{
+			reportCfg := health.ReportConfig{
 				InstanceID:           cfg.InstanceID,
 				RecvDir:              cfg.RecvDir,
 				IdentityDir:          cfg.IdentityDir,
+				MetricsInterface:     cfg.MetricsInterface,
 				GetTerminationNotice: getTerminationNotice,
 			}
 
 			// Create channel for health reports
 			reportChan := make(chan health.Report, 10)
 
-			// Start health report collector (sends to channel)
-			go health.ReportLoop(ctx, logger, metricsReportingInterval, metricsCfg, func(report health.Report) error {
+			// Start health report producer (sends to channel).
+			go health.ReportLoop(ctx, logger, reportInterval, reportCfg, func(report health.Report) error {
 				select {
 				case reportChan <- report:
 					return nil
@@ -288,7 +289,7 @@ func NewRootCmd() *cobra.Command {
 				}
 			}()
 		} else {
-			logger.Info("metrics reporter disabled")
+			logger.Info("health reporter disabled")
 		}
 
 		// block until shutdown signal is received, then exit

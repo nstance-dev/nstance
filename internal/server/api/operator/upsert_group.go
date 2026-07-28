@@ -71,7 +71,7 @@ func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest
 	groupStatus := s.buildGroupStatus(tenant, req.Key, *mergedGroup, isStatic)
 
 	s.NotifyGroupEvent(tenant, &proto.GroupEvent{
-		Type:  proto.GroupEvent_UPSERT,
+		Type:  proto.GroupEvent_TYPE_UPSERT,
 		Group: groupStatus,
 	})
 

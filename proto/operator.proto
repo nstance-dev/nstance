@@ -32,6 +32,10 @@ service OperatorService {
   rpc DeleteInstance(DeleteInstanceRequest) returns (DeleteInstanceResponse);
   rpc GetInstanceStatus(GetInstanceStatusRequest) returns (InstanceStatusResponse);
   rpc AcknowledgeDrained(DrainAckRequest) returns (google.protobuf.Empty);
+
+  // Idempotent shard-local tenant sleep operations.
+  rpc SleepTenant(SleepTenantRequest) returns (SleepTenantResponse);
+  rpc WakeTenant(WakeTenantRequest) returns (WakeTenantResponse);
   
   // Watch streams for operator sync
   rpc WatchGroups(google.protobuf.Empty) returns (stream GroupEvent);
@@ -147,11 +151,12 @@ message InstanceStatusResponse {
 // Group change event
 message GroupEvent {
   enum Type {
-    UPSERT = 0;
-    DELETE = 1;
+    TYPE_UNSPECIFIED = 0;
+    TYPE_UPSERT = 1;
+    TYPE_DELETE = 2;
   }
   Type type = 1;
-  GroupStatus group = 2;  // For UPSERT: full group status. For DELETE: only key is set.
+  GroupStatus group = 2;  // For TYPE_UPSERT: full group status. For TYPE_DELETE: only key is set.
 }
 
 // Instance event (for watch stream)
@@ -171,6 +176,56 @@ message InstanceEvent {
 
 message DrainAckRequest {
   string instance_id = 1;
+}
+
+// Tenant sleep state shared by sleep and wake responses
+
+enum TenantSleepStatus {
+  TENANT_SLEEP_STATUS_UNSPECIFIED = 0;
+  TENANT_SLEEP_STATUS_AWAKE = 1;
+  TENANT_SLEEP_STATUS_ASLEEP = 2;
+}
+
+// Tenant sleep request
+
+message SleepTenantRequest {
+  string tenant = 1;
+  bool if_not_busy = 2;
+  optional google.protobuf.Timestamp wake_at = 3;
+}
+
+// Tenant sleep response
+
+message SleepTenantResponse {
+  enum Result {
+    RESULT_UNSPECIFIED = 0;
+    RESULT_SLEPT = 1;
+    RESULT_ALREADY_ASLEEP = 2;
+    RESULT_BUSY = 3;
+  }
+  Result result = 1;
+  TenantSleepStatus status = 2;
+  optional google.protobuf.Timestamp wake_at = 3;
+}
+
+// Tenant wake request
+
+message WakeTenantRequest {
+  string tenant = 1;
+  optional string listener = 2;
+}
+
+// Tenant wake response
+
+message WakeTenantResponse {
+  enum Result {
+    RESULT_UNSPECIFIED = 0;
+    RESULT_WOKE = 1;
+    RESULT_ALREADY_AWAKE = 2;
+  }
+  Result result = 1;
+  TenantSleepStatus status = 2;
+  optional string upstream = 3;
 }
 
 // Error event for provider errors, config validation failures, etc.

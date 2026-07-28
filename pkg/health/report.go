@@ -24,35 +24,31 @@ type TerminationNotice struct {
 	Deadline time.Time `json:"deadline,omitempty"`
 }
 
-// Report hold a report of metrics to be serialised to JSON by JSONPusher
+// Report contains one agent health observation and its operational metadata.
 type Report struct {
 	InstanceID        string
 	Version           string             `json:"version"`
 	Timestamp         time.Time          `json:"timestamp"`
 	Count             int                `json:"count"`
-	Started           time.Time          `json:"started"`
-	WindowStart       time.Time          `json:"window_start"`
-	WindowEnd         time.Time          `json:"window_end"`
 	Uptime            uint64             `json:"uptime"`
-	OneMinute         Metrics            `json:"one_minute"`
-	FiveMinutes       Metrics            `json:"five_minutes"`
-	FifteenMinutes    Metrics            `json:"fifteen_minutes"`
+	Metrics           Metrics            `json:"metrics"`
 	Files             map[string]string  `json:"files"`
 	TerminationNotice *TerminationNotice `json:"termination_notice,omitempty"`
 	ConfigHash        string             `json:"config_hash,omitempty"` // Runtime config hash
 }
 
-// ReportConfig provides the runtime config required to build metrics reports.
+// ReportConfig provides the runtime configuration required to build health reports.
 type ReportConfig struct {
-	InstanceID  string
-	RecvDir     string
-	IdentityDir string // Path to identity directory for reading config.hash
+	InstanceID       string
+	RecvDir          string
+	IdentityDir      string // Path to identity directory for reading config.hash
+	MetricsInterface string
 	// GetTerminationNotice returns the current spot termination notice, if any
 	GetTerminationNotice func() *TerminationNotice
 }
 
-// NewReport creates a new agent Report with averages from Collector metrics
-func NewReport(collector *Collector, count int, cfg ReportConfig) (Report, error) {
+// NewReport creates an agent health report from the supplied metrics.
+func NewReport(count int, cfg ReportConfig, metrics Metrics) (Report, error) {
 	var err error
 
 	// Validate required fields
@@ -67,23 +63,6 @@ func NewReport(collector *Collector, count int, cfg ReportConfig) (Report, error
 	hostInfo, err := host.Info()
 	if err != nil {
 		return Report{}, fmt.Errorf("failed to get uptime: %w", err)
-	}
-
-	// Get timing info
-	timing := collector.Timing()
-
-	// Calculate averages
-	oneMinute, err := collector.Averages(60)
-	if err != nil {
-		return Report{}, fmt.Errorf("failed to get one minute averages: %w", err)
-	}
-	fiveMinutes, err := collector.Averages(300)
-	if err != nil {
-		return Report{}, fmt.Errorf("failed to get five minute averages: %w", err)
-	}
-	fifteenMinutes, err := collector.Averages(900)
-	if err != nil {
-		return Report{}, fmt.Errorf("failed to get fifteen minute averages: %w", err)
 	}
 
 	// Read config hash
@@ -103,13 +82,8 @@ func NewReport(collector *Collector, count int, cfg ReportConfig) (Report, error
 		Version:           buildVersion,
 		Timestamp:         time.Now().UTC(),
 		Count:             count,
-		Started:           timing.Started,
-		WindowStart:       timing.WindowStart,
-		WindowEnd:         timing.WindowEnd,
 		Uptime:            hostInfo.Uptime,
-		OneMinute:         oneMinute,
-		FiveMinutes:       fiveMinutes,
-		FifteenMinutes:    fifteenMinutes,
+		Metrics:           metrics,
 		Files:             make(map[string]string),
 		TerminationNotice: cfg.GetTerminationNotice(),
 		ConfigHash:        configHash,
@@ -162,22 +136,9 @@ func NewReport(collector *Collector, count int, cfg ReportConfig) (Report, error
 	return report, nil
 }
 
-// ReportLoop collects metrics and invokes the publish callback on each interval.
+// ReportLoop builds and publishes a health report on each interval.
 func ReportLoop(ctx context.Context, logger *slog.Logger, reportInterval time.Duration, cfg ReportConfig, publish func(Report) error) {
 	count := 0
-
-	sampleInterval := time.Duration(1 * time.Second)
-
-	// Create a collector
-	collector, err := NewCollector(sampleInterval)
-	if err != nil {
-		logger.Error("failed to create metrics collector", "err", err)
-		return
-	}
-
-	// Set up ticker for sampling intervals
-	sampleTicker := time.NewTicker(sampleInterval)
-	defer sampleTicker.Stop()
 
 	// Set up ticker for reporting intervals
 	reportTicker := time.NewTicker(reportInterval)
@@ -186,25 +147,22 @@ func ReportLoop(ctx context.Context, logger *slog.Logger, reportInterval time.Du
 	// Start reporting
 	for {
 		select {
-		case <-sampleTicker.C:
-			if err := collector.Sample(); err != nil {
-				logger.Error("failed to sample metrics", "err", err)
-			}
 		case <-reportTicker.C:
 			count++
-			report, err := NewReport(collector, count, cfg)
+			metrics := collectMetrics(cfg.MetricsInterface)
+			report, err := NewReport(count, cfg, metrics)
 			if err != nil {
-				logger.Error("failed to generate metrics report", "err", err)
+				logger.Error("failed to generate health report", "err", err)
 				continue
 			}
 			if publish != nil {
 				logger.Debug("publishing health report", "count", count, "instance_id", cfg.InstanceID)
 				if err := publish(report); err != nil {
-					logger.Error("failed to publish metrics report", "err", err)
+					logger.Error("failed to publish health report", "err", err)
 				}
 			}
 		case <-ctx.Done():
-			logger.Info("metrics reporter shutting down due to context cancellation")
+			logger.Info("health reporter shutting down due to context cancellation")
 			return
 		}
 	}

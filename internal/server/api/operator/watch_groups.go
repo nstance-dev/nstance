@@ -46,7 +46,7 @@ func (s *Service) WatchGroups(req *emptypb.Empty, stream proto.OperatorService_W
 	}
 	for _, g := range groups {
 		event := &proto.GroupEvent{
-			Type:  proto.GroupEvent_UPSERT,
+			Type:  proto.GroupEvent_TYPE_UPSERT,
 			Group: g,
 		}
 		err := registeredStream.stream.Send(event)

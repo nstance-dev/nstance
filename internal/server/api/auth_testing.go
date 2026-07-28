@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/nstance-dev/nstance/pkg/nonce"
 )
 
 // GenerateTestJWT generates a JWT for testing purposes with default cluster/shard/tenant
@@ -19,7 +21,7 @@ func GenerateTestJWT(privateKey ed25519.PrivateKey, kind, subject string, expiry
 // GenerateTestJWTWithClaims generates a JWT for testing purposes with all claims
 func GenerateTestJWTWithClaims(privateKey ed25519.PrivateKey, kind, subject, clusterID, shard, group, tenant string, onDemand bool, expiry time.Duration) (string, error) {
 	now := time.Now().UTC()
-	claims := &RegistrationNonceClaims{
+	claims := nonce.Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   subject,
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
@@ -28,7 +30,6 @@ func GenerateTestJWTWithClaims(privateKey ed25519.PrivateKey, kind, subject, clu
 			Issuer:    "nstance-server-test",
 		},
 		Kind:      kind,
-		Sub:       subject,
 		ClusterID: clusterID,
 		Shard:     shard,
 		Group:     group,
@@ -36,6 +37,5 @@ func GenerateTestJWTWithClaims(privateKey ed25519.PrivateKey, kind, subject, clu
 		OnDemand:  onDemand,
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
-	return token.SignedString(privateKey)
+	return nonce.Sign(privateKey, claims)
 }

@@ -6,8 +6,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -200,6 +203,38 @@ func TestFileStorage(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestFileStoragePutIfMatchCreateIsAtomic verifies that concurrent creates have one winner.
+func TestFileStoragePutIfMatchCreateIsAtomic(t *testing.T) {
+	storage, err := NewFileStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const writers = 32
+	start := make(chan struct{})
+	var successes atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			err := storage.PutIfMatch(context.Background(), "claims/nonce", []byte("binding"), "")
+			if err == nil {
+				successes.Add(1)
+			} else if !errors.Is(err, ErrPrecondition) {
+				t.Errorf("PutIfMatch: %v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := successes.Load(); got != 1 {
+		t.Fatalf("successful creates = %d, want 1", got)
+	}
 }
 
 func TestNewFileStorageCreatesDirectory(t *testing.T) {
