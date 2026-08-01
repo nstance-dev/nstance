@@ -13,7 +13,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/identifiers"
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
-	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 )
 
 func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest) (*proto.GroupStatus, error) {
@@ -39,7 +39,7 @@ func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest
 	}
 
 	size := int(req.Config.Size)
-	groupConfig := serverconfig.GroupConfig{
+	groupConfig := config.GroupConfig{
 		Template:     req.Config.Template,
 		Size:         &size,
 		InstanceType: req.Config.InstanceType,
@@ -50,7 +50,7 @@ func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest
 	s.groupMutationMu.Lock()
 	defer s.groupMutationMu.Unlock()
 
-	if err := serverconfig.UpsertGroup(ctx, s.configLoader, tenant, req.Key, groupConfig); err != nil {
+	if err := config.UpsertGroup(ctx, s.configLoader, tenant, req.Key, groupConfig); err != nil {
 		s.logger.Error("Failed to upsert group", "client_id", clientInfo.ClientID, "tenant", tenant, "group", req.Key, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to upsert group: %v", err)
 	}
@@ -58,7 +58,7 @@ func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest
 	s.onGroupChanged(tenant, req.Key)
 
 	// Load the merged group to return actual values
-	mergedGroup, err := serverconfig.GetGroup(ctx, s.configLoader, tenant, req.Key)
+	mergedGroup, err := config.GetGroup(ctx, s.configLoader, tenant, req.Key)
 	if err != nil {
 		s.logger.Error("Failed to get merged group", "client_id", clientInfo.ClientID, "tenant", tenant, "group", req.Key, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to get merged group: %v", err)

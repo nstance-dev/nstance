@@ -5,6 +5,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // FileStorage implements Storage interface for local filesystem operations
@@ -25,6 +28,14 @@ func NewFileStorage(baseDir string) (*FileStorage, error) {
 	// Create base directory if it doesn't exist
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create base directory: %w", err)
+	}
+	baseDir, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to normalize base directory: %w", err)
+	}
+	baseDir, err = filepath.Abs(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to normalize base directory: %w", err)
 	}
 
 	return &FileStorage{
@@ -66,12 +77,7 @@ func (f *FileStorage) Put(ctx context.Context, key string, data []byte) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
-
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return nil
+	return publishFile(dir, filePath, bytes.NewReader(data))
 }
 
 // PutIfMatch stores data only if ETag matches (optimistic locking)
@@ -86,7 +92,13 @@ func (f *FileStorage) PutIfMatch(ctx context.Context, key string, data []byte, e
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
+	return f.withKeyLock(ctx, key, func() error {
+		return f.putIfMatchLocked(ctx, key, filePath, dir, data, etag)
+	})
+}
 
+// putIfMatchLocked performs a conditional replacement while the key lock is held.
+func (f *FileStorage) putIfMatchLocked(ctx context.Context, key, filePath, dir string, data []byte, etag string) error {
 	if etag == "" {
 		temp, err := os.CreateTemp(dir, ".nstance-create-")
 		if err != nil {
@@ -130,9 +142,30 @@ func (f *FileStorage) PutIfMatch(ctx context.Context, key string, data []byte, e
 		return ErrPrecondition
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+	// Publish through an atomic replacement while still holding the inter-process lock.
+	temp, err := os.CreateTemp(dir, ".nstance-update-")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	tempPath := temp.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := temp.Chmod(0644); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to set file permissions: %w", err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to write temporary file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to sync temporary file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary file: %w", err)
+	}
+	if err := os.Rename(tempPath, filePath); err != nil {
+		return fmt.Errorf("failed to publish file: %w", err)
 	}
 
 	return nil
@@ -151,7 +184,6 @@ func (f *FileStorage) Delete(ctx context.Context, key string) error {
 		}
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
-
 	return nil
 }
 
@@ -276,17 +308,65 @@ func (f *FileStorage) PutStream(ctx context.Context, key string, reader io.Reade
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	file, err := os.Create(filePath)
+	return publishFile(dir, filePath, reader)
+}
+
+// withKeyLock serializes conditional writes to a key across processes.
+func (f *FileStorage) withKeyLock(ctx context.Context, key string, mutate func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	lockPath := f.conditionalLockPath(key)
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0700); err != nil {
+		return fmt.Errorf("failed to create mutation lock directory: %w", err)
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return fmt.Errorf("failed to open mutation lock: %w", err)
 	}
-	defer func() { _ = file.Close() }()
-
-	if _, err := io.Copy(file, reader); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+	defer func() { _ = lock.Close() }()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		return fmt.Errorf("failed to lock mutation: %w", err)
 	}
+	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return mutate()
+}
 
+// publishFile atomically replaces a file with synced content from reader.
+func publishFile(dir, filePath string, reader io.Reader) error {
+	temp, err := os.CreateTemp(dir, ".nstance-put-")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	tempPath := temp.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := temp.Chmod(0644); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to set file permissions: %w", err)
+	}
+	if _, err := io.Copy(temp, reader); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to write temporary file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to sync temporary file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary file: %w", err)
+	}
+	if err := os.Rename(tempPath, filePath); err != nil {
+		return fmt.Errorf("failed to publish file: %w", err)
+	}
 	return nil
+}
+
+// conditionalLockPath returns the stable lock path for a storage key.
+func (f *FileStorage) conditionalLockPath(key string) string {
+	return filepath.Join(f.baseDir+".locks", fmt.Sprintf("%x.lock", md5.Sum([]byte(key))))
 }
 
 // validateKey ensures the key doesn't contain path traversal attempts

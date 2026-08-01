@@ -153,6 +153,18 @@ type DeregisterLBRequest struct {
 	Zone               string
 }
 
+// LBTargetState is the provider-observed lifecycle state of one logical target
+// across every listener in a load balancer configuration.
+type LBTargetState string
+
+const (
+	LBTargetRegistered   LBTargetState = "registered"
+	LBTargetPartial      LBTargetState = "partially_registered"
+	LBTargetHealthy      LBTargetState = "healthy"
+	LBTargetDraining     LBTargetState = "draining"
+	LBTargetDeregistered LBTargetState = "deregistered"
+)
+
 // ListLBInstancesRequest contains parameters for listing load balancer instances
 type ListLBInstancesRequest struct {
 	LBConfig LoadBalancerConfig

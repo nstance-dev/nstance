@@ -17,7 +17,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
-	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 )
 
 func (s *Service) ListGroups(ctx context.Context, req *emptypb.Empty) (*proto.ListGroupsResponse, error) {
@@ -48,24 +48,24 @@ func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
 		return nil, err
 	}
 
-	config := s.configLoader.GetCurrent()
-	if config == nil {
+	cfg := s.configLoader.GetCurrent()
+	if cfg == nil {
 		return nil, fmt.Errorf("no configuration loaded")
 	}
 
 	// Get static groups for this tenant
-	staticGroups := config.Groups[tenant]
+	staticGroups := cfg.Groups[tenant]
 
 	var groups []*proto.GroupStatus
 	for groupKey := range dbGroups {
-		var staticGroup serverconfig.GroupConfig
+		var staticGroup config.GroupConfig
 		var isStatic bool
 		if staticGroups != nil {
 			staticGroup, isStatic = staticGroups[groupKey]
 		}
 		dynamicGroup, hasDynamic := s.configLoader.GetDynamicGroup(tenant, groupKey)
 
-		var finalGroup serverconfig.GroupConfig
+		var finalGroup config.GroupConfig
 		if isStatic {
 			finalGroup = staticGroup
 			if hasDynamic {
@@ -99,7 +99,7 @@ func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
 }
 
 // buildGroupStatus constructs the operator-facing status for a tenant-scoped group.
-func (s *Service) buildGroupStatus(tenant, groupKey string, group serverconfig.GroupConfig, isStatic bool) *proto.GroupStatus {
+func (s *Service) buildGroupStatus(tenant, groupKey string, group config.GroupConfig, isStatic bool) *proto.GroupStatus {
 	status := &proto.GroupStatus{
 		Key:          groupKey,
 		Tenant:       tenant,

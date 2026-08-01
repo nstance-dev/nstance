@@ -30,29 +30,35 @@ func (c *Client) StreamFiles(ctx context.Context, rcvr *receiver.Receiver) error
 		return fmt.Errorf("failed to open file stream: %w", err)
 	}
 
+	files := make(map[string][]byte)
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if len(files) != 0 {
+					return fmt.Errorf("file stream ended during an incomplete patch")
+				}
 				return nil
 			}
 			return fmt.Errorf("file stream error: %w", err)
 		}
 
-		// Handle config hash update if present
-		if msg.GetConfigHash() != "" {
-			if err := rcvr.ReceiveConfigHash(msg.GetConfigHash()); err != nil {
-				return fmt.Errorf("failed to update config hash: %w", err)
+		if msg.GetConfigHash() == "" {
+			if msg.GetFilename() == "" {
+				return fmt.Errorf("malformed file patch: filename is required")
 			}
-		}
-
-		if msg.GetFilename() == "" || len(msg.GetContent()) == 0 {
+			if _, exists := files[msg.GetFilename()]; exists {
+				return fmt.Errorf("duplicate file %q in patch", msg.GetFilename())
+			}
+			files[msg.GetFilename()] = append([]byte(nil), msg.GetContent()...)
 			continue
 		}
-
-		err = rcvr.ReceiveFiles(map[string][]byte{msg.GetFilename(): msg.GetContent()})
-		if err != nil {
-			return fmt.Errorf("failed to write streamed file %q: %w", msg.GetFilename(), err)
+		if msg.GetFilename() != "" || len(msg.GetContent()) != 0 || msg.GetLastModified() != nil {
+			return fmt.Errorf("malformed file patch: commit message contains file content")
 		}
+		if err := rcvr.ReceiveFiles(files, msg.GetConfigHash()); err != nil {
+			return fmt.Errorf("failed to apply files: %w", err)
+		}
+		clear(files)
 	}
 }

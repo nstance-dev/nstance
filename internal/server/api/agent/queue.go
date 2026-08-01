@@ -5,80 +5,105 @@
 package agent
 
 import (
+	"context"
 	"time"
 )
 
-// QueueFile implements FileDelivery interface
-func (s *Service) QueueFile(instanceID, filename string, content []byte) {
+// requestFiles generates the requested file patch for an instance.
+// A nil filenames slice requests every configured file; an empty slice permits a hash-only patch.
+func (s *Service) requestFiles(instanceID, configHash string, filenames []string) {
 	s.pendingFilesMu.Lock()
-
-	file := &PendingFile{
-		Filename:     filename,
-		Content:      content,
-		LastModified: time.Now().UTC(),
+	// Health reports will retry; do not generate file contents without a receiver.
+	if s.pendingFilesNotify[instanceID] == nil {
+		s.pendingFilesMu.Unlock()
+		return
 	}
-
-	// Keep at most one pending delivery per filename for an instance.
-	files := s.pendingFiles[instanceID]
-	for i, pending := range files {
-		if pending.Filename == filename {
-			files[i] = file
-			s.pendingFiles[instanceID] = files
-			notify := s.pendingFilesNotify[instanceID]
+	if request := s.fileRequests[instanceID]; request != nil {
+		if request.ConfigHash == configHash {
 			s.pendingFilesMu.Unlock()
-
-			notifyStream(notify)
-
-			s.logger.Debug("Replaced pending file",
-				"instance_id", instanceID,
-				"filename", filename,
-				"size", len(content))
 			return
 		}
+		request.Cancel()
+		delete(s.fileRequests, instanceID)
 	}
-
-	s.pendingFiles[instanceID] = append(s.pendingFiles[instanceID], file)
-	notify := s.pendingFilesNotify[instanceID]
+	if pending := s.pendingFiles[instanceID]; pending != nil && pending.ConfigHash == configHash {
+		s.pendingFilesMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	request := &fileRequest{ConfigHash: configHash, Cancel: cancel}
+	s.fileRequests[instanceID] = request
 	s.pendingFilesMu.Unlock()
 
-	notifyStream(notify)
+	go func() {
+		defer cancel()
+		var generated map[string][]byte
+		runtimeHash := configHash
+		var err error
+		if filenames == nil || len(filenames) != 0 {
+			generated, runtimeHash, err = s.fileGenerator.GenerateFiles(ctx, instanceID, filenames)
+		}
 
-	s.logger.Debug("Queued pending file",
-		"instance_id", instanceID,
-		"filename", filename,
-		"size", len(content))
+		s.pendingFilesMu.Lock()
+		if s.fileRequests[instanceID] != request {
+			s.pendingFilesMu.Unlock()
+			return
+		}
+		delete(s.fileRequests, instanceID)
+		if err != nil {
+			s.pendingFilesMu.Unlock()
+			s.logger.Error("Failed to generate pending files", "instance_id", instanceID, "error", err)
+			return
+		}
+		if runtimeHash != configHash {
+			s.pendingFilesMu.Unlock()
+			s.logger.Debug("Discarded stale file patch", "instance_id", instanceID)
+			return
+		}
+		if runtimeHash == "" {
+			s.pendingFilesMu.Unlock()
+			return
+		}
+		notify := s.pendingFilesNotify[instanceID]
+		if notify == nil {
+			s.pendingFilesMu.Unlock()
+			return
+		}
+
+		now := time.Now().UTC()
+		files := make([]*PendingFile, 0, len(generated))
+		for filename, content := range generated {
+			files = append(files, &PendingFile{Filename: filename, Content: content, LastModified: now})
+		}
+		s.pendingFiles[instanceID] = &pendingFilePatch{
+			Files:      files,
+			ConfigHash: runtimeHash,
+		}
+		s.pendingFilesMu.Unlock()
+		notifyStream(notify)
+		s.logger.Debug("Generated pending file patch", "instance_id", instanceID, "updated", len(files))
+	}()
 }
 
-func (s *Service) getPendingFiles(instanceID string) []*PendingFile {
-	s.pendingFilesMu.RLock()
-	defer s.pendingFilesMu.RUnlock()
-
-	files := s.pendingFiles[instanceID]
-	if len(files) == 0 {
-		return nil
-	}
-
-	// Return a copy to avoid race conditions
-	result := make([]*PendingFile, len(files))
-	copy(result, files)
-	return result
-}
-
-func (s *Service) clearPendingFiles(instanceID string) {
+// ForgetInstance discards pending file work after an instance is permanently removed.
+func (s *Service) ForgetInstance(instanceID string) {
 	s.pendingFilesMu.Lock()
 	defer s.pendingFilesMu.Unlock()
-
 	delete(s.pendingFiles, instanceID)
-	s.logger.Debug("Cleared pending files", "instance_id", instanceID)
+	if request := s.fileRequests[instanceID]; request != nil {
+		request.Cancel()
+	}
+	delete(s.fileRequests, instanceID)
 }
 
 // registerPendingFilesStream records the wakeup channel for an instance's active file stream.
 func (s *Service) registerPendingFilesStream(instanceID string) chan struct{} {
 	s.pendingFilesMu.Lock()
-	defer s.pendingFilesMu.Unlock()
-
+	previous := s.pendingFilesNotify[instanceID]
 	ch := make(chan struct{}, 1)
 	s.pendingFilesNotify[instanceID] = ch
+	s.pendingFilesMu.Unlock()
+	notifyStream(previous)
 	return ch
 }
 
@@ -86,9 +111,13 @@ func (s *Service) registerPendingFilesStream(instanceID string) chan struct{} {
 func (s *Service) unregisterPendingFilesStream(instanceID string, ch chan struct{}) {
 	s.pendingFilesMu.Lock()
 	defer s.pendingFilesMu.Unlock()
-
 	if s.pendingFilesNotify[instanceID] == ch {
 		delete(s.pendingFilesNotify, instanceID)
+		delete(s.pendingFiles, instanceID)
+		if request := s.fileRequests[instanceID]; request != nil {
+			request.Cancel()
+		}
+		delete(s.fileRequests, instanceID)
 	}
 }
 

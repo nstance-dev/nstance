@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"time"
 )
 
 // GetGroup retrieves a group by tenant and key, merging static and dynamic configs.
@@ -121,6 +120,29 @@ func GetAllGroups(ctx context.Context, loader *Loader) ([]TenantGroup, error) {
 	return result, nil
 }
 
+// GetConfigAndGroup returns the current configuration and effective group read together.
+func GetConfigAndGroup(loader *Loader, tenant, key string) (*Config, *GroupConfig, error) {
+	if tenant == "" {
+		return nil, nil, fmt.Errorf("tenant is required")
+	}
+	loader.configMu.RLock()
+	defer loader.configMu.RUnlock()
+	loader.groupsMu.RLock()
+	defer loader.groupsMu.RUnlock()
+
+	if loader.config == nil {
+		return nil, nil, fmt.Errorf("configuration not loaded")
+	}
+	if loader.groups == nil {
+		return nil, nil, fmt.Errorf("dynamic groups not loaded")
+	}
+	group, exists := mergeGroups(loader.config.Groups[tenant], loader.groups[tenant])[key]
+	if !exists {
+		return nil, nil, fmt.Errorf("group not found for key '%s' in tenant '%s'", key, tenant)
+	}
+	return loader.config, &group, nil
+}
+
 // UpsertGroup creates or updates a group for a specific tenant.
 // - If group exists in static config: validates only size/instanceType/vars are changed
 // - If group exists in dynamic config: merges non-zero fields
@@ -175,14 +197,6 @@ func UpsertGroup(ctx context.Context, loader *Loader, tenant, key string, group 
 		return err
 	}
 
-	// Sync to cache with one retry for transient SQLite locks
-	if err := loader.SyncGroupsToCache(ctx); err != nil {
-		time.Sleep(100 * time.Millisecond)
-		if retryErr := loader.SyncGroupsToCache(ctx); retryErr != nil {
-			return fmt.Errorf("failed to sync groups to cache after retry: %w", retryErr)
-		}
-	}
-
 	return nil
 }
 
@@ -229,14 +243,6 @@ func DeleteGroup(ctx context.Context, loader *Loader, tenant, key string) error 
 
 	if err := loader.DeleteDynamicGroup(ctx, tenant, key); err != nil {
 		return err
-	}
-
-	// Sync to cache with one retry for transient SQLite locks
-	if err := loader.SyncGroupsToCache(ctx); err != nil {
-		time.Sleep(100 * time.Millisecond)
-		if retryErr := loader.SyncGroupsToCache(ctx); retryErr != nil {
-			return fmt.Errorf("failed to sync groups to cache after retry: %w", retryErr)
-		}
 	}
 
 	return nil

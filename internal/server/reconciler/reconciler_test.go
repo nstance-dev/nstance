@@ -109,6 +109,63 @@ func TestInitialReconcileScalesDownRemovedGroup(t *testing.T) {
 	}
 }
 
+// TestRestartDiscardsQueuedEventsFromPreviousLeadershipTerm verifies stale-term events are ignored.
+func TestRestartDiscardsQueuedEventsFromPreviousLeadershipTerm(t *testing.T) {
+	db, err := localdb.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	store := &MockStorage{}
+	loader, err := config.NewLoader(config.LoaderOptions{Storage: store, CacheStorage: store, LocalDB: db})
+	if err != nil {
+		t.Fatalf("create loader: %v", err)
+	}
+	desired := 1
+	loader.SetConfig(&config.Config{Groups: map[string]map[string]config.GroupConfig{
+		"red": {"workers": {Template: "worker", Size: &desired}},
+	}})
+	created := make(chan struct{}, 2)
+	r, err := New(Options{
+		InstanceManager: &MockInstanceManager{CreateInstanceFunc: func(context.Context, instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error) {
+			created <- struct{}{}
+			return &instances.CreateInstanceResponse{InstanceID: "created"}, nil
+		}},
+		ConfigLoader: loader,
+		LocalDB:      db,
+		Provider:     mock.NewProvider(mock.Options{}),
+		NotifyDrain:  func(string, string, string, time.Time, time.Time) {},
+		IsLeader:     func() bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create reconciler: %v", err)
+	}
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatalf("start first term: %v", err)
+	}
+	r.mu.RLock()
+	oldTerm := r.term
+	r.mu.RUnlock()
+	r.Stop()
+	r.queue <- queuedEvent{event: ReconcileEvent{Type: EventGroupChanged, Tenant: "red", GroupKey: "workers"}, term: oldTerm}
+	if err := r.Start(context.Background()); err != nil {
+		t.Fatalf("start second term: %v", err)
+	}
+	defer r.Stop()
+
+	select {
+	case <-created:
+		t.Fatal("old-term event created an instance after restart")
+	case <-time.After(50 * time.Millisecond):
+	}
+	r.Enqueue(ReconcileEvent{Type: EventGroupChanged, Tenant: "red", GroupKey: "workers"})
+	select {
+	case <-created:
+	case <-time.After(time.Second):
+		t.Fatal("current-term event was not processed")
+	}
+}
+
 func (m *MockStorage) Get(ctx context.Context, key string) ([]byte, string, error) {
 	if m.GetFunc != nil {
 		return m.GetFunc(ctx, key)

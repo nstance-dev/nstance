@@ -6,9 +6,44 @@ package secrets
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// countingStore records underlying Get calls.
+type countingStore struct {
+	Store
+	gets atomic.Int32
+}
+
+// blockingStore pauses Get calls until released by a test.
+type blockingStore struct {
+	Store
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+// Get reads a value and waits for the test to release it.
+func (s *blockingStore) Get(ctx context.Context, name string) ([]byte, error) {
+	value, err := s.Store.Get(ctx, name)
+	s.once.Do(func() { close(s.started) })
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.release:
+		return value, err
+	}
+}
+
+// Get records and delegates an underlying read.
+func (s *countingStore) Get(ctx context.Context, name string) ([]byte, error) {
+	s.gets.Add(1)
+	time.Sleep(20 * time.Millisecond)
+	return s.Store.Get(ctx, name)
+}
 
 func TestCachedStore_NoCache(t *testing.T) {
 	// Test that when TTL is 0, it passes through directly
@@ -165,5 +200,107 @@ func TestCachedStore_Set(t *testing.T) {
 	}
 	if string(result) != "value" {
 		t.Errorf("Expected 'value', got '%s'", string(result))
+	}
+}
+
+// TestCachedStoreCoalescesConcurrentMisses verifies one underlying read serves concurrent misses.
+func TestCachedStoreCoalescesConcurrentMisses(t *testing.T) {
+	ctx := context.Background()
+	underlying := NewMemoryStore()
+	if err := underlying.Set(ctx, "shared", []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	counting := &countingStore{Store: underlying}
+	cached := NewCachedStoreWithLimit(counting, time.Minute, 2)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, err := cached.Get(ctx, "shared")
+			if err != nil || string(value) != "value" {
+				t.Errorf("Get = %q, %v", value, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if counting.gets.Load() != 1 {
+		t.Fatalf("underlying gets = %d, want 1", counting.gets.Load())
+	}
+}
+
+// TestCachedStoreBoundsEntries verifies the configured cache size limit.
+func TestCachedStoreBoundsEntries(t *testing.T) {
+	ctx := context.Background()
+	underlying := NewMemoryStore()
+	for _, name := range []string{"one", "two", "three"} {
+		if err := underlying.Set(ctx, name, []byte(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cached := NewCachedStoreWithLimit(underlying, time.Minute, 2).(*Cached)
+	for _, name := range []string{"one", "two", "three"} {
+		if _, err := cached.Get(ctx, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cached.mu.RLock()
+	entries := len(cached.cache)
+	cached.mu.RUnlock()
+	if entries != 2 {
+		t.Fatalf("cache entries = %d, want 2", entries)
+	}
+}
+
+// TestCachedStoreDoesNotShareMutableContent verifies callers receive defensive copies.
+func TestCachedStoreDoesNotShareMutableContent(t *testing.T) {
+	ctx := context.Background()
+	underlying := NewMemoryStore()
+	if err := underlying.Set(ctx, "secret", []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	cached := NewCachedStore(underlying, time.Minute)
+	first, err := cached.Get(ctx, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[0] = 'X'
+	second, err := cached.Get(ctx, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(second) != "value" {
+		t.Fatalf("cached value = %q, want value", second)
+	}
+}
+
+// TestCachedStoreMissCannotResurrectValueAfterSet verifies stale reads cannot overwrite writes.
+func TestCachedStoreMissCannotResurrectValueAfterSet(t *testing.T) {
+	ctx := context.Background()
+	memory := NewMemoryStore()
+	if err := memory.Set(ctx, "secret", []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	blocking := &blockingStore{Store: memory, started: make(chan struct{}), release: make(chan struct{})}
+	cached := NewCachedStore(blocking, time.Minute).(*Cached)
+	done := make(chan error, 1)
+	go func() {
+		_, err := cached.Get(ctx, "secret")
+		done <- err
+	}()
+	<-blocking.started
+	if err := cached.Set(ctx, "secret", []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	close(blocking.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	value, err := cached.Get(ctx, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "new" {
+		t.Fatalf("value after concurrent Set = %q, want new", value)
 	}
 }

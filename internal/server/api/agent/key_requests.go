@@ -5,7 +5,6 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -110,20 +109,10 @@ func (s *Service) getRequiredKeysForInstance(instanceID string) ([]string, error
 		return nil, fmt.Errorf("failed to get instance record: %w", err)
 	}
 
-	// Get current configuration
-	currentConfig := s.configLoader.GetCurrent()
-	if currentConfig == nil {
-		return nil, fmt.Errorf("no current config available")
-	}
-
 	// Derive template from instance group (merge static + dynamic groups)
-	groups, err := config.GetGroups(context.Background(), s.configLoader, instance.Tenant)
+	currentConfig, groupConfig, err := config.GetConfigAndGroup(s.configLoader, instance.Tenant, instance.Group)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get groups: %w", err)
-	}
-	groupConfig, exists := groups[instance.Group]
-	if !exists {
-		return nil, fmt.Errorf("instance group not found: %s", instance.Group)
+		return nil, fmt.Errorf("failed to get config and group: %w", err)
 	}
 	templateName := groupConfig.Template
 

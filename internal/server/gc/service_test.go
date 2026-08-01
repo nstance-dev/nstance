@@ -19,6 +19,14 @@ import (
 	"github.com/puidv7/puidv7-go"
 )
 
+// testInstanceDeleter adapts a function to InstanceDeleter for tests.
+type testInstanceDeleter func(context.Context, string, string) error
+
+// DeleteInstance invokes the test deletion function.
+func (f testInstanceDeleter) DeleteInstance(ctx context.Context, tenant, instanceID string) error {
+	return f(ctx, tenant, instanceID)
+}
+
 func TestInstanceGarbageCollector(t *testing.T) {
 	// Create temporary database
 	tmpDB := "/tmp/test_gc.db"
@@ -54,7 +62,7 @@ func TestInstanceGarbageCollector(t *testing.T) {
 	mockStorage := storage.NewMock()
 
 	// Create GC service
-	gcService := NewInstanceGarbageCollector(db, mockProvider, mockStorage, nil, nil)
+	gcService := NewInstanceGarbageCollector(db, mockStorage, nil, testInstanceDeleter(func(context.Context, string, string) error { return nil }), nil)
 
 	// Test 1: Find dangling instances
 	t.Run("FindDanglingInstances", func(t *testing.T) {
@@ -196,20 +204,11 @@ func TestCleanupDeletedInstanceRecords(t *testing.T) {
 		_ = db.Close()
 	})
 
-	// Setup mock provider
-	mockProvider := mock.NewProvider(mock.Options{
-		Config: infra.ProviderConfig{
-			Kind:   "mock",
-			Region: "us-east-1",
-			Zone:   "us-east-1a",
-		},
-	})
-
 	// Setup mock storage
 	mockStorage := storage.NewMock()
 
 	// Create GC service
-	gcService := NewInstanceGarbageCollector(db, mockProvider, mockStorage, nil, nil)
+	gcService := NewInstanceGarbageCollector(db, mockStorage, nil, nil, nil)
 
 	ctx := context.Background()
 

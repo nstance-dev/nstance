@@ -48,13 +48,10 @@ func (r *Reconciler) replaceAndDrain(instanceID, tenant, groupKey, reason string
 
 	// Initiate drain and schedule deletion check
 	r.initiateInstanceDrain(instanceID, groupKey, reason, drainTimeout.Duration(), false)
-	time.AfterFunc(drainTimeout.Duration(), func() {
-		r.logger.Debug("Drain timeout expired, scheduling deletion check", "instance_id", instanceID)
-		r.Enqueue(ReconcileEvent{
-			Type:       EventCheckInstance,
-			InstanceID: instanceID,
-			Timestamp:  time.Now().UTC(),
-		})
+	r.scheduleEvent(drainTimeout.Duration(), ReconcileEvent{
+		Type:       EventCheckInstance,
+		InstanceID: instanceID,
+		Timestamp:  time.Now().UTC(),
 	})
 }
 

@@ -18,8 +18,6 @@ import (
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/infra"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
 )
 
 // SubmitHealthReport processes health reports from agents via persistent stream
@@ -109,27 +107,17 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 	// Convert proto file statuses to file processor format
 	fileStatuses := convertProtoFileStatuses(req.Files)
 
-	// Determine which files need to be generated
-	// Get configuration
-	cfg := s.configLoader.GetCurrent()
-	if cfg == nil {
-		return fmt.Errorf("no configuration available")
-	}
-
 	// Get instance information
 	instance, err := s.localDB.GetInstance(req.InstanceId)
 	if err != nil {
 		return fmt.Errorf("failed to get instance: %w", err)
 	}
 
-	// Derive template from instance group (merge static + dynamic groups)
-	groups, err := config.GetGroups(context.Background(), s.configLoader, instance.Tenant)
+	// Read the config and effective group together so the
+	// desired hash cannot combine values from either side of a concurrent reload.
+	cfg, groupConfig, err := config.GetConfigAndGroup(s.configLoader, instance.Tenant, instance.Group)
 	if err != nil {
-		return fmt.Errorf("failed to get groups: %w", err)
-	}
-	groupConfig, exists := groups[instance.Group]
-	if !exists {
-		return fmt.Errorf("instance group %s not found", instance.Group)
+		return fmt.Errorf("failed to get config and group: %w", err)
 	}
 	templateName := groupConfig.Template
 
@@ -138,6 +126,11 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 	if !exists {
 		return fmt.Errorf("template %s not found", templateName)
 	}
+	mergedConfig, err := cfg.GetMergedConfig(templateName, *groupConfig)
+	if err != nil {
+		return fmt.Errorf("failed to merge template and group config: %w", err)
+	}
+	runtimeHash := config.HashRuntimeConfig(*mergedConfig)
 
 	// Build list of files that are required (either missing, or have errors)
 	// Check both: files reported with errors AND files from template that weren't reported at all
@@ -148,45 +141,12 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 			filesRequired = append(filesRequired, filename)
 		}
 	}
-
-	// Do not regenerate files that are already queued for delivery.
-	if len(filesRequired) > 0 {
-		pendingFiles := s.getPendingFiles(req.InstanceId)
-		if len(pendingFiles) > 0 {
-			pendingByName := make(map[string]bool, len(pendingFiles))
-			for _, file := range pendingFiles {
-				pendingByName[file.Filename] = true
-			}
-
-			filteredFiles := filesRequired[:0]
-			for _, filename := range filesRequired {
-				if !pendingByName[filename] {
-					filteredFiles = append(filteredFiles, filename)
-				}
-			}
-			filesRequired = filteredFiles
-		}
-	}
-
-	// Process missing files asynchronously with proper context
-	if len(filesRequired) > 0 {
-		go func() {
-			// Use background context with timeout for async processing
-			processCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			generatedFiles, err := s.fileGenerator.GenerateFiles(processCtx, req.InstanceId, filesRequired)
-			if err != nil {
-				s.logger.Error("Failed to generate files",
-					"instance_id", req.InstanceId,
-					"error", err)
-			} else if len(generatedFiles) > 0 {
-				// Queue files for delivery
-				for filename, content := range generatedFiles {
-					s.QueueFile(req.InstanceId, filename, content)
-				}
-			}
-		}()
+	if req.ConfigHash != runtimeHash {
+		// The server cannot tell which rendered files changed, so regenerate all
+		// configured files when the runtime configuration hash changes.
+		s.requestFiles(req.InstanceId, runtimeHash, nil)
+	} else if len(filesRequired) > 0 {
+		s.requestFiles(req.InstanceId, runtimeHash, filesRequired)
 	}
 
 	// Check for missing keys and send additional key requests if needed
@@ -209,14 +169,13 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 		}()
 	}
 
-	// Handle load balancer group registration on first successful health report
-	if len(cfg.LoadBalancers) > 0 {
+	if s.onHealthReport != nil {
 		go func() {
-			lbCtx, lbCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer lbCancel()
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 
-			if err := s.handleLBRegistration(lbCtx, req.InstanceId); err != nil {
-				s.logger.Error("Failed to handle load balancer registration",
+			if err := s.onHealthReport(ctx, req.InstanceId); err != nil {
+				s.logger.Error("Failed to handle health report callback",
 					"instance_id", req.InstanceId,
 					"error", err)
 			}
@@ -305,230 +264,6 @@ func convertFileStatusMap(protoFiles map[string]*proto.FileStatus) map[string]in
 	return files
 }
 
-// handleLBRegistration handles load balancer registration for an instance on health report
-func (s *Service) handleLBRegistration(ctx context.Context, instanceID string) error {
-	// Get instance from database
-	instance, err := s.localDB.GetInstance(instanceID)
-	if err != nil {
-		return fmt.Errorf("getting instance: %w", err)
-	}
-	if instance == nil {
-		return fmt.Errorf("instance not found: %s", instanceID)
-	}
-
-	// Get current configuration
-	cfg := s.configLoader.GetCurrent()
-
-	// Get group configuration for this tenant
-	tenantGroups := cfg.Groups[instance.Tenant]
-	if tenantGroups == nil {
-		s.logger.Debug("No tenant configuration for instance",
-			"instance_id", instanceID,
-			"tenant", instance.Tenant)
-		return nil
-	}
-	groupConfig, exists := tenantGroups[instance.Group]
-	if !exists {
-		s.logger.Debug("No group configuration for instance",
-			"instance_id", instanceID,
-			"tenant", instance.Tenant,
-			"group", instance.Group)
-		return nil
-	}
-
-	// Register with load balancers if configured
-	if len(groupConfig.LoadBalancers) > 0 {
-		if err := s.registerInstanceWithLB(ctx, instance, groupConfig, cfg); err != nil {
-			return fmt.Errorf("registering instance with LB: %w", err)
-		}
-	}
-
-	// Reconcile any pending/failed registrations
-	if len(cfg.LoadBalancers) > 0 {
-		if err := s.reconcilePendingLBRegistrations(ctx, cfg); err != nil {
-			s.logger.Warn("Failed to reconcile pending LB group registrations",
-				"instance_id", instanceID,
-				"error", err)
-			// Don't return error - this is best-effort
-		}
-	}
-
-	return nil
-}
-
-// registerInstanceWithLB registers an instance with all configured load balancers for its group
-func (s *Service) registerInstanceWithLB(ctx context.Context, instance *localdb.Instance, groupConfig config.GroupConfig, cfg *config.Config) error {
-	if len(groupConfig.LoadBalancers) == 0 {
-		return nil
-	}
-
-	if instance.ProviderID == nil {
-		return fmt.Errorf("instance has no provider ID")
-	}
-
-	s.logger.Info("Registering instance with load balancers",
-		"instance_id", instance.ID,
-		"provider_instance_id", *instance.ProviderID,
-		"group", instance.Group,
-		"load_balancers", len(groupConfig.LoadBalancers))
-
-	for _, lbKey := range groupConfig.LoadBalancers {
-		lbConfig, exists := cfg.LoadBalancers[lbKey]
-		if !exists {
-			s.logger.Error("Load balancer not found in config",
-				"instance_id", instance.ID,
-				"lb_key", lbKey)
-			continue
-		}
-		if lbConfig.Provider == "tunnel" {
-			continue
-		}
-
-		existing, err := s.localDB.GetLBInstance(lbKey, instance.ID)
-		if err != nil {
-			s.logger.Error("Failed to check existing LB registration",
-				"instance_id", instance.ID,
-				"lb_key", lbKey,
-				"error", err)
-			continue
-		}
-
-		if existing != nil && existing.Status == localdb.LBStatusRegistered {
-			s.logger.Debug("Instance already registered with LB",
-				"instance_id", instance.ID,
-				"lb_key", lbKey)
-			continue
-		}
-
-		if err := s.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusPending); err != nil {
-			s.logger.Error("Failed to create pending LB registration",
-				"instance_id", instance.ID,
-				"lb_key", lbKey,
-				"error", err)
-			continue
-		}
-
-		req := infra.RegisterLBRequest{
-			ProviderInstanceID: *instance.ProviderID,
-			LBConfig:           infra.LoadBalancerConfigForProvider(lbConfig),
-			Zone:               cfg.Shard.Infra.Zone,
-		}
-
-		if err := s.provider.RegisterWithLB(ctx, req); err != nil {
-			s.logger.Error("Failed to register instance with load balancer",
-				"instance_id", instance.ID,
-				"provider_instance_id", *instance.ProviderID,
-				"lb_key", lbKey,
-				"error", err)
-
-			if err := s.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusFailed); err != nil {
-				s.logger.Error("Failed to update LB registration status to failed",
-					"instance_id", instance.ID,
-					"lb_key", lbKey,
-					"error", err)
-			}
-			continue
-		}
-
-		if err := s.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusRegistered); err != nil {
-			s.logger.Error("Failed to update LB registration status to registered",
-				"instance_id", instance.ID,
-				"lb_key", lbKey,
-				"error", err)
-		} else {
-			s.logger.Info("Successfully registered instance with load balancer",
-				"instance_id", instance.ID,
-				"provider_instance_id", *instance.ProviderID,
-				"lb_key", lbKey)
-		}
-	}
-
-	return nil
-}
-
-// reconcilePendingLBRegistrations retries any pending or failed LB registrations
-func (s *Service) reconcilePendingLBRegistrations(ctx context.Context, cfg *config.Config) error {
-	pendingLBs, err := s.localDB.GetPendingOrFailedLBInstances()
-	if err != nil {
-		return fmt.Errorf("getting pending/failed LB instances: %w", err)
-	}
-
-	if len(pendingLBs) == 0 {
-		return nil
-	}
-
-	s.logger.Info("Reconciling pending/failed load balancer registrations",
-		"count", len(pendingLBs))
-
-	for _, lbInstance := range pendingLBs {
-		instance, err := s.localDB.GetInstance(lbInstance.InstanceID)
-		if err != nil {
-			s.logger.Error("Failed to get instance for LB reconciliation",
-				"instance_id", lbInstance.InstanceID,
-				"error", err)
-			continue
-		}
-
-		if instance == nil || instance.ProviderID == nil {
-			s.logger.Warn("Instance not found or has no provider ID, skipping LB reconciliation",
-				"instance_id", lbInstance.InstanceID)
-			continue
-		}
-
-		lbConfig, exists := cfg.LoadBalancers[lbInstance.LBKey]
-		if !exists {
-			s.logger.Warn("Load balancer not found in config",
-				"instance_id", lbInstance.InstanceID,
-				"lb_key", lbInstance.LBKey)
-			continue
-		}
-		if lbConfig.Provider == "tunnel" {
-			continue
-		}
-
-		s.logger.Info("Retrying load balancer registration",
-			"instance_id", instance.ID,
-			"provider_instance_id", *instance.ProviderID,
-			"lb_key", lbInstance.LBKey)
-
-		req := infra.RegisterLBRequest{
-			ProviderInstanceID: *instance.ProviderID,
-			LBConfig:           infra.LoadBalancerConfigForProvider(lbConfig),
-			Zone:               cfg.Shard.Infra.Zone,
-		}
-
-		if err := s.provider.RegisterWithLB(ctx, req); err != nil {
-			s.logger.Error("Failed to register instance with load balancer (retry)",
-				"instance_id", instance.ID,
-				"provider_instance_id", *instance.ProviderID,
-				"lb_key", lbInstance.LBKey,
-				"error", err)
-
-			if err := s.localDB.UpsertLBInstance(lbInstance.LBKey, instance.ID, localdb.LBStatusFailed); err != nil {
-				s.logger.Error("Failed to update LB registration status to failed",
-					"instance_id", instance.ID,
-					"lb_key", lbInstance.LBKey,
-					"error", err)
-			}
-			continue
-		}
-
-		if err := s.localDB.UpsertLBInstance(lbInstance.LBKey, instance.ID, localdb.LBStatusRegistered); err != nil {
-			s.logger.Error("Failed to update LB registration status to registered",
-				"instance_id", instance.ID,
-				"lb_key", lbInstance.LBKey,
-				"error", err)
-		} else {
-			s.logger.Info("Successfully registered instance with load balancer (retry)",
-				"instance_id", instance.ID,
-				"provider_instance_id", *instance.ProviderID,
-				"lb_key", lbInstance.LBKey)
-		}
-	}
-
-	return nil
-}
-
 // handleConfigDrift checks for config drift and triggers appropriate actions
 func (s *Service) handleConfigDrift(_ context.Context, instanceID, reportedConfigHash string) error {
 	// Get instance from database
@@ -541,7 +276,7 @@ func (s *Service) handleConfigDrift(_ context.Context, instanceID, reportedConfi
 	}
 
 	// Get group hashes
-	group, err := s.localDB.GetGroup(instance.Tenant, instance.Group)
+	group, err := s.configLoader.GetCachedGroup(instance.Tenant, instance.Group)
 	if err != nil {
 		return fmt.Errorf("failed to get group hashes: %w", err)
 	}
@@ -559,15 +294,6 @@ func (s *Service) handleConfigDrift(_ context.Context, instanceID, reportedConfi
 			"current_hash", *group.RuntimeConfigHash,
 			"reported_hash", reportedConfigHash)
 
-		// Regenerate all files (hash will be sent automatically when files stream)
-		generatedFiles, err := s.fileGenerator.GenerateFiles(context.Background(), instanceID, nil)
-		if err != nil {
-			s.logger.Error("Failed to generate files for drift update", "instance_id", instanceID, "error", err)
-		} else if len(generatedFiles) > 0 {
-			for filename, content := range generatedFiles {
-				s.QueueFile(instanceID, filename, content)
-			}
-		}
 	}
 
 	// Check infra config drift (only if not already draining)

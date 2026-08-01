@@ -199,15 +199,13 @@ func (r *Reconciler) scheduleDisconnectFollowUp(event ReconcileEvent, instance *
 		"attempt", event.Attempt+1,
 		"delay", delay)
 
-	time.AfterFunc(delay, func() {
-		r.Enqueue(ReconcileEvent{
-			Type:             EventCheckInstance,
-			InstanceID:       instanceID,
-			Timestamp:        event.Timestamp,
-			PreventDuplicate: false,
-			Cause:            "disconnect",
-			Attempt:          event.Attempt + 1,
-		})
+	r.scheduleEvent(delay, ReconcileEvent{
+		Type:             EventCheckInstance,
+		InstanceID:       instanceID,
+		Timestamp:        event.Timestamp,
+		PreventDuplicate: false,
+		Cause:            "disconnect",
+		Attempt:          event.Attempt + 1,
 	})
 }
 

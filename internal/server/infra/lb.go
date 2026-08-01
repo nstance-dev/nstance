@@ -92,7 +92,19 @@ func ValidateLoadBalancers(ctx context.Context, cfg *config.Config, localDB *loc
 			}
 
 			if instance != nil {
-				if err := localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusRegistered); err != nil {
+				state, stateErr := provider.GetLBTargetState(ctx, RegisterLBRequest{
+					ProviderInstanceID: providerInstanceID,
+					LBConfig:           req.LBConfig,
+					Zone:               req.Zone,
+				})
+				if stateErr != nil {
+					return fmt.Errorf("checking load balancer %s target %s: %w", lbKey, providerInstanceID, stateErr)
+				}
+				status := localdb.LBStatusPending
+				if state == LBTargetHealthy {
+					status = localdb.LBStatusRegistered
+				}
+				if err := localDB.UpsertLBInstance(lbKey, instance.ID, status); err != nil {
 					logger.Error("Failed to warm cache for lb_instance",
 						"instance_id", instance.ID,
 						"lb_key", lbKey,

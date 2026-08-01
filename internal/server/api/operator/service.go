@@ -18,7 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/nstance-dev/nstance/internal/proto"
-	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/instances"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/storage"
@@ -49,7 +49,9 @@ type instancesStream struct {
 type Service struct {
 	proto.UnimplementedOperatorServiceServer
 
-	configLoader    *serverconfig.Loader
+	configLoader    *config.Loader
+	tenantState     TenantState
+	sleepReady      bool
 	localDB         *localdb.DB
 	instanceManager InstanceManager
 	onGroupChanged  func(tenant, groupKey string)
@@ -62,8 +64,10 @@ type Service struct {
 	caKeyPEM        []byte
 	isClusterLeader func() bool
 
+	// Dynamic group mutation serialization
+	groupMutationMu sync.Mutex
+
 	// Operator stream tracking
-	groupMutationMu  sync.Mutex
 	streamMu         sync.Mutex
 	groupsStreams    map[string]*groupsStream
 	instancesStreams map[string]*instancesStream
@@ -76,6 +80,12 @@ type InstanceManager interface {
 	DeleteInstance(ctx context.Context, tenant, instanceID string) error
 	GetInstanceStatus(ctx context.Context, tenant, instanceID string) (*instances.InstanceStatus, error)
 	ValidateInstanceTenant(tenant, instanceID string) error
+}
+
+// TenantState persists shard-local sleep transitions.
+type TenantState interface {
+	Sleep(ctx context.Context, tenant string, wakeAt *time.Time) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error)
+	Wake(ctx context.Context, tenant string) (alreadyAwake bool, err error)
 }
 
 // ptrToString converts a string pointer to string (empty if nil)
@@ -99,7 +109,9 @@ func tenantInstanceError(err error) error {
 
 // Options contains options for creating an OperatorService
 type Options struct {
-	ConfigLoader    *serverconfig.Loader
+	ConfigLoader    *config.Loader
+	TenantState     TenantState
+	SleepReady      bool
 	LocalDB         *localdb.DB
 	InstanceManager InstanceManager
 	OnGroupChanged  func(tenant, groupKey string)
@@ -136,6 +148,8 @@ func New(opts Options) (*Service, error) {
 
 	return &Service{
 		configLoader:    opts.ConfigLoader,
+		tenantState:     opts.TenantState,
+		sleepReady:      opts.SleepReady,
 		localDB:         opts.LocalDB,
 		instanceManager: opts.InstanceManager,
 		onGroupChanged:  opts.OnGroupChanged,

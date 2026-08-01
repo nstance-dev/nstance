@@ -10,7 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
-	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
@@ -28,9 +28,10 @@ func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRe
 	for _, targetGroup := range req.LBConfig.TargetGroups {
 		input := &elasticloadbalancingv2.RegisterTargetsInput{
 			TargetGroupArn: aws.String(targetGroup.ARN),
-			Targets: []elbv2types.TargetDescription{
+			Targets: []types.TargetDescription{
 				{
-					Id: aws.String(req.ProviderInstanceID),
+					Id:   aws.String(req.ProviderInstanceID),
+					Port: aws.Int32(int32(targetGroup.TargetPort)),
 				},
 			},
 		}
@@ -70,9 +71,10 @@ func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.Deregister
 	for _, targetGroup := range req.LBConfig.TargetGroups {
 		input := &elasticloadbalancingv2.DeregisterTargetsInput{
 			TargetGroupArn: aws.String(targetGroup.ARN),
-			Targets: []elbv2types.TargetDescription{
+			Targets: []types.TargetDescription{
 				{
-					Id: aws.String(req.ProviderInstanceID),
+					Id:   aws.String(req.ProviderInstanceID),
+					Port: aws.Int32(int32(targetGroup.TargetPort)),
 				},
 			},
 		}
@@ -103,40 +105,91 @@ func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.Deregister
 	return nil
 }
 
-// ListLBInstances lists all instances currently registered with the first AWS NLB target group
-// (all target groups for the same LB should have the same instances)
+// GetLBTargetState returns the aggregate lifecycle state across every target group.
+func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLBRequest) (provider.LBTargetState, error) {
+	if len(req.LBConfig.TargetGroups) == 0 {
+		return "", fmt.Errorf("at least one target group ARN is required for target state")
+	}
+	healthy := 0
+	registered := 0
+	for _, targetGroup := range req.LBConfig.TargetGroups {
+		result, err := p.elbv2Client.DescribeTargetHealth(ctx, &elasticloadbalancingv2.DescribeTargetHealthInput{
+			TargetGroupArn: aws.String(targetGroup.ARN),
+			Targets: []types.TargetDescription{{
+				Id:   aws.String(req.ProviderInstanceID),
+				Port: aws.Int32(int32(targetGroup.TargetPort)),
+			}},
+		})
+		if err != nil {
+			return "", fmt.Errorf("describing target health for %s: %w", targetGroup.ARN, err)
+		}
+		if len(result.TargetHealthDescriptions) == 0 {
+			continue
+		}
+		state := result.TargetHealthDescriptions[0].TargetHealth
+		if state == nil {
+			continue
+		}
+		if state.Reason == types.TargetHealthReasonEnumNotRegistered {
+			continue
+		}
+		registered++
+		switch state.State {
+		case types.TargetHealthStateEnumDraining:
+			return provider.LBTargetDraining, nil
+		case types.TargetHealthStateEnumHealthy:
+			healthy++
+		}
+	}
+	if registered == 0 {
+		return provider.LBTargetDeregistered, nil
+	}
+	if registered < len(req.LBConfig.TargetGroups) {
+		return provider.LBTargetPartial, nil
+	}
+	if healthy == len(req.LBConfig.TargetGroups) {
+		return provider.LBTargetHealthy, nil
+	}
+	return provider.LBTargetRegistered, nil
+}
+
+// ListLBInstances lists the union of instances registered with any AWS NLB target group.
 func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInstancesRequest) ([]string, error) {
 	if len(req.LBConfig.TargetGroups) == 0 {
 		return nil, fmt.Errorf("at least one target group ARN is required for listing AWS target group instances")
 	}
 
-	// Use the first target group to list instances (all should have same membership)
-	tgArn := req.LBConfig.TargetGroups[0].ARN
+	instanceIDs := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, targetGroup := range req.LBConfig.TargetGroups {
+		p.logger.Debug("Listing instances in AWS target group",
+			"target_group_arn", targetGroup.ARN)
 
-	p.logger.Debug("Listing instances in AWS target group",
-		"target_group_arn", tgArn)
+		result, err := p.elbv2Client.DescribeTargetHealth(ctx, &elasticloadbalancingv2.DescribeTargetHealthInput{
+			TargetGroupArn: aws.String(targetGroup.ARN),
+		})
+		if err != nil {
+			p.logger.Error("Failed to list target group instances",
+				"target_group_arn", targetGroup.ARN,
+				"error", err)
+			return nil, fmt.Errorf("listing target group %s instances: %w", targetGroup.ARN, err)
+		}
 
-	input := &elasticloadbalancingv2.DescribeTargetHealthInput{
-		TargetGroupArn: aws.String(tgArn),
-	}
-
-	result, err := p.elbv2Client.DescribeTargetHealth(ctx, input)
-	if err != nil {
-		p.logger.Error("Failed to list target group instances",
-			"target_group_arn", tgArn,
-			"error", err)
-		return nil, fmt.Errorf("listing target group instances: %w", err)
-	}
-
-	var instanceIDs []string
-	for _, targetHealth := range result.TargetHealthDescriptions {
-		if targetHealth.Target != nil && targetHealth.Target.Id != nil {
-			instanceIDs = append(instanceIDs, *targetHealth.Target.Id)
+		for _, targetHealth := range result.TargetHealthDescriptions {
+			if targetHealth.Target == nil || targetHealth.Target.Id == nil {
+				continue
+			}
+			instanceID := *targetHealth.Target.Id
+			if _, exists := seen[instanceID]; exists {
+				continue
+			}
+			seen[instanceID] = struct{}{}
+			instanceIDs = append(instanceIDs, instanceID)
 		}
 	}
 
-	p.logger.Debug("Listed instances in target group",
-		"target_group_arn", tgArn,
+	p.logger.Debug("Listed instances in AWS target groups",
+		"target_group_count", len(req.LBConfig.TargetGroups),
 		"count", len(instanceIDs))
 
 	return instanceIDs, nil

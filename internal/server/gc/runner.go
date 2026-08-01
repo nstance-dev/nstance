@@ -115,8 +115,3 @@ func (r *Runner) Stop() {
 	}
 	r.wg.Wait()
 }
-
-// SetIsLeaderFunc updates the function used to check leadership
-func (r *Runner) SetIsLeaderFunc(isLeader func() bool) {
-	r.isLeader = isLeader
-}

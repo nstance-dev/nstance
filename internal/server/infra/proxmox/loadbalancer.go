@@ -19,6 +19,11 @@ func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.Deregister
 	return fmt.Errorf("DeregisterFromLB not implemented for Proxmox")
 }
 
+// GetLBTargetState reports that Proxmox load-balancer state inspection is unsupported.
+func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLBRequest) (provider.LBTargetState, error) {
+	return "", fmt.Errorf("GetLBTargetState not implemented for Proxmox")
+}
+
 func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInstancesRequest) ([]string, error) {
 	return nil, fmt.Errorf("ListLBInstances not implemented for Proxmox")
 }

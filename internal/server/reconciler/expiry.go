@@ -211,6 +211,10 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 
 	r.expiryTimerMu.Lock()
 	defer r.expiryTimerMu.Unlock()
+	r.mu.RLock()
+	term := r.term
+	termCtx := r.ctx
+	r.mu.RUnlock()
 
 	identity := groupIdentity{tenant: tenant, group: groupKey}
 	if existing, ok := r.expiryTimers[identity]; ok {
@@ -225,11 +229,16 @@ func (r *Reconciler) scheduleGroupExpiry(tenant, groupKey string) {
 
 	r.expiryTimers[identity] = time.AfterFunc(nextExpiry, func() {
 		r.logger.Info("Expiry timer fired", "tenant", tenant, "group", groupKey)
-		r.Enqueue(ReconcileEvent{
+		select {
+		case r.queue <- queuedEvent{event: ReconcileEvent{
 			Type:     EventGroupChanged,
 			Tenant:   tenant,
 			GroupKey: groupKey,
-		})
+		}, term: term}:
+		case <-termCtx.Done():
+		default:
+			r.logger.Warn("Reconciliation queue full, dropping group expiry event", "tenant", tenant, "group", groupKey)
+		}
 	})
 }
 

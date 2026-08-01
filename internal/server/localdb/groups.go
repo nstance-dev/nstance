@@ -21,6 +21,14 @@ type Group struct {
 	UpdatedAt         *time.Time
 }
 
+// GroupHashes contains one effective group's computed configuration hashes.
+type GroupHashes struct {
+	Tenant      string
+	GroupKey    string
+	RuntimeHash string
+	InfraHash   string
+}
+
 // UpsertGroup inserts or updates a group's config hashes
 func (db *DB) UpsertGroup(tenant, groupKey, runtimeHash, infraHash string) error {
 	if tenant == "" {
@@ -40,6 +48,45 @@ func (db *DB) UpsertGroup(tenant, groupKey, runtimeHash, infraHash string) error
 	_, err := db.conn.Exec(query, tenant, groupKey, runtimeHash, infraHash, now, now, now)
 	if err != nil {
 		return fmt.Errorf("upserting group %s (tenant %s): %w", groupKey, tenant, err)
+	}
+	return nil
+}
+
+// ReplaceGroupHashes replaces all stored group hashes in one transaction.
+func (db *DB) ReplaceGroupHashes(groups []GroupHashes) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning group hash transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM groups`); err != nil {
+		return fmt.Errorf("clearing previous group hashes: %w", err)
+	}
+	query := `
+		INSERT INTO groups (tenant, group_key, runtime_config_hash, infra_config_hash, hashes_updated_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tenant, group_key) DO UPDATE SET
+			runtime_config_hash = excluded.runtime_config_hash,
+			infra_config_hash = excluded.infra_config_hash,
+			hashes_updated_at = excluded.hashes_updated_at,
+			updated_at = ?
+	`
+	statement, err := tx.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("preparing group hash transaction: %w", err)
+	}
+	defer func() { _ = statement.Close() }()
+	now := time.Now().UTC()
+	for _, group := range groups {
+		if group.Tenant == "" {
+			return fmt.Errorf("tenant is required")
+		}
+		if _, err := statement.Exec(group.Tenant, group.GroupKey, group.RuntimeHash, group.InfraHash, now, now, now); err != nil {
+			return fmt.Errorf("upserting group %s (tenant %s): %w", group.GroupKey, group.Tenant, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing group hash transaction: %w", err)
 	}
 	return nil
 }

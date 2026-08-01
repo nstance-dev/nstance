@@ -142,37 +142,46 @@ func (l *Loader) LoadConfigAndGroups(ctx context.Context, forceRefresh bool) (*C
 	if err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
-
-	// Update in-memory state
-	l.config = config
-	l.configMeta = &ConfigMetadata{
-		ETag: etag,
-		Size: int64(len(configData)),
-	}
-
-	l.logger.Info("Loaded configuration", "size", len(configData))
-
-	// Load dynamic groups (uses its own lock, so release ours)
-	l.configMu.Unlock()
-	_, err = l.LoadDynamicGroups(ctx)
-	l.configMu.Lock()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load dynamic groups: %w", err)
-	}
-
-	// Sync all groups to SQLite
-	l.configMu.Unlock()
-	err = l.SyncGroupsToCache(ctx)
-	l.configMu.Lock()
-	if err != nil {
-		return nil, fmt.Errorf("failed to sync groups to cache: %w", err)
-	}
-
-	// Apply advertise host override or auto-detect empty/wildcard hosts
 	if err := autoDetectAdvertiseHosts(config, l.logger, l.advertiseHost); err != nil {
 		return nil, err
 	}
 
+	// Load groups and compute their hashes before replacing the current config and
+	// groups, so readers continue to see the previous consistent state on error.
+	l.groupsMu.Lock()
+	defer l.groupsMu.Unlock()
+	var dynamicGroups map[string]map[string]GroupConfig
+	if forceRefresh {
+		dynamicGroups, _, err = l.loadDynamicGroupsFromStorage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load dynamic groups: %w", err)
+		}
+	} else {
+		dynamicGroups = l.groups
+	}
+	if dynamicGroups == nil {
+		if cached, ok := l.loadGroupsFromCache(ctx, groupsCacheKey); ok {
+			dynamicGroups = cached
+		} else {
+			dynamicGroups, _, err = l.loadDynamicGroupsFromStorage(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load dynamic groups: %w", err)
+			}
+		}
+	}
+	candidateHashes, err := l.computeGroupHashes(config, dynamicGroups)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute group hashes: %w", err)
+	}
+	if err := l.localDB.ReplaceGroupHashes(candidateHashes); err != nil {
+		return nil, fmt.Errorf("failed to sync groups to cache: %w", err)
+	}
+
+	// Replace the in-memory config and groups only after their hashes are stored.
+	l.groups = dynamicGroups
+	l.config = config
+	l.configMeta = &ConfigMetadata{ETag: etag, Size: int64(len(configData))}
+	l.logger.Info("Loaded configuration", "size", len(configData))
 	return config, nil
 }
 
@@ -188,6 +197,14 @@ func (l *Loader) GetMetadata() *ConfigMetadata {
 	l.configMu.RLock()
 	defer l.configMu.RUnlock()
 	return l.configMeta
+}
+
+// GetCachedGroup returns stored hashes while preventing a concurrent config or
+// dynamic-group update.
+func (l *Loader) GetCachedGroup(tenant, group string) (*localdb.Group, error) {
+	l.configMu.RLock()
+	defer l.configMu.RUnlock()
+	return l.localDB.GetGroup(tenant, group)
 }
 
 // SetConfig directly sets the configuration (for testing only)
@@ -265,23 +282,6 @@ func (l *Loader) CleanCache(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// RefreshGroups forces a refresh of the dynamic groups from storage
-func (l *Loader) RefreshGroups(ctx context.Context) error {
-	// Clear disk cache to force reload from storage
-	if err := l.cacheStorage.Delete(ctx, groupsCacheKey); err != nil {
-		l.logger.Warn("Failed to clear groups disk cache", "error", err)
-	}
-
-	// Invalidate in-memory cache
-	l.groupsMu.Lock()
-	l.groups = nil
-	l.groupsMu.Unlock()
-
-	// Now call LoadDynamicGroups which will reload from storage
-	_, err := l.LoadDynamicGroups(ctx)
-	return err
 }
 
 // GetDynamicGroup returns a dynamic group from the in-memory cache for a specific tenant
@@ -381,12 +381,14 @@ func (l *Loader) SetDynamicGroup(ctx context.Context, tenant, key string, group 
 }
 
 // UpdateDynamicGroup atomically reloads, merges, and persists one dynamic group.
-// The update callback runs while groupsMu is held and must not call Loader methods.
+// The update callback runs while configMu and groupsMu are held and must not call Loader methods.
 func (l *Loader) UpdateDynamicGroup(
 	ctx context.Context,
 	tenant, key string,
 	update func(existing GroupConfig, exists bool) (GroupConfig, error),
 ) error {
+	l.configMu.Lock()
+	defer l.configMu.Unlock()
 	l.groupsMu.Lock()
 	defer l.groupsMu.Unlock()
 
@@ -394,8 +396,6 @@ func (l *Loader) UpdateDynamicGroup(
 	if err != nil {
 		return err
 	}
-	l.groups = groups
-
 	existing, exists := groups[tenant][key]
 	group, err := update(cloneGroupConfig(existing), exists)
 	if err != nil {
@@ -407,11 +407,13 @@ func (l *Loader) UpdateDynamicGroup(
 		candidate[tenant] = make(map[string]GroupConfig)
 	}
 	candidate[tenant][key] = group
-	return l.saveDynamicGroupsLocked(ctx, candidate, etag)
+	return l.saveDynamicGroupsLocked(ctx, candidate, etag, l.config)
 }
 
 // DeleteDynamicGroup atomically removes a dynamic group and persists to S3.
 func (l *Loader) DeleteDynamicGroup(ctx context.Context, tenant, key string) error {
+	l.configMu.Lock()
+	defer l.configMu.Unlock()
 	l.groupsMu.Lock()
 	defer l.groupsMu.Unlock()
 
@@ -419,14 +421,12 @@ func (l *Loader) DeleteDynamicGroup(ctx context.Context, tenant, key string) err
 	if err != nil {
 		return err
 	}
-	l.groups = groups
-
 	if groups[tenant] == nil {
-		return nil // Nothing to delete
+		return l.publishLoadedDynamicGroupsLocked(ctx, groups, l.config)
 	}
 
 	if _, exists := groups[tenant][key]; !exists {
-		return nil // Nothing to delete
+		return l.publishLoadedDynamicGroupsLocked(ctx, groups, l.config)
 	}
 
 	candidate := cloneDynamicGroups(groups)
@@ -437,15 +437,20 @@ func (l *Loader) DeleteDynamicGroup(ctx context.Context, tenant, key string) err
 		delete(candidate, tenant)
 	}
 
-	return l.saveDynamicGroupsLocked(ctx, candidate, etag)
+	return l.saveDynamicGroupsLocked(ctx, candidate, etag, l.config)
 }
 
-// saveDynamicGroupsLocked persists dynamic groups to S3. Caller must hold groupsMu.
-func (l *Loader) saveDynamicGroupsLocked(ctx context.Context, groups map[string]map[string]GroupConfig, etag string) error {
+// saveDynamicGroupsLocked persists and publishes dynamic groups. The caller must
+// hold configMu and groupsMu so readers cannot observe mismatched config and groups.
+func (l *Loader) saveDynamicGroupsLocked(ctx context.Context, groups map[string]map[string]GroupConfig, etag string, config *Config) error {
 	// Marshal to JSON
 	data, err := json.MarshalIndent(groups, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal dynamic groups: %w", err)
+	}
+	hashes, err := l.computeGroupHashes(config, groups)
+	if err != nil {
+		return fmt.Errorf("failed to compute group hashes: %w", err)
 	}
 
 	// Write to S3 with ETag check (optimistic locking)
@@ -455,12 +460,39 @@ func (l *Loader) saveDynamicGroupsLocked(ctx context.Context, groups map[string]
 		}
 		return fmt.Errorf("failed to write dynamic groups: %w", err)
 	}
+	if err := l.publishDynamicGroupsLocallyLocked(ctx, groups, data, hashes); err != nil {
+		// Do not let a restart load the stale disk cache after the shared write committed.
+		if cacheErr := l.cacheStorage.Delete(ctx, groupsCacheKey); cacheErr != nil {
+			l.logger.Warn("Failed to invalidate stale groups cache", "error", cacheErr)
+		}
+		return fmt.Errorf("dynamic groups saved but failed to update local state: %w", err)
+	}
+	return nil
+}
 
-	// Update disk cache
+// publishLoadedDynamicGroupsLocked computes hashes for loaded groups and updates
+// the local database, disk cache, and in-memory group map.
+func (l *Loader) publishLoadedDynamicGroupsLocked(ctx context.Context, groups map[string]map[string]GroupConfig, config *Config) error {
+	data, err := json.MarshalIndent(groups, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal dynamic groups: %w", err)
+	}
+	hashes, err := l.computeGroupHashes(config, groups)
+	if err != nil {
+		return fmt.Errorf("failed to compute group hashes: %w", err)
+	}
+	return l.publishDynamicGroupsLocallyLocked(ctx, groups, data, hashes)
+}
+
+// publishDynamicGroupsLocallyLocked replaces the stored group hashes, updates the
+// best-effort disk cache, and then makes the groups available to local readers.
+func (l *Loader) publishDynamicGroupsLocallyLocked(ctx context.Context, groups map[string]map[string]GroupConfig, data []byte, hashes []localdb.GroupHashes) error {
+	if err := l.localDB.ReplaceGroupHashes(hashes); err != nil {
+		return fmt.Errorf("failed to publish group hashes: %w", err)
+	}
 	if err := l.saveGroupsToCache(ctx, groupsCacheKey, data); err != nil {
 		l.logger.Warn("Failed to update groups cache", "error", err)
 	}
-
 	l.groups = groups
 	return nil
 }
@@ -639,7 +671,19 @@ func (l *Loader) SyncGroupsToCache(ctx context.Context) error {
 		dynamicGroups = make(map[string]map[string]GroupConfig)
 	}
 
-	// Collect all tenant keys from both static and dynamic
+	hashes, err := l.computeGroupHashes(config, dynamicGroups)
+	if err != nil {
+		return err
+	}
+	return l.localDB.ReplaceGroupHashes(hashes)
+}
+
+// computeGroupHashes computes effective runtime and infrastructure hashes for every group.
+func (l *Loader) computeGroupHashes(config *Config, dynamicGroups map[string]map[string]GroupConfig) ([]localdb.GroupHashes, error) {
+	if config == nil {
+		return nil, nil
+	}
+	// Collect all tenant keys from both static and dynamic.
 	tenants := make(map[string]struct{})
 	for tenant := range config.Groups {
 		tenants[tenant] = struct{}{}
@@ -648,48 +692,28 @@ func (l *Loader) SyncGroupsToCache(ctx context.Context) error {
 		tenants[tenant] = struct{}{}
 	}
 
-	var failures []string
+	var hashes []localdb.GroupHashes
 	for tenant := range tenants {
 		mergedGroups := mergeGroups(config.Groups[tenant], dynamicGroups[tenant])
 		for groupKey, groupConfig := range mergedGroups {
 			// Get template name from group config
 			template := groupConfig.Template
 			if template == "" {
-				l.logger.Warn("skipping group sync", "tenant", tenant, "group", groupKey, "error", "no template")
-				failures = append(failures, fmt.Sprintf("%s in tenant %s: no template", groupKey, tenant))
-				continue
+				return nil, fmt.Errorf("%s in tenant %s: no template", groupKey, tenant)
 			}
 
 			// Get merged config for hash computation
 			mergedConfig, err := config.GetMergedConfig(template, groupConfig)
 			if err != nil {
-				l.logger.Error("Failed to get merged config", "tenant", tenant, "group", groupKey, "error", err)
-				failures = append(failures, fmt.Sprintf("%s in tenant %s: %v", groupKey, tenant, err))
-				continue
+				return nil, fmt.Errorf("%s in tenant %s: %w", groupKey, tenant, err)
 			}
 
 			// Compure hashes
 			runtimeHash := HashRuntimeConfig(*mergedConfig)
 			infraHash := HashInfraConfig(*mergedConfig)
 
-			// Store in SQLite
-			if err := l.localDB.UpsertGroup(tenant, groupKey, runtimeHash, infraHash); err != nil {
-				l.logger.Error("Failed to upsert group", "tenant", tenant, "group", groupKey, "error", err)
-				failures = append(failures, fmt.Sprintf("%s/%s: %v", tenant, groupKey, err))
-				continue
-			}
-
-			l.logger.Debug("Synced group to cache",
-				"tenant", tenant,
-				"group", groupKey,
-				"runtime_hash", runtimeHash,
-				"infra_hash", infraHash)
+			hashes = append(hashes, localdb.GroupHashes{Tenant: tenant, GroupKey: groupKey, RuntimeHash: runtimeHash, InfraHash: infraHash})
 		}
 	}
-
-	if len(failures) > 0 {
-		return fmt.Errorf("failed to sync %d groups to cache: %v", len(failures), failures)
-	}
-
-	return nil
+	return hashes, nil
 }

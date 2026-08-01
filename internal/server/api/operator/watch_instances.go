@@ -12,7 +12,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
-	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 )
 
 // WatchInstances streams instance events to the operator for drain coordination.
@@ -57,7 +57,7 @@ func (s *Service) WatchInstances(req *emptypb.Empty, stream proto.OperatorServic
 
 		drainTimeout := cfg.Shard.DefaultDrainTimeout
 		if inst.Tenant != "" && inst.Group != "" {
-			group, err := serverconfig.GetGroup(stream.Context(), s.configLoader, inst.Tenant, inst.Group)
+			group, err := config.GetGroup(stream.Context(), s.configLoader, inst.Tenant, inst.Group)
 			if err == nil && group.DrainTimeout != nil {
 				drainTimeout = *group.DrainTimeout
 			}

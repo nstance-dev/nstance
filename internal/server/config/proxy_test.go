@@ -18,8 +18,8 @@ func TestProxyConfigDerivation(t *testing.T) {
 	}
 	cfg.Groups = map[string]map[string]GroupConfig{
 		"default": {
-			"workers": {Template: "knd", LoadBalancers: []string{"api"}},
-			"control": {Template: "knc", LoadBalancers: []string{"api"}},
+			"workers": {Template: "knd", Size: IntPtr(1), LoadBalancers: []string{"api"}},
+			"control": {Template: "knc", Size: IntPtr(1), LoadBalancers: []string{"api"}},
 		},
 	}
 	got, err := cfg.ProxyConfig()
@@ -53,7 +53,7 @@ func TestProxyConfigDistinguishesGoogleFrontends(t *testing.T) {
 		},
 	}
 	cfg.Groups = map[string]map[string]GroupConfig{
-		"default": {"control": {Template: "knc", LoadBalancers: []string{"api"}}},
+		"default": {"control": {Template: "knc", Size: IntPtr(1), LoadBalancers: []string{"api"}}},
 	}
 
 	got, err := cfg.ProxyConfig()
@@ -110,7 +110,7 @@ func TestProxyConfigRejectsInvalidReferencesAndCollisions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := newTestConfig()
 			cfg.LoadBalancers = map[string]LoadBalancerConfig{"api": {Provider: "tunnel", Listeners: []TunnelListenerConfig{{TargetPort: 6443, ProxyPort: 16443}}}}
-			cfg.Groups = map[string]map[string]GroupConfig{"default": {"control": {Template: "knc", LoadBalancers: []string{"api"}}}}
+			cfg.Groups = map[string]map[string]GroupConfig{"default": {"control": {Template: "knc", Size: IntPtr(1), LoadBalancers: []string{"api"}}}}
 			tt.mutate(cfg)
 			_, err := cfg.ProxyConfig()
 			if err == nil || !strings.Contains(err.Error(), tt.want) {

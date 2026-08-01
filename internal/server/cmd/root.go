@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	mathrand "math/rand"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,7 +28,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/api/operator"
 	"github.com/nstance-dev/nstance/internal/server/api/registration"
 	"github.com/nstance-dev/nstance/internal/server/cluster"
-	serverConfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/election"
 	"github.com/nstance-dev/nstance/internal/server/gc"
 	"github.com/nstance-dev/nstance/internal/server/health"
@@ -41,6 +41,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/reconciler"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
 	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/internal/server/tenantstate"
 	"github.com/nstance-dev/nstance/pkg/instanceinfo"
 )
 
@@ -122,7 +123,7 @@ func NewRootCmd() *cobra.Command {
 
 		// validate config file if requested
 		if flagValidate != "" && flagValidate != validateRemote {
-			config, err := serverConfig.ValidateFile(flagValidate)
+			config, err := config.ValidateFile(flagValidate)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "✗ Configuration validation failed: %v\n", err)
 				os.Exit(1)
@@ -168,7 +169,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			config, err := serverConfig.ParseBytes(data)
+			config, err := config.ParseBytes(data)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "✗ Remote configuration validation failed: %v\n", err)
 				os.Exit(1)
@@ -261,7 +262,7 @@ func NewRootCmd() *cobra.Command {
 		}()
 
 		// create config loader - config is at config.jsonc within shard-scoped storage
-		configLoader, err := serverConfig.NewLoader(serverConfig.LoaderOptions{
+		configLoader, err := config.NewLoader(config.LoaderOptions{
 			Storage:       shardStorage,
 			CacheStorage:  shardCacheStorage,
 			LocalDB:       localDB,
@@ -274,7 +275,7 @@ func NewRootCmd() *cobra.Command {
 		}
 
 		// validate and load config and groups, and sync to SQLite atomically, with retry
-		var cfg *serverConfig.Config
+		var cfg *config.Config
 		var loadErr error
 		for attempt := 1; attempt <= 3; attempt++ {
 			// Load configuration, dynamic groups, and sync to SQLite
@@ -409,7 +410,7 @@ func NewRootCmd() *cobra.Command {
 		}()
 
 		// bootstrap cluster: ensure CA and registration nonce key exist, and start leader election
-		var caConfig *serverConfig.CertConfig
+		var caConfig *config.CertConfig
 		if c, ok := cfg.Certificates["ca"]; ok {
 			caConfig = &c
 		}
@@ -485,24 +486,6 @@ func NewRootCmd() *cobra.Command {
 			}
 		}
 
-		// prepare garbage collection runner
-		gcInterval := cfg.Shard.GarbageCollection.Interval.Duration()
-		gcRegistrationTimeout := cfg.Shard.GarbageCollection.RegistrationTimeout.Duration()
-		gcDeletedRecordRetention := cfg.Shard.GarbageCollection.DeletedRecordRetention.Duration()
-		gcHealthCheckInterval := cfg.Shard.HealthCheckInterval.Duration()
-		gcLogger := logger.With("component", "gc-runner")
-		gcService := gc.NewInstanceGarbageCollector(localDB, infraProvider, shardStorage, nil, logger)
-		gcRunner := gc.NewRunner(
-			gcService,
-			gcInterval,
-			cfg.Shard.RequestTimeout.Duration(),
-			gcRegistrationTimeout,
-			gcDeletedRecordRetention,
-			gcHealthCheckInterval,
-			nil, // will be set after shardManager is created
-			gcLogger,
-		)
-
 		// build leader network config from shard config
 		var leaderNetwork *infra.LeaderNetwork
 		if cfg.Shard.LeaderNetwork != nil {
@@ -532,9 +515,6 @@ func NewRootCmd() *cobra.Command {
 			}
 		}
 
-		// set the leadership check function for GC runner
-		gcRunner.SetIsLeaderFunc(electionManager.IsShardLeader)
-
 		// create instances manager
 		instancesManagerOptions := instances.ManagerOptions{
 			ConfigLoader: configLoader,
@@ -557,6 +537,11 @@ func NewRootCmd() *cobra.Command {
 
 		// create operator service first so we can wire drain notifications
 		var operatorService *operator.Service
+		tenantState, err := tenantstate.New(shardStorage, logger)
+		if err != nil {
+			logger.Error("Failed to create tenant state manager", "error", err)
+			os.Exit(1)
+		}
 
 		// create reconciler
 		rec, err := reconciler.New(reconciler.Options{
@@ -594,9 +579,20 @@ func NewRootCmd() *cobra.Command {
 			os.Exit(1)
 		}
 
-		// now set the reconciler on the GC service for health monitoring
-		gcService.SetReconciler(rec)
 		logger.Info("Reconciler ready")
+
+		// prepare garbage collection runner
+		gcService := gc.NewInstanceGarbageCollector(localDB, shardStorage, rec, instancesManager, logger)
+		gcRunner := gc.NewRunner(
+			gcService,
+			cfg.Shard.GarbageCollection.Interval.Duration(),
+			cfg.Shard.RequestTimeout.Duration(),
+			cfg.Shard.GarbageCollection.RegistrationTimeout.Duration(),
+			cfg.Shard.GarbageCollection.DeletedRecordRetention.Duration(),
+			cfg.Shard.HealthCheckInterval.Duration(),
+			electionManager.IsShardLeader,
+			logger.With("component", "gc-runner"),
+		)
 
 		// create gRPC services
 		registrationService, err := registration.New(registration.Options{
@@ -651,16 +647,16 @@ func NewRootCmd() *cobra.Command {
 
 		// create agent gRPC service
 		agentService, err := agent.New(agent.Options{
-			Storage:      shardStorage,
-			ConfigLoader: configLoader,
-			LocalDB:      localDB,
-			SecretsStore: secretsStore,
-			CACertPEM:    caCertData,
-			CAKeyPEM:     caKeyData,
-			Shard:        flagShard,
-			Provider:     infraProvider,
-			ImageGetter:  imageService,
-			Logger:       logger,
+			Storage:        shardStorage,
+			ConfigLoader:   configLoader,
+			LocalDB:        localDB,
+			SecretsStore:   secretsStore,
+			CACertPEM:      caCertData,
+			CAKeyPEM:       caKeyData,
+			Shard:          flagShard,
+			ImageGetter:    imageService,
+			Logger:         logger,
+			OnHealthReport: instancesManager.ReconcileLoadBalancers,
 			OnSpotTermination: func(instanceID string, notice *proto.TerminationNotice) error {
 				logger.Info("Enqueuing spot termination event", "instance_id", instanceID, "action", notice.Action)
 				rec.Enqueue(reconciler.ReconcileEvent{
@@ -701,6 +697,7 @@ func NewRootCmd() *cobra.Command {
 		// create operator gRPC service (assign to variable declared above)
 		operatorService, err = operator.New(operator.Options{
 			ConfigLoader:    configLoader,
+			TenantState:     tenantState,
 			LocalDB:         localDB,
 			InstanceManager: instancesManager,
 			OnGroupChanged: func(tenant, groupKey string) {
@@ -795,18 +792,10 @@ func NewRootCmd() *cobra.Command {
 
 				// Refresh configuration, dynamic groups, and sync to SQLite
 				logger.Info("Became shard leader, refreshing configuration and rebuilding cache")
-				if _, err := configLoader.LoadConfigAndGroups(ctx, true); err != nil {
+				refreshedCfg, err := configLoader.LoadConfigAndGroups(ctx, true)
+				if err != nil {
 					return fmt.Errorf("failed to refresh configuration on leadership acquisition: %w", err)
 				}
-
-				// Start leader gRPC services only after the authoritative refresh so
-				// requests and watches cannot observe or mutate stale group state.
-				logger.Info("Starting leader services")
-				if err := server.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start gRPC server: %w", err)
-				}
-				logger.Info("Leader service started")
-
 				// Start image resolution service
 				if imageService != nil {
 					if err := imageService.Start(ctx); err != nil {
@@ -814,24 +803,32 @@ func NewRootCmd() *cobra.Command {
 					}
 				}
 
-				// Validate load balancer groups and warm cache
-				if len(cfg.LoadBalancers) > 0 {
-					lbCtx, lbCancel := context.WithTimeout(ctx, 60*time.Second)
-					defer lbCancel()
-					if err := infra.ValidateLoadBalancers(lbCtx, cfg, localDB, infraProvider, logger); err != nil {
-						return fmt.Errorf("failed to validate load balancer groups on leadership acquisition: %w", err)
-					}
-				}
-
 				// Rebuild local cache from S3 and provider
 				cacheCtx, cacheCancel := context.WithTimeout(ctx, 60*time.Second)
 				defer cacheCancel()
 				if err := instancesManager.RebuildCache(cacheCtx); err != nil {
-					logger.Error("Failed to rebuild cache on leadership acquisition", "error", err)
-					// Continue anyway - partial cache is better than nothing
+					return fmt.Errorf("failed to rebuild authoritative cache: %w", err)
 				}
 
-				// Trigger initial reconciliation
+				// Validate load balancers only after provider IDs have been rebuilt.
+				if len(refreshedCfg.LoadBalancers) > 0 {
+					lbCtx, lbCancel := context.WithTimeout(ctx, 60*time.Second)
+					defer lbCancel()
+					if err := infra.ValidateLoadBalancers(lbCtx, refreshedCfg, localDB, infraProvider, logger); err != nil {
+						return fmt.Errorf("failed to validate load balancer groups on leadership acquisition: %w", err)
+					}
+				}
+
+				// Start leader services only after the authoritative configuration
+				// refresh, instance cache rebuild, and load-balancer observations
+				// complete, so requests and watches cannot use stale state.
+				logger.Info("Starting leader services")
+				if err := server.Start(ctx); err != nil {
+					return fmt.Errorf("failed to start gRPC server: %w", err)
+				}
+				logger.Info("Leader service started")
+
+				// Trigger initial reconciliation.
 				rec.Enqueue(reconciler.ReconcileEvent{
 					Type:      reconciler.EventInitialReconcile,
 					Timestamp: time.Now().UTC(),
@@ -891,7 +888,7 @@ func NewRootCmd() *cobra.Command {
 }
 
 // jitterWaitThenExit waits for a random amount of time then exits
-func jitterWaitThenExit(logger *slog.Logger, reason string, jitterCfg serverConfig.ErrorExitJitterConfig) {
+func jitterWaitThenExit(logger *slog.Logger, reason string, jitterCfg config.ErrorExitJitterConfig) {
 	minWait := 10 * time.Second
 	maxWait := 40 * time.Second
 	if jitterCfg.MinDelay.Duration() > 0 {
@@ -904,7 +901,7 @@ func jitterWaitThenExit(logger *slog.Logger, reason string, jitterCfg serverConf
 	if jitterRange < 0 {
 		jitterRange = 0
 	}
-	waitFor := minWait + time.Duration(mathrand.Int63n(int64(jitterRange)+1))
+	waitFor := minWait + time.Duration(rand.Int63n(int64(jitterRange)+1))
 	logger.Info("Waiting before exiting", "wait", waitFor, "reason", reason)
 	time.Sleep(waitFor)
 	logger.Info("Exiting...")

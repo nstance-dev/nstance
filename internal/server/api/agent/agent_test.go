@@ -35,6 +35,20 @@ func StringPtr(s string) *string {
 	return &s
 }
 
+// setPendingFiles installs a test file patch and wakes its active stream.
+func (s *Service) setPendingFiles(instanceID string, generated map[string][]byte, configHash string) {
+	now := time.Now().UTC()
+	files := make([]*PendingFile, 0, len(generated))
+	for filename, content := range generated {
+		files = append(files, &PendingFile{Filename: filename, Content: content, LastModified: now})
+	}
+	s.pendingFilesMu.Lock()
+	s.pendingFiles[instanceID] = &pendingFilePatch{Files: files, ConfigHash: configHash}
+	notify := s.pendingFilesNotify[instanceID]
+	s.pendingFilesMu.Unlock()
+	notifyStream(notify)
+}
+
 func TestService(t *testing.T) {
 	ctx := context.Background()
 
@@ -43,7 +57,6 @@ func TestService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to generate instance ID: %v", err)
 	}
-
 	// Create test configuration
 	testConfig := &config.Config{
 		Cluster: config.ClusterConfig{
@@ -346,9 +359,8 @@ func TestService(t *testing.T) {
 		}
 
 		// Verify no certificates are queued immediately (they're generated during health reports)
-		pendingFiles := agentService.getPendingFiles(instanceID)
-		if len(pendingFiles) != 0 {
-			t.Errorf("Expected 0 pending files (certificates generated during health reports), got %d", len(pendingFiles))
+		if pending := pendingTransfer(agentService, instanceID); pending != nil {
+			t.Errorf("Expected no pending files before a health report, got %d", len(pending.Files))
 		}
 
 		// Verify public key was stored in database
@@ -365,12 +377,13 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("ReceiveFiles", func(t *testing.T) {
-		// Clear any existing pending files first
-		agentService.clearPendingFiles(instanceID)
+		clearPendingFiles(agentService, instanceID)
 
-		// Queue some test files
-		agentService.QueueFile(instanceID, "test.crt", []byte("test certificate"))
-		agentService.QueueFile(instanceID, "config.yaml", []byte("test config"))
+		// Queue one file patch.
+		agentService.setPendingFiles(instanceID, map[string][]byte{
+			"test.crt":    []byte("test certificate"),
+			"config.yaml": []byte("test config"),
+		}, "runtime-hash")
 
 		// Create a stream client with cancellable context
 		stream := newMockReceiveFilesStream(instanceID)
@@ -392,14 +405,12 @@ func TestService(t *testing.T) {
 		}
 
 		// Verify files were streamed
-		if len(stream.sentFiles) != 2 {
-			t.Errorf("Expected 2 files to be streamed, got %d", len(stream.sentFiles))
+		if stream.sentFileCount() != 2 {
+			t.Errorf("Expected 2 files to be streamed, got %d", stream.sentFileCount())
 		}
 
-		// Verify pending files were cleared
-		pendingFiles := agentService.getPendingFiles(instanceID)
-		if len(pendingFiles) != 0 {
-			t.Errorf("Expected 0 pending files after streaming, got %d", len(pendingFiles))
+		if pending := pendingTransfer(agentService, instanceID); pending != nil {
+			t.Fatalf("pending files were retained after delivery: %#v", pending)
 		}
 
 		// Check file contents
@@ -421,21 +432,113 @@ func TestService(t *testing.T) {
 		}
 	})
 
-	t.Run("QueueFileReplacesPendingFile", func(t *testing.T) {
-		agentService.clearPendingFiles(instanceID)
+	t.Run("ReceiveFilesSendsHashOnlyPatch", func(t *testing.T) {
+		clearPendingFiles(agentService, instanceID)
+		owner := agentService.registerPendingFilesStream(instanceID)
+		defer agentService.unregisterPendingFilesStream(instanceID, owner)
+		agentService.pendingFilesMu.Lock()
+		agentService.pendingFiles[instanceID] = &pendingFilePatch{ConfigHash: "hash"}
+		agentService.pendingFilesMu.Unlock()
 
-		agentService.QueueFile(instanceID, "test.crt", []byte("old certificate"))
-		agentService.QueueFile(instanceID, "test.crt", []byte("new certificate"))
+		stream := newMockReceiveFilesStream(instanceID)
+		active, err := agentService.sendPendingFiles(instanceID, owner, stream)
+		if err != nil || !active {
+			t.Fatalf("sendPendingFiles = active %v, err %v", active, err)
+		}
+		if len(stream.sentFiles) != 1 || stream.sentFiles[0].GetConfigHash() != "hash" {
+			t.Fatalf("commit message = %#v", stream.sentFiles)
+		}
+	})
 
-		pendingFiles := agentService.getPendingFiles(instanceID)
-		if len(pendingFiles) != 1 {
-			t.Fatalf("Expected 1 pending file, got %d", len(pendingFiles))
+	t.Run("ReceiveFilesKeepsTransferAfterSendFailure", func(t *testing.T) {
+		clearPendingFiles(agentService, instanceID)
+		agentService.setPendingFiles(instanceID, map[string][]byte{"config.json": []byte(`{"ok":true}`)}, "hash")
+		stream := newMockReceiveFilesStream(instanceID)
+		stream.sendErr = io.ErrClosedPipe
+		owner := agentService.registerPendingFilesStream(instanceID)
+		defer agentService.unregisterPendingFilesStream(instanceID, owner)
+
+		if _, err := agentService.sendPendingFiles(instanceID, owner, stream); err == nil {
+			t.Fatal("sendPendingFiles succeeded after stream failure")
 		}
-		if pendingFiles[0].Filename != "test.crt" {
-			t.Fatalf("Expected pending file test.crt, got %s", pendingFiles[0].Filename)
+		if pending := pendingTransfer(agentService, instanceID); pending == nil {
+			t.Fatal("pending transfer was cleared after stream failure")
 		}
-		if string(pendingFiles[0].Content) != "new certificate" {
-			t.Fatalf("Expected replacement content, got %q", string(pendingFiles[0].Content))
+	})
+
+	t.Run("SupersededStreamCannotClearPendingFiles", func(t *testing.T) {
+		clearPendingFiles(agentService, instanceID)
+		oldOwner := agentService.registerPendingFilesStream(instanceID)
+		agentService.setPendingFiles(instanceID, map[string][]byte{"config.json": []byte(`{"ok":true}`)}, "hash")
+		newOwner := agentService.registerPendingFilesStream(instanceID)
+		defer agentService.unregisterPendingFilesStream(instanceID, newOwner)
+
+		oldStream := newMockReceiveFilesStream(instanceID)
+		active, err := agentService.sendPendingFiles(instanceID, oldOwner, oldStream)
+		if err != nil || active || oldStream.sentFileCount() != 0 {
+			t.Fatalf("superseded send = active %v, files %d, err %v", active, oldStream.sentFileCount(), err)
+		}
+		if pending := pendingTransfer(agentService, instanceID); pending == nil {
+			t.Fatal("superseded stream cleared pending files")
+		}
+
+		newStream := newMockReceiveFilesStream(instanceID)
+		active, err = agentService.sendPendingFiles(instanceID, newOwner, newStream)
+		if err != nil || !active || newStream.sentFileCount() != 1 {
+			t.Fatalf("current send = active %v, files %d, err %v", active, newStream.sentFileCount(), err)
+		}
+		if pending := pendingTransfer(agentService, instanceID); pending != nil {
+			t.Fatalf("current stream did not clear pending files: %#v", pending)
+		}
+	})
+
+	t.Run("ConcurrentReplacementPreservesLatestFiles", func(t *testing.T) {
+		clearPendingFiles(agentService, instanceID)
+		agentService.setPendingFiles(instanceID, map[string][]byte{"config.json": []byte(`{"version":1}`)}, "hash-1")
+		stream := newMockReceiveFilesStream(instanceID)
+		var replace sync.Once
+		stream.onSend = func(file *proto.FileTransfer) {
+			if file.GetConfigHash() != "" {
+				replace.Do(func() {
+					agentService.setPendingFiles(instanceID, map[string][]byte{"config.json": []byte(`{"version":2}`)}, "hash-2")
+				})
+			}
+		}
+		done := make(chan error, 1)
+		go func() {
+			done <- agentService.ReceiveFiles(&emptypb.Empty{}, stream)
+		}()
+		deadline := time.Now().Add(time.Second)
+		for stream.sentFileCount() < 2 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		stream.cancel()
+		if err := <-done; err != nil {
+			t.Fatalf("ReceiveFiles: %v", err)
+		}
+		var contents []string
+		for _, file := range stream.sentFiles {
+			if file.GetFilename() != "" {
+				contents = append(contents, string(file.GetContent()))
+			}
+		}
+		if len(contents) != 2 || contents[0] != `{"version":1}` || contents[1] != `{"version":2}` {
+			t.Fatalf("streamed file contents = %q, want versions 1 then 2", contents)
+		}
+		if pending := pendingTransfer(agentService, instanceID); pending != nil {
+			t.Fatalf("pending replacement was retained after delivery: %#v", pending)
+		}
+	})
+
+	t.Run("LatestPendingFilesSupersedeEarlierFiles", func(t *testing.T) {
+		clearPendingFiles(agentService, instanceID)
+
+		agentService.setPendingFiles(instanceID, map[string][]byte{"a": []byte("first-a")}, "hash-a")
+		agentService.setPendingFiles(instanceID, map[string][]byte{"b": []byte("second-b")}, "hash-b")
+
+		latest := pendingTransfer(agentService, instanceID)
+		if latest == nil || latest.ConfigHash != "hash-b" || len(latest.Files) != 1 || latest.Files[0].Filename != "b" || string(latest.Files[0].Content) != "second-b" {
+			t.Fatalf("pending files = %#v, want exact b/hash-b files", latest)
 		}
 	})
 
@@ -477,7 +580,7 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("ReceiveFilesPushesQueuedFilesToOpenStream", func(t *testing.T) {
-		agentService.clearPendingFiles(instanceID)
+		clearPendingFiles(agentService, instanceID)
 		stream := newMockReceiveFilesStream(instanceID)
 
 		done := make(chan error, 1)
@@ -492,7 +595,7 @@ func TestService(t *testing.T) {
 			}
 		}()
 
-		agentService.QueueFile(instanceID, "live.crt", []byte("live certificate"))
+		agentService.setPendingFiles(instanceID, map[string][]byte{"live.crt": []byte("live certificate")}, "hash")
 
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) {
@@ -502,6 +605,23 @@ func TestService(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 		t.Fatalf("Expected live queued file to be streamed, got %d", stream.sentFileCount())
+	})
+
+	t.Run("ForgetInstanceDiscardsPendingFiles", func(t *testing.T) {
+		agentService.setPendingFiles(instanceID, map[string][]byte{"secret": []byte("value")}, "hash")
+		agentService.ForgetInstance(instanceID)
+		if pending := pendingTransfer(agentService, instanceID); pending != nil {
+			t.Fatalf("pending files = %#v, want nil", pending)
+		}
+	})
+
+	t.Run("DisconnectDiscardsPendingFiles", func(t *testing.T) {
+		notify := agentService.registerPendingFilesStream(instanceID)
+		agentService.setPendingFiles(instanceID, map[string][]byte{"secret": []byte("value")}, "hash")
+		agentService.unregisterPendingFilesStream(instanceID, notify)
+		if pending := pendingTransfer(agentService, instanceID); pending != nil {
+			t.Fatalf("pending files = %#v, want nil", pending)
+		}
 	})
 
 	t.Run("ReceiveKeyRequestsPushesQueuedRequestsToOpenStream", func(t *testing.T) {
@@ -565,6 +685,8 @@ type mockReceiveFilesStream struct {
 	instanceID string
 	ctx        context.Context
 	cancel     context.CancelFunc
+	onSend     func(*proto.FileTransfer)
+	sendErr    error
 }
 
 func newMockReceiveFilesStream(instanceID string) *mockReceiveFilesStream {
@@ -582,10 +704,15 @@ func newMockReceiveFilesStream(instanceID string) *mockReceiveFilesStream {
 }
 
 func (m *mockReceiveFilesStream) Send(file *proto.FileTransfer) error {
+	if m.sendErr != nil {
+		return m.sendErr
+	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.sentFiles = append(m.sentFiles, file)
+	m.mu.Unlock()
+	if m.onSend != nil {
+		m.onSend(file)
+	}
 	return nil
 }
 
@@ -593,11 +720,31 @@ func (m *mockReceiveFilesStream) sentFileCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return len(m.sentFiles)
+	count := 0
+	for _, file := range m.sentFiles {
+		if file.GetFilename() != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (m *mockReceiveFilesStream) Context() context.Context {
 	return m.ctx
+}
+
+// pendingTransfer returns an instance's pending test transfer.
+func pendingTransfer(service *Service, instanceID string) *pendingFilePatch {
+	service.pendingFilesMu.RLock()
+	defer service.pendingFilesMu.RUnlock()
+	return service.pendingFiles[instanceID]
+}
+
+// clearPendingFiles removes pending state between service subtests.
+func clearPendingFiles(service *Service, instanceID string) {
+	service.pendingFilesMu.Lock()
+	defer service.pendingFilesMu.Unlock()
+	delete(service.pendingFiles, instanceID)
 }
 
 // Unused methods for grpc.ServerStream

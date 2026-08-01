@@ -7,6 +7,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -237,6 +238,44 @@ func TestFileStoragePutIfMatchCreateIsAtomic(t *testing.T) {
 	}
 }
 
+// TestFileStoragePutIfMatchUpdateIsAtomic verifies that only one concurrent
+// update using the same ETag succeeds.
+func TestFileStoragePutIfMatchUpdateIsAtomic(t *testing.T) {
+	storage, err := NewFileStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Put(context.Background(), "tenants.jsonc", []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, etag, err := storage.Get(context.Background(), "tenants.jsonc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writers = 32
+	start := make(chan struct{})
+	var successes atomic.Int32
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			err := storage.PutIfMatch(context.Background(), "tenants.jsonc", []byte(fmt.Sprintf(`{"winner":%d}`, i)), etag)
+			if err == nil {
+				successes.Add(1)
+			} else if !errors.Is(err, ErrPrecondition) {
+				t.Errorf("PutIfMatch: %v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if got := successes.Load(); got != 1 {
+		t.Fatalf("successful updates = %d, want 1", got)
+	}
+}
+
 func TestNewFileStorageCreatesDirectory(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "file-storage-create-test")
 	if err != nil {
@@ -266,5 +305,22 @@ func TestNewFileStorageCreatesDirectory(t *testing.T) {
 	err = storage.Put(ctx, "test.txt", []byte("test"))
 	if err != nil {
 		t.Fatalf("Failed to use newly created storage: %v", err)
+	}
+}
+
+// TestNewFileStorageNormalizesBaseDirectory verifies equivalent base paths
+// produce the same per-key lock path.
+func TestNewFileStorageNormalizesBaseDirectory(t *testing.T) {
+	base := t.TempDir()
+	first, err := NewFileStorage(filepath.Join(base, "data", "..", "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewFileStorage(filepath.Join(base, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.baseDir != second.baseDir || first.conditionalLockPath("key") != second.conditionalLockPath("key") {
+		t.Fatalf("equivalent paths were not normalized: %q and %q", first.baseDir, second.baseDir)
 	}
 }

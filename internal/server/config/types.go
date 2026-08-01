@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -46,10 +47,16 @@ type Config struct {
 	LoadBalancers map[string]LoadBalancerConfig     `json:"load_balancers"`
 	Images        map[string]ImageConfig            `json:"images"`
 	Certificates  map[string]CertConfig             `json:"certificates"`
+	Proxy         ProxyRuntimeConfig                `json:"proxy,omitempty"`
 	Defaults      DefaultsConfig                    `json:"defaults"`
 	Templates     map[string]TemplateConfig         `json:"templates" validate:"required"`
 	Groups        map[string]map[string]GroupConfig `json:"groups"`        // tenant -> group key -> config
 	NAT           map[string]NATConfig              `json:"nat,omitempty"` // tenant -> managed NAT config
+}
+
+// ProxyRuntimeConfig defines files consumed by services local to nstance-server.
+type ProxyRuntimeConfig struct {
+	Files map[string]FileConfig `json:"files,omitempty"`
 }
 
 // ClusterConfig defines cluster-scoped configuration shared across all shards.
@@ -588,6 +595,17 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate file references in templates
+	for fileName, fileConfig := range c.Proxy.Files {
+		if fileName == "" || filepath.IsAbs(fileName) || filepath.Base(fileName) != fileName {
+			return fmt.Errorf("proxy file %q must be a non-empty base filename", fileName)
+		}
+		if fileConfig.Kind == "certificate" {
+			return fmt.Errorf("proxy file %s cannot use agent-key certificate generation", fileName)
+		}
+		if err := validateGeneratedFile("proxy", fileName, fileConfig); err != nil {
+			return err
+		}
+	}
 	for templateName, template := range c.Templates {
 		// Validate userdata configuration
 		if err := template.Userdata.Validate(); err != nil {
@@ -595,57 +613,21 @@ func (c *Config) Validate() error {
 		}
 
 		for fileName, fileConfig := range template.Files {
-			switch fileConfig.Kind {
-			case "certificate":
+			if fileConfig.Kind == "certificate" {
 				if fileConfig.Template == nil {
 					return fmt.Errorf("template %s file %s of kind certificate must specify a template", templateName, fileName)
 				}
-				templateName, ok := fileConfig.Template.(string)
+				certificateName, ok := fileConfig.Template.(string)
 				if !ok {
 					return fmt.Errorf("template %s file %s of kind certificate must have string template", templateName, fileName)
 				}
-				if _, exists := c.Certificates[templateName]; !exists {
-					return fmt.Errorf("template %s file %s references unknown certificate template %s", templateName, fileName, templateName)
+				if _, exists := c.Certificates[certificateName]; !exists {
+					return fmt.Errorf("template %s file %s references unknown certificate template %s", templateName, fileName, certificateName)
 				}
-			case "secret":
-				if fileConfig.Source == "" {
-					return fmt.Errorf("template %s file %s of kind secret must specify a source", templateName, fileName)
-				}
-			case "storage":
-				if fileConfig.Source == "" {
-					return fmt.Errorf("template %s file %s of kind storage must specify a source", templateName, fileName)
-				}
-			case "env":
-				if fileConfig.Template == nil {
-					return fmt.Errorf("template %s file %s of kind env must specify a template", templateName, fileName)
-				}
-				// Template should be map[string]interface{} with string values for env files
-				templateObj, ok := fileConfig.Template.(map[string]interface{})
-				if !ok {
-					return fmt.Errorf("template %s file %s of kind env must have object template", templateName, fileName)
-				}
-				// Validate all values are strings for env files
-				for key, value := range templateObj {
-					if _, ok := value.(string); !ok {
-						return fmt.Errorf("template %s file %s env key %s must have string value", templateName, fileName, key)
-					}
-				}
-			case "json":
-				if fileConfig.Template == nil {
-					return fmt.Errorf("template %s file %s of kind json must specify a template", templateName, fileName)
-				}
-				// Template should be an object for JSON files
-				if _, ok := fileConfig.Template.(map[string]interface{}); !ok {
-					return fmt.Errorf("template %s file %s of kind json must have object template", templateName, fileName)
-				}
-			case "string":
-				if fileConfig.Template == nil {
-					return fmt.Errorf("template %s file %s of kind string must specify a template", templateName, fileName)
-				}
-				// Template should be a string for string files
-				if _, ok := fileConfig.Template.(string); !ok {
-					return fmt.Errorf("template %s file %s of kind string must have string template", templateName, fileName)
-				}
+				continue
+			}
+			if err := validateGeneratedFile("template "+templateName, fileName, fileConfig); err != nil {
+				return err
 			}
 		}
 	}
@@ -727,6 +709,44 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	return nil
+}
+
+// validateGeneratedFile validates one generated file declaration.
+func validateGeneratedFile(scope, fileName string, fileConfig FileConfig) error {
+	switch fileConfig.Kind {
+	case "secret", "storage":
+		if fileConfig.Source == "" {
+			return fmt.Errorf("%s file %s of kind %s must specify a source", scope, fileName, fileConfig.Kind)
+		}
+	case "env":
+		if fileConfig.Template == nil {
+			return fmt.Errorf("%s file %s of kind env must specify a template", scope, fileName)
+		}
+		templateObj, ok := fileConfig.Template.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("%s file %s of kind env must have object template", scope, fileName)
+		}
+		for key, value := range templateObj {
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("%s file %s env key %s must have string value", scope, fileName, key)
+			}
+		}
+	case "json":
+		if fileConfig.Template == nil {
+			return fmt.Errorf("%s file %s of kind json must specify a template", scope, fileName)
+		}
+		if _, ok := fileConfig.Template.(map[string]interface{}); !ok {
+			return fmt.Errorf("%s file %s of kind json must have object template", scope, fileName)
+		}
+	case "string":
+		if fileConfig.Template == nil {
+			return fmt.Errorf("%s file %s of kind string must specify a template", scope, fileName)
+		}
+		if _, ok := fileConfig.Template.(string); !ok {
+			return fmt.Errorf("%s file %s of kind string must have string template", scope, fileName)
+		}
+	}
 	return nil
 }
 

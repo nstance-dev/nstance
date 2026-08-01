@@ -62,47 +62,37 @@ func NewGenerator(
 	}
 }
 
-// GenerateFiles generates the specified files for an instance.
+// GenerateFiles generates the specified files and their effective runtime config hash.
 // If files is nil, it generates every file configured by the instance template.
-func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files []string) (map[string][]byte, error) {
+func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files []string) (map[string][]byte, string, error) {
 	if files != nil && len(files) == 0 {
-		return nil, nil
+		return nil, "", nil
 	}
-
 	generatedFiles := make(map[string][]byte)
-
-	// Get configuration
-	cfg := p.configLoader.GetCurrent()
-	if cfg == nil {
-		return nil, fmt.Errorf("no configuration available")
-	}
 
 	// Get instance information
 	instance, err := p.localDB.GetInstance(instanceID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instance: %w", err)
+		return nil, "", fmt.Errorf("failed to get instance: %w", err)
 	}
 
 	// Derive template from instance group (merge static + dynamic groups)
-	groups, err := config.GetGroups(ctx, p.configLoader, instance.Tenant)
+	cfg, groupConfig, err := config.GetConfigAndGroup(p.configLoader, instance.Tenant, instance.Group)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get groups: %w", err)
-	}
-	groupConfig, exists := groups[instance.Group]
-	if !exists {
-		return nil, fmt.Errorf("instance group %s not found", instance.Group)
+		return nil, "", fmt.Errorf("failed to get config and group: %w", err)
 	}
 	templateName := groupConfig.Template
 
 	// Get template config and build template data
 	template, exists := cfg.Templates[templateName]
 	if !exists {
-		return nil, fmt.Errorf("template %s not found", templateName)
+		return nil, "", fmt.Errorf("template %s not found", templateName)
 	}
-	mergedConfig, err := cfg.GetMergedConfig(templateName, groupConfig)
+	mergedConfig, err := cfg.GetMergedConfig(templateName, *groupConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merged config: %w", err)
+		return nil, "", fmt.Errorf("failed to get merged config: %w", err)
 	}
+	runtimeHash := config.HashRuntimeConfig(*mergedConfig)
 	templateData := p.buildTemplateData(cfg, instance, mergedConfig)
 	if files == nil {
 		files = make([]string, 0, len(template.Files))
@@ -118,7 +108,7 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 	// Build certificate requests for missing certificate files
 	certRequests, err := p.prepareCertificateRequests(cfg, instance, &template, files, processedFiles, templateData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build certificate requests: %w", err)
+		return nil, "", fmt.Errorf("failed to build certificate requests: %w", err)
 	}
 
 	// Generate certificates in batch if any are needed
@@ -129,7 +119,7 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 
 		results, err := p.certService.GenerateBatch(ctx, certRequests)
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate certificate batch: %w", err)
+			return nil, "", fmt.Errorf("failed to generate certificate batch: %w", err)
 		}
 
 		// Certificate issuance metadata is recorded by the PKI serial logger.
@@ -183,13 +173,18 @@ func (p *Generator) GenerateFiles(ctx context.Context, instanceID string, files 
 		}
 	}
 	if len(unprocessedFiles) > 0 {
-		p.logger.Warn("Files requested but not configured for generation",
-			"instance_id", instanceID,
-			"files", unprocessedFiles,
-			"hint", "Check that these files are configured in the instance template")
+		return nil, "", fmt.Errorf("files were not generated: %v", unprocessedFiles)
 	}
-
-	return generatedFiles, nil
+	var missingFiles []string
+	for _, filename := range files {
+		if _, generated := generatedFiles[filename]; !generated {
+			missingFiles = append(missingFiles, filename)
+		}
+	}
+	if len(missingFiles) > 0 {
+		return nil, "", fmt.Errorf("files were not generated: %v", missingFiles)
+	}
+	return generatedFiles, runtimeHash, nil
 }
 
 // buildTemplateData creates template data for file/certificate generation

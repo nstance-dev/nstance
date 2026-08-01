@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	provider "github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
 const (
@@ -418,6 +418,11 @@ func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRe
 func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.DeregisterLBRequest) error {
 	p.logger.Info("Dev LoadBalancer deregister operation (no-op)", "instance_id", req.ProviderInstanceID)
 	return nil
+}
+
+// GetLBTargetState reports healthy for the no-op development load balancer.
+func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLBRequest) (provider.LBTargetState, error) {
+	return provider.LBTargetHealthy, nil
 }
 
 // ListLBInstances returns an empty list for dev provider

@@ -20,7 +20,7 @@ type ListLBInstancesRequest = provider.ListLBInstancesRequest
 type LoadBalancerConfig = provider.LoadBalancerConfig
 type LeaderNetwork = provider.LeaderNetwork
 
-// Re-export status constants
+// Re-export instance status constants.
 const (
 	StatusPending    = provider.StatusPending
 	StatusRunning    = provider.StatusRunning
@@ -32,6 +32,15 @@ const (
 	StatusDeleted    = provider.StatusDeleted
 	StatusRepairing  = provider.StatusRepairing
 	StatusUnknown    = provider.StatusUnknown
+)
+
+// Re-export load-balancer target states.
+const (
+	LBTargetRegistered   = provider.LBTargetRegistered
+	LBTargetPartial      = provider.LBTargetPartial
+	LBTargetHealthy      = provider.LBTargetHealthy
+	LBTargetDraining     = provider.LBTargetDraining
+	LBTargetDeregistered = provider.LBTargetDeregistered
 )
 
 // Re-export helper functions

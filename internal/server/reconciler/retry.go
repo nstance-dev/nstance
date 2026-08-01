@@ -94,7 +94,5 @@ func (r *Reconciler) scheduleRetry(event ReconcileEvent, err error) {
 	retryEvent.Attempt = event.Attempt + 1
 	retryEvent.PreventDuplicate = false // Retries bypass dedup
 
-	time.AfterFunc(delay, func() {
-		r.Enqueue(retryEvent)
-	})
+	r.scheduleEvent(delay, retryEvent)
 }

@@ -18,6 +18,8 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 )
 
+const lastCompletedTimestampFile = "write-files.last"
+
 // TerminationNotice represents a spot instance termination notice
 type TerminationNotice struct {
 	Action   string    `json:"action"`
@@ -119,7 +121,7 @@ func NewReport(count int, cfg ReportConfig, metrics Metrics) (Report, error) {
 		filename := entry.Name()
 
 		// Skip internal metadata files and subdirectories
-		if strings.HasPrefix(filename, ".") || entry.IsDir() {
+		if strings.HasPrefix(filename, ".") || filename == lastCompletedTimestampFile || entry.IsDir() {
 			continue
 		}
 

@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/infra"
 	"github.com/nstance-dev/nstance/internal/server/instances"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/reconciler"
@@ -22,35 +21,34 @@ type Reconciler interface {
 	Enqueue(event reconciler.ReconcileEvent)
 }
 
+// InstanceDeleter applies the normal provider load-balancer withdrawal barrier
+// before deleting an instance.
+type InstanceDeleter interface {
+	DeleteInstance(ctx context.Context, tenant, instanceID string) error
+}
+
 // InstanceGarbageCollector handles garbage collection of dangling provider instances
 type InstanceGarbageCollector struct {
 	db         *localdb.DB
-	provider   infra.Provider
 	storage    storage.Storage
 	reconciler Reconciler
+	deleter    InstanceDeleter
 	logger     *slog.Logger
 }
 
-// NewInstanceGarbageCollector creates a new garbage collection service
-func NewInstanceGarbageCollector(db *localdb.DB, prov infra.Provider, store storage.Storage, rec Reconciler, logger *slog.Logger) *InstanceGarbageCollector {
+// NewInstanceGarbageCollector creates a new garbage collection service.
+func NewInstanceGarbageCollector(db *localdb.DB, store storage.Storage, rec Reconciler, deleter InstanceDeleter, logger *slog.Logger) *InstanceGarbageCollector {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	return &InstanceGarbageCollector{
 		db:         db,
-		provider:   prov,
 		storage:    store,
 		reconciler: rec,
+		deleter:    deleter,
 		logger:     logger.With("component", "gc"),
 	}
-}
-
-// SetReconciler sets the reconciler for the garbage collector.
-// This exists because of an init-order dependency: the GC service is created
-// before the reconciler, which itself depends on the instance manager.
-func (s *InstanceGarbageCollector) SetReconciler(rec Reconciler) {
-	s.reconciler = rec
 }
 
 // RunGarbageCollection performs a complete garbage collection cycle.
@@ -101,7 +99,13 @@ func (s *InstanceGarbageCollector) terminateAndCleanup(ctx context.Context, reas
 				"instance_id", instance.ID,
 				"provider_id", *instance.ProviderID)
 
-			if err := s.provider.DeleteInstance(ctx, instance.ID, *instance.ProviderID); err != nil {
+			if s.deleter == nil {
+				s.logger.Error("Refusing provider deletion without load balancer withdrawal barrier",
+					"reason", reason,
+					"instance_id", instance.ID)
+				continue
+			}
+			if err := s.deleter.DeleteInstance(ctx, instance.Tenant, instance.ID); err != nil {
 				s.logger.Error("Failed to terminate instance",
 					"reason", reason,
 					"instance_id", instance.ID,

@@ -13,7 +13,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
-	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 )
 
@@ -35,7 +35,7 @@ func (s *Service) RefreshConfig(ctx context.Context, req *emptypb.Empty) (*proto
 	defer s.groupMutationMu.Unlock()
 
 	// Snapshot the effective groups before reloading the static configuration.
-	oldGroups, err := serverconfig.GetAllGroups(ctx, s.configLoader)
+	oldGroups, err := config.GetAllGroups(ctx, s.configLoader)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list groups before refresh: %v", err)
 	}
@@ -68,7 +68,7 @@ func (s *Service) RefreshConfig(ctx context.Context, req *emptypb.Empty) (*proto
 	}
 
 	// Snapshot the new effective groups and include removed groups that still own instances.
-	groups, err := serverconfig.GetAllGroups(ctx, s.configLoader)
+	groups, err := config.GetAllGroups(ctx, s.configLoader)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list groups after refresh: %v", err)
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/identifiers"
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
-	serverconfig "github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/internal/server/config"
 )
 
 func (s *Service) DeleteGroup(ctx context.Context, req *proto.DeleteGroupRequest) (*emptypb.Empty, error) {
@@ -39,7 +39,7 @@ func (s *Service) DeleteGroup(ctx context.Context, req *proto.DeleteGroupRequest
 	s.groupMutationMu.Lock()
 	defer s.groupMutationMu.Unlock()
 
-	if err := serverconfig.DeleteGroup(ctx, s.configLoader, tenant, req.Key); err != nil {
+	if err := config.DeleteGroup(ctx, s.configLoader, tenant, req.Key); err != nil {
 		s.logger.Error("Failed to delete group", "client_id", clientInfo.ClientID, "tenant", tenant, "group", req.Key, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to delete group: %v", err)
 	}

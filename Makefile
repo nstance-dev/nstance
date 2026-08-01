@@ -15,7 +15,7 @@ COMMIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 BUILDVARS_PKG=github.com/nstance-dev/nstance/internal/buildvars
 
 BINARYDIR=$(CURRENT)bin
-BINARIES=nstance-server nstance-agent nstance-operator nstance-admin
+BINARIES=nstance-server nstance-agent nstance-proxy nstance-operator nstance-admin
 
 # Cross-compilation settings for SQLite support
 GOOS ?= $(shell go env GOOS)

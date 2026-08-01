@@ -116,7 +116,6 @@ func TestLoader(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to put config in main storage: %v", err)
 		}
-
 		// Create loader (receives shard-scoped storage)
 		loader, err := NewLoader(LoaderOptions{
 			LocalDB:      newTestDB(t),
@@ -332,6 +331,9 @@ func TestLoader(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to put updated config: %v", err)
 		}
+		if err := mainStorage.Put(ctx, groupsKey, []byte(`{"red":{"workers":{"template":"test","size":2}}}`)); err != nil {
+			t.Fatalf("Failed to update groups in main storage: %v", err)
+		}
 
 		// Refresh configuration (forceRefresh=true)
 		refreshedConfig, err := loader.LoadConfigAndGroups(ctx, true)
@@ -342,6 +344,10 @@ func TestLoader(t *testing.T) {
 		// Verify updated config
 		if refreshedConfig.Shard.Infra.Region != "us-east-1" {
 			t.Errorf("Expected region 'us-east-1', got '%s'", refreshedConfig.Shard.Infra.Region)
+		}
+		group, ok := loader.GetDynamicGroup("red", "workers")
+		if !ok || group.Size == nil || *group.Size != 2 {
+			t.Errorf("Expected refreshed dynamic group size 2, got %#v", group.Size)
 		}
 	})
 

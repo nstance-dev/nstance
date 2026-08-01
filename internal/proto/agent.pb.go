@@ -630,7 +630,7 @@ type FileTransfer struct {
 	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
 	Content       []byte                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
 	LastModified  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_modified,json=lastModified,proto3" json:"last_modified,omitempty"`
-	ConfigHash    string                 `protobuf:"bytes,4,opt,name=config_hash,json=configHash,proto3" json:"config_hash,omitempty"` // Optional: updated runtime config hash to write to identity/config.hash
+	ConfigHash    string                 `protobuf:"bytes,4,opt,name=config_hash,json=configHash,proto3" json:"config_hash,omitempty"` // Non-empty on a filename-free commit message; applies the patch and updates identity/config.hash
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

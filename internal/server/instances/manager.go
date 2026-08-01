@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/nstance-dev/nstance/internal/server/infra"
@@ -43,6 +44,7 @@ type Manager struct {
 	imageGetter  ImageGetter
 	caCert       []byte
 	logger       *slog.Logger
+	lbMu         sync.Mutex
 }
 
 // ManagerOptions contains options for creating an instance manager
@@ -436,16 +438,18 @@ func (m *Manager) DeleteInstance(ctx context.Context, tenant, instanceID string)
 	if instance.ProviderID == nil || *instance.ProviderID == "" {
 		return fmt.Errorf("instance has no provider ID")
 	}
-
-	// Step 1: Deregister from load balancers
-	cfg := m.configLoader.GetCurrent()
-	if cfg != nil && len(cfg.LoadBalancers) > 0 {
-		if err := m.deregisterInstanceFromLB(ctx, instance); err != nil {
-			m.logger.Error("Failed to deregister instance from load balancers",
-				"instance_id", instanceID,
-				"error", err)
-			// Continue with deletion even if LB deregistration fails
+	if instance.DrainStartedAt == nil {
+		if err := m.localDB.MarkDrainStarted(instanceID); err != nil {
+			return fmt.Errorf("marking instance deletion intent: %w", err)
 		}
+	}
+	m.lbMu.Lock()
+	defer m.lbMu.Unlock()
+
+	// Step 1: Fully deregister from load balancers. A draining or unknown
+	// target is a retryable deletion barrier, never permission to delete the VM.
+	if err := m.deregisterInstanceFromLB(ctx, instance); err != nil {
+		return fmt.Errorf("failed to fully deregister instance from load balancers: %w", err)
 	}
 
 	// Step 2: Delete via provider (drain happens before this in reconciler)
@@ -558,7 +562,7 @@ func (m *Manager) generateRegistrationNonce(ctx context.Context, instanceID, kin
 	// Get group runtime config hash
 	runtimeHash := ""
 	if groupKey != "" {
-		group, err := m.localDB.GetGroup(tenant, groupKey)
+		group, err := m.configLoader.GetCachedGroup(tenant, groupKey)
 		if err != nil {
 			m.logger.Warn("Failed to get group for JWT", "group", groupKey, "error", err)
 		} else if group != nil && group.RuntimeConfigHash != nil {
@@ -693,6 +697,115 @@ func (m *Manager) RebuildCache(ctx context.Context) error {
 	return nil
 }
 
+// ReconcileLoadBalancers registers healthy instances without racing deletion.
+func (m *Manager) ReconcileLoadBalancers(ctx context.Context, instanceID string) error {
+	m.lbMu.Lock()
+	defer m.lbMu.Unlock()
+
+	instance, err := m.localDB.GetInstance(instanceID)
+	if err != nil {
+		return fmt.Errorf("getting instance: %w", err)
+	}
+	if instance == nil {
+		return fmt.Errorf("instance not found: %s", instanceID)
+	}
+	if instance.DrainStartedAt != nil {
+		return nil
+	}
+
+	cfg := m.configLoader.GetCurrent()
+	if cfg == nil {
+		return fmt.Errorf("configuration not loaded")
+	}
+	if len(cfg.LoadBalancers) == 0 {
+		return nil
+	}
+	group, err := config.GetGroup(ctx, m.configLoader, instance.Tenant, instance.Group)
+	if err != nil {
+		m.logger.Debug("No group configuration for instance",
+			"instance_id", instanceID,
+			"tenant", instance.Tenant,
+			"group", instance.Group)
+		return nil
+	}
+
+	for _, lbKey := range group.LoadBalancers {
+		if err := m.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusPending); err != nil {
+			m.logger.Error("Failed to create pending LB registration", "instance_id", instance.ID, "lb_key", lbKey, "error", err)
+			continue
+		}
+		if err := m.reconcileLoadBalancerTarget(ctx, cfg, instance, lbKey); err != nil {
+			m.logger.Error("Failed to register instance with load balancer", "instance_id", instance.ID, "lb_key", lbKey, "error", err)
+		}
+	}
+
+	pending, err := m.localDB.GetPendingOrFailedLBInstances()
+	if err != nil {
+		return fmt.Errorf("getting pending load balancer registrations: %w", err)
+	}
+	for _, target := range pending {
+		instance, err := m.localDB.GetInstance(target.InstanceID)
+		if err != nil || instance == nil || instance.ProviderID == nil || instance.DrainStartedAt != nil {
+			continue
+		}
+		if err := m.reconcileLoadBalancerTarget(ctx, cfg, instance, target.LBKey); err != nil {
+			m.logger.Error("Failed to retry load balancer registration", "instance_id", instance.ID, "lb_key", target.LBKey, "error", err)
+		}
+	}
+
+	return nil
+}
+
+// reconcileLoadBalancerTarget advances one provider target towards healthy registration.
+func (m *Manager) reconcileLoadBalancerTarget(ctx context.Context, cfg *config.Config, instance *localdb.Instance, lbKey string) error {
+	if instance.ProviderID == nil {
+		return fmt.Errorf("instance has no provider ID")
+	}
+	lb, ok := cfg.LoadBalancers[lbKey]
+	if !ok {
+		return fmt.Errorf("load balancer %s is not configured", lbKey)
+	}
+	if lb.Provider == "tunnel" {
+		return nil
+	}
+
+	req := infra.RegisterLBRequest{
+		ProviderInstanceID: *instance.ProviderID,
+		LBConfig:           infra.LoadBalancerConfigForProvider(lb),
+		Zone:               cfg.Shard.Infra.Zone,
+	}
+	state, err := m.provider.GetLBTargetState(ctx, req)
+	if err != nil {
+		return fmt.Errorf("checking target state: %w", err)
+	}
+	if state != infra.LBTargetDeregistered && state != infra.LBTargetPartial && state != infra.LBTargetHealthy {
+		return nil
+	}
+	if state != infra.LBTargetHealthy {
+		if err := m.provider.RegisterWithLB(ctx, req); err != nil {
+			if updateErr := m.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusFailed); updateErr != nil {
+				m.logger.Error("Failed to record load balancer registration failure", "instance_id", instance.ID, "lb_key", lbKey, "error", updateErr)
+			}
+			return fmt.Errorf("registering target: %w", err)
+		}
+		state, err = m.provider.GetLBTargetState(ctx, req)
+		if err != nil {
+			return fmt.Errorf("confirming target state: %w", err)
+		}
+	}
+	if state != infra.LBTargetHealthy {
+		return nil
+	}
+	if err := m.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusRegistered); err != nil {
+		return fmt.Errorf("recording target registration: %w", err)
+	}
+	m.logger.Info("Successfully registered instance with load balancer",
+		"instance_id", instance.ID,
+		"provider_instance_id", *instance.ProviderID,
+		"lb_key", lbKey)
+	return nil
+}
+
 // deregisterInstanceFromLB removes an instance from all its registered load balancers
 func (m *Manager) deregisterInstanceFromLB(ctx context.Context, instance *localdb.Instance) error {
 	if instance.ProviderID == nil {
@@ -703,10 +816,7 @@ func (m *Manager) deregisterInstanceFromLB(ctx context.Context, instance *locald
 	if err != nil {
 		return fmt.Errorf("getting LB instances: %w", err)
 	}
-
 	if len(lbInstances) == 0 {
-		m.logger.Debug("No load balancer registrations to deregister",
-			"instance_id", instance.ID)
 		return nil
 	}
 
@@ -721,57 +831,46 @@ func (m *Manager) deregisterInstanceFromLB(ctx context.Context, instance *locald
 		"lb_count", len(lbInstances))
 
 	for _, lbInstance := range lbInstances {
-		if lbInstance.Status == localdb.LBStatusDeregistered {
-			m.logger.Debug("Instance already deregistered from LB",
-				"instance_id", instance.ID,
-				"lb_key", lbInstance.LBKey)
-			continue
-		}
-
 		lbConfig, exists := cfg.LoadBalancers[lbInstance.LBKey]
 		if !exists {
-			m.logger.Warn("Load balancer not found in config, skipping deregistration",
-				"instance_id", instance.ID,
-				"lb_key", lbInstance.LBKey)
-			continue
+			return fmt.Errorf("load balancer %s is no longer configured; cannot safely deregister instance %s", lbInstance.LBKey, instance.ID)
 		}
 		if lbConfig.Provider == "tunnel" {
 			continue
 		}
 
-		req := infra.DeregisterLBRequest{
+		stateReq := infra.RegisterLBRequest{
 			ProviderInstanceID: *instance.ProviderID,
 			LBConfig:           infra.LoadBalancerConfigForProvider(lbConfig),
 			Zone:               cfg.Shard.Infra.Zone,
 		}
-
-		if err := m.provider.DeregisterFromLB(ctx, req); err != nil {
-			m.logger.Error("Failed to deregister instance from load balancer",
-				"instance_id", instance.ID,
-				"provider_instance_id", *instance.ProviderID,
-				"lb_key", lbInstance.LBKey,
-				"error", err)
-
-			if err := m.localDB.UpsertLBInstance(lbInstance.LBKey, instance.ID, localdb.LBStatusFailed); err != nil {
-				m.logger.Error("Failed to update LB deregistration status to failed",
-					"instance_id", instance.ID,
-					"lb_key", lbInstance.LBKey,
-					"error", err)
+		state, err := m.provider.GetLBTargetState(ctx, stateReq)
+		if err != nil {
+			return fmt.Errorf("checking instance %s load balancer %s target state: %w", instance.ID, lbInstance.LBKey, err)
+		}
+		if state != infra.LBTargetDeregistered {
+			if err := m.provider.DeregisterFromLB(ctx, infra.DeregisterLBRequest(stateReq)); err != nil {
+				if updateErr := m.localDB.UpsertLBInstance(lbInstance.LBKey, instance.ID, localdb.LBStatusFailed); updateErr != nil {
+					m.logger.Error("Failed to update LB deregistration status to failed", "error", updateErr)
+				}
+				return fmt.Errorf("deregistering instance %s from load balancer %s: %w", instance.ID, lbInstance.LBKey, err)
 			}
-			continue
+			state, err = m.provider.GetLBTargetState(ctx, stateReq)
+			if err != nil {
+				return fmt.Errorf("confirming instance %s deregistration from load balancer %s: %w", instance.ID, lbInstance.LBKey, err)
+			}
+		}
+		if state != infra.LBTargetDeregistered {
+			return fmt.Errorf("instance %s target is still %s in load balancer %s", instance.ID, state, lbInstance.LBKey)
 		}
 
 		if err := m.localDB.UpsertLBInstance(lbInstance.LBKey, instance.ID, localdb.LBStatusDeregistered); err != nil {
-			m.logger.Error("Failed to update LB deregistration status",
-				"instance_id", instance.ID,
-				"lb_key", lbInstance.LBKey,
-				"error", err)
-		} else {
-			m.logger.Info("Successfully deregistered instance from load balancer",
-				"instance_id", instance.ID,
-				"provider_instance_id", *instance.ProviderID,
-				"lb_key", lbInstance.LBKey)
+			return fmt.Errorf("recording instance %s deregistration from load balancer %s: %w", instance.ID, lbInstance.LBKey, err)
 		}
+		m.logger.Info("Successfully deregistered instance from load balancer",
+			"instance_id", instance.ID,
+			"provider_instance_id", *instance.ProviderID,
+			"lb_key", lbInstance.LBKey)
 	}
 
 	return nil

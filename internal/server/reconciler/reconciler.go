@@ -50,6 +50,12 @@ type ReconcileEvent struct {
 	Attempt          int    // Retry attempt number for follow-up polling
 }
 
+// queuedEvent binds an event to the leadership term that enqueued it.
+type queuedEvent struct {
+	event ReconcileEvent
+	term  uint64
+}
+
 // groupIdentity identifies a group within a tenant for reconciler state.
 type groupIdentity struct {
 	tenant string
@@ -58,7 +64,7 @@ type groupIdentity struct {
 
 // Reconciler handles instance reconciliation (matching actual instance count to desired group size)
 type Reconciler struct {
-	queue           chan ReconcileEvent
+	queue           chan queuedEvent
 	instanceManager InstanceManager
 	configLoader    *config.Loader
 	localDB         *localdb.DB
@@ -84,6 +90,7 @@ type Reconciler struct {
 	// Control
 	mu      sync.RWMutex
 	started bool
+	term    uint64
 
 	// Shutdown
 	ctx    context.Context
@@ -131,7 +138,7 @@ func New(opts Options) (*Reconciler, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Reconciler{
-		queue:           make(chan ReconcileEvent, 1000),
+		queue:           make(chan queuedEvent, 1000),
 		instanceManager: opts.InstanceManager,
 		configLoader:    opts.ConfigLoader,
 		localDB:         opts.LocalDB,
@@ -165,6 +172,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	r.ctx, r.cancel = context.WithCancel(ctx)
+	r.term++
 
 	// Start reconciliation loop
 	r.wg.Add(1)
@@ -177,25 +185,32 @@ func (r *Reconciler) Start(ctx context.Context) error {
 // Stop stops the reconciliation loop
 func (r *Reconciler) Stop() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if !r.started {
+		r.mu.Unlock()
 		r.logger.Debug("Reconciler not started")
 		return
 	}
 
 	r.logger.Info("Stopping reconciler")
-	r.stopAllExpiryTimers()
+	r.term++
 	r.cancel()
+	r.mu.Unlock()
+	r.stopAllExpiryTimers()
 	r.wg.Wait()
+	r.mu.Lock()
 	r.started = false
+	r.mu.Unlock()
 	r.logger.Info("Reconciler stopped")
 }
 
 // Enqueue adds a reconciliation event to the queue
 func (r *Reconciler) Enqueue(event ReconcileEvent) {
+	r.mu.RLock()
+	ctx := r.ctx
+	term := r.term
+	r.mu.RUnlock()
 	select {
-	case r.queue <- event:
+	case r.queue <- queuedEvent{event: event, term: term}:
 		logAttrs := []any{"type", event.Type}
 		if event.GroupKey != "" {
 			logAttrs = append(logAttrs, "group", event.GroupKey)
@@ -204,7 +219,7 @@ func (r *Reconciler) Enqueue(event ReconcileEvent) {
 			logAttrs = append(logAttrs, "instance", event.InstanceID)
 		}
 		r.logger.Debug("Enqueued reconciliation event", logAttrs...)
-	case <-r.ctx.Done():
+	case <-ctx.Done():
 		r.logger.Warn("Cannot enqueue event, reconciler is stopped")
 	default:
 		logAttrs := []any{"type", event.Type}
@@ -213,6 +228,26 @@ func (r *Reconciler) Enqueue(event ReconcileEvent) {
 		}
 		r.logger.Warn("Reconciliation queue full, dropping event", logAttrs...)
 	}
+}
+
+// scheduleEvent enqueues an event after a delay if its leadership term remains active.
+func (r *Reconciler) scheduleEvent(delay time.Duration, event ReconcileEvent) {
+	r.mu.RLock()
+	ctx := r.ctx
+	term := r.term
+	if !r.started || ctx.Err() != nil {
+		r.mu.RUnlock()
+		return
+	}
+	r.mu.RUnlock()
+	time.AfterFunc(delay, func() {
+		select {
+		case r.queue <- queuedEvent{event: event, term: term}:
+		case <-ctx.Done():
+		default:
+			r.logger.Warn("Reconciliation queue full, dropping scheduled event", "type", event.Type)
+		}
+	})
 }
 
 // reconcileLoop is the main reconciliation loop
@@ -224,8 +259,13 @@ func (r *Reconciler) reconcileLoop() {
 		case <-r.ctx.Done():
 			r.logger.Info("Reconciliation loop stopped")
 			return
-		case event := <-r.queue:
-			r.handleEvent(event)
+		case queued := <-r.queue:
+			r.mu.RLock()
+			currentTerm := r.term
+			r.mu.RUnlock()
+			if queued.term == currentTerm {
+				r.handleEvent(queued.event)
+			}
 		}
 	}
 }

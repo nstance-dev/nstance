@@ -282,6 +282,7 @@ func TestBuildTemplateDataSupportsDynamicOnlyGroups(t *testing.T) {
 	}
 }
 
+// TestGenerateFilesWithNilListGeneratesAllTemplateFiles verifies nil requests generate the complete configured file set.
 func TestGenerateFilesWithNilListGeneratesAllTemplateFiles(t *testing.T) {
 	ctx := context.Background()
 	cfg := testFilegenConfig()
@@ -311,9 +312,12 @@ func TestGenerateFilesWithNilListGeneratesAllTemplateFiles(t *testing.T) {
 		t.Fatalf("failed to create instance: %v", err)
 	}
 
-	generatedFiles, err := generator.GenerateFiles(ctx, "knc_test789", nil)
+	generatedFiles, runtimeHash, err := generator.GenerateFiles(ctx, "knc_test789", nil)
 	if err != nil {
 		t.Fatalf("failed to generate files: %v", err)
+	}
+	if runtimeHash == "" {
+		t.Fatal("generated runtime hash is empty")
 	}
 
 	if got := string(generatedFiles["worker.env"]); !strings.Contains(got, "INSTANCE_ID=knc_test789") {
@@ -384,6 +388,9 @@ func newTemplateDataTestGenerator(t *testing.T, cfg *config.Config) (*Generator,
 		t.Fatalf("failed to create config loader: %v", err)
 	}
 	loader.SetConfig(cfg)
+	if _, err := loader.LoadDynamicGroups(context.Background()); err != nil {
+		t.Fatalf("failed to load dynamic groups: %v", err)
+	}
 
 	return &Generator{
 		configLoader:     loader,

@@ -5,6 +5,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -13,7 +14,6 @@ import (
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/filegen"
-	"github.com/nstance-dev/nstance/internal/server/infra"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
@@ -29,9 +29,9 @@ type Service struct {
 	localDB              *localdb.DB
 	secretsStore         secrets.Store
 	fileGenerator        *filegen.Generator
-	provider             infra.Provider
 	imageGetter          filegen.ImageGetter
 	logger               *slog.Logger
+	onHealthReport       func(context.Context, string) error
 	onSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
 	onReconcileRequested func(tenant, groupKey, reason string) error
 	onInstanceDisconnect func(instanceID string, graceful bool) error
@@ -41,10 +41,11 @@ type Service struct {
 	pendingKeyRequests       map[string][]*PendingKeyRequest // instanceID -> key requests
 	pendingKeyRequestsNotify map[string]chan struct{}        // instanceID to process requests for
 
-	// In-memory pending files with mutex for thread safety
+	// File patches waiting to be sent.
 	pendingFilesMu     sync.RWMutex
-	pendingFiles       map[string][]*PendingFile // instanceID -> files
-	pendingFilesNotify map[string]chan struct{}  // instanceID to process files for
+	pendingFiles       map[string]*pendingFilePatch
+	fileRequests       map[string]*fileRequest
+	pendingFilesNotify map[string]chan struct{}
 }
 
 // Options contains options for creating an AgentService
@@ -56,9 +57,9 @@ type Options struct {
 	CACertPEM            []byte
 	CAKeyPEM             []byte
 	Shard                string
-	Provider             infra.Provider
 	ImageGetter          filegen.ImageGetter
 	Logger               *slog.Logger
+	OnHealthReport       func(context.Context, string) error
 	OnSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
 	OnReconcileRequested func(tenant, groupKey, reason string) error
 	OnInstanceDisconnect func(instanceID string, graceful bool) error
@@ -96,13 +97,14 @@ func New(opts Options) (*Service, error) {
 		configLoader:             opts.ConfigLoader,
 		localDB:                  opts.LocalDB,
 		secretsStore:             opts.SecretsStore,
-		provider:                 opts.Provider,
 		imageGetter:              opts.ImageGetter,
 		logger:                   opts.Logger,
+		onHealthReport:           opts.OnHealthReport,
 		onSpotTermination:        opts.OnSpotTermination,
 		onReconcileRequested:     opts.OnReconcileRequested,
 		onInstanceDisconnect:     opts.OnInstanceDisconnect,
-		pendingFiles:             make(map[string][]*PendingFile),
+		pendingFiles:             make(map[string]*pendingFilePatch),
+		fileRequests:             make(map[string]*fileRequest),
 		pendingFilesNotify:       make(map[string]chan struct{}),
 		pendingKeyRequests:       make(map[string][]*PendingKeyRequest),
 		pendingKeyRequestsNotify: make(map[string]chan struct{}),
@@ -150,4 +152,16 @@ type PendingFile struct {
 	Filename     string
 	Content      []byte
 	LastModified time.Time
+}
+
+// pendingFilePatch contains one file patch waiting to be sent.
+type pendingFilePatch struct {
+	Files      []*PendingFile
+	ConfigHash string
+}
+
+// fileRequest identifies the newest asynchronous file request for an instance.
+type fileRequest struct {
+	ConfigHash string
+	Cancel     func()
 }

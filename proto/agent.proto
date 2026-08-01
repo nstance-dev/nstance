@@ -103,5 +103,5 @@ message FileTransfer {
   string filename = 1;
   bytes content = 2;
   google.protobuf.Timestamp last_modified = 3;
-  string config_hash = 4; // Optional: updated runtime config hash to write to identity/config.hash
+  string config_hash = 4; // Non-empty on a filename-free commit message; applies the patch and updates identity/config.hash
 }

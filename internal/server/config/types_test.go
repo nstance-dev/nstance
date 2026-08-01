@@ -471,7 +471,7 @@ func TestLoadBalancerValidation(t *testing.T) {
 				references = append(references, key)
 			}
 			config.Groups = map[string]map[string]GroupConfig{
-				"default": {"control-plane": {Template: "knc", LoadBalancers: references}},
+				"default": {"control-plane": {Template: "knc", Size: IntPtr(1), LoadBalancers: references}},
 			}
 			config.SetDefaults()
 

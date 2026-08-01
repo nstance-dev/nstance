@@ -26,5 +26,6 @@ type Provider interface {
 	// Load balancer groups
 	RegisterWithLB(ctx context.Context, req RegisterLBRequest) error
 	DeregisterFromLB(ctx context.Context, req DeregisterLBRequest) error
+	GetLBTargetState(ctx context.Context, req RegisterLBRequest) (LBTargetState, error)
 	ListLBInstances(ctx context.Context, req ListLBInstancesRequest) ([]string, error)
 }

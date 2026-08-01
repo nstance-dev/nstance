@@ -134,23 +134,30 @@ func (a *agentService) ReceiveFiles(_ *emptypb.Empty, stream proto.AgentService_
 				return status.Errorf(codes.Internal, "decode pending files: %v", err)
 			}
 		}
-		// Look up the tenant once per batch so each FileTransfer can carry the
-		// current runtime config hash, and return an empty hash when the tenant
-		// cannot be loaded, both matching real nstance server behavior
 		configHash := ""
 		if len(files) > 0 {
-			if inst, err := a.s.getInstance(stream.Context(), info.ClientID); err == nil {
-				if tenant, err := a.s.tenant(stream.Context(), inst.TenantID); err == nil {
-					configHash = tenantRuntimeConfigHash(tenant)
-				}
+			inst, err := a.s.getInstance(stream.Context(), info.ClientID)
+			if err != nil {
+				return status.Errorf(codes.Internal, "load instance for pending files: %v", err)
 			}
-		}
-		for _, f := range files {
-			if err := stream.Send(&proto.FileTransfer{Filename: f.Filename, Content: f.Content, LastModified: timestamppb.New(f.LastModified), ConfigHash: configHash}); err != nil {
-				return err
+			tenant, err := a.s.tenant(stream.Context(), inst.TenantID)
+			if err != nil {
+				return status.Errorf(codes.Internal, "load tenant for pending files: %v", err)
+			}
+			configHash = tenantRuntimeConfigHash(tenant)
+			if configHash == "" {
+				return status.Error(codes.Internal, "runtime config hash is empty")
 			}
 		}
 		if len(files) > 0 {
+			for _, f := range files {
+				if err := stream.Send(&proto.FileTransfer{Filename: f.Filename, Content: f.Content, LastModified: timestamppb.New(f.LastModified)}); err != nil {
+					return err
+				}
+			}
+			if err := stream.Send(&proto.FileTransfer{ConfigHash: configHash}); err != nil {
+				return err
+			}
 			if err := a.s.cfg.Store.Delete(context.WithoutCancel(stream.Context()), a.s.pendingKey(info.ClientID)); err != nil && !errors.Is(err, ErrNotFound) {
 				return status.Errorf(codes.Internal, "delete pending files: %v", err)
 			}

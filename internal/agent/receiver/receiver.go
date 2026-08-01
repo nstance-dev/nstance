@@ -40,84 +40,99 @@ func NewReceiver(logger *slog.Logger, cfg ReceiverConfig) *Receiver {
 	}
 }
 
-// ReceiveFiles processes a map of filenames to file data,
-// validates the file contents based on the filename extension (e.g. `.crt`),
-// and writes each file to the receive directory.
-func (r *Receiver) ReceiveFiles(payload map[string][]byte) error {
-	if len(payload) == 0 {
-		return nil
+// ReceiveFiles validates and applies a file patch, then publishes its hash and completion marker.
+func (r *Receiver) ReceiveFiles(payload map[string][]byte, configHash string) error {
+	if configHash == "" {
+		return fmt.Errorf("config hash is required")
 	}
-
+	if r.config.IdentityDir == "" {
+		return fmt.Errorf("identity directory not configured")
+	}
 	for fileName := range payload {
 		if strings.TrimSpace(fileName) == "" {
 			return fmt.Errorf("empty filename in payload")
 		}
-		if filepath.IsAbs(fileName) || filepath.Base(fileName) != fileName {
+		if filepath.IsAbs(fileName) || filepath.Base(fileName) != fileName || strings.HasPrefix(fileName, ".") || fileName == lastCompletedTimestampFile {
 			return fmt.Errorf("invalid filename: %s", fileName)
 		}
 	}
-
-	recvDir := r.config.RecvDir
-	var err error
-	writtenCount := 0
+	rejected := false
 	for fileName, fileContent := range payload {
-		filePath := filepath.Join(recvDir, fileName)
-		errorFilePath := filepath.Join(recvDir, "errors", fileName)
 		validator := r.validators[strings.ToLower(filepath.Ext(fileName))]
+		var validationErr error
 		if validator == nil {
-			return fmt.Errorf("unsupported file extension %s", filepath.Ext(fileName))
+			validationErr = fmt.Errorf("unsupported file extension %s", filepath.Ext(fileName))
+		} else if err := validator(fileName, fileContent); err != nil {
+			validationErr = fmt.Errorf("validation failed for %s: %w", fileName, err)
 		}
-		err = validator(fileName, fileContent)
-		if err != nil {
-			// Validation failures are surfaced via health reporting; we log and write the error file
-			// but return nil so callers continue streaming without immediate failure.
-			wrappedErr := fmt.Errorf("validation failed for %s: %w", fileName, err)
-			r.logger.Error(wrappedErr.Error(), "filename", fileName)
-			// Ensure errors directory exists
-			if err := os.MkdirAll(filepath.Join(recvDir, "errors"), 0755); err != nil {
-				r.logger.Error("failed to create errors directory", "err", err)
-				continue
+		if validationErr != nil {
+			r.logger.Error(validationErr.Error(), "filename", fileName)
+			// Health reports read validation failures from the errors directory.
+			errorsDir := filepath.Join(r.config.RecvDir, "errors")
+			if mkdirErr := os.MkdirAll(errorsDir, 0o755); mkdirErr != nil {
+				return fmt.Errorf("%w; failed to create errors directory: %v", validationErr, mkdirErr)
 			}
-			if err := os.WriteFile(errorFilePath, []byte(err.Error()), r.config.FileMode); err != nil {
-				r.logger.Error("failed to write error file", "filename", filepath.Join("errors", fileName), "err", err)
+			if writeErr := os.WriteFile(filepath.Join(errorsDir, fileName), []byte(validationErr.Error()), r.config.FileMode); writeErr != nil {
+				return fmt.Errorf("%w; failed to write error file: %v", validationErr, writeErr)
 			}
-			continue
+			// Reject the patch without stopping the stream. The next health report
+			// includes the validation error so the server can retry the file.
+			rejected = true
 		}
-		_ = os.Remove(errorFilePath)
-		if err := os.WriteFile(filePath, fileContent, r.config.FileMode); err != nil {
-			r.logger.Error("failed to write received file", "filename", fileName, "err", err)
-			return fmt.Errorf("failed to write received file %s: %w", fileName, err)
-		}
-		writtenCount++
 	}
-
-	if writtenCount == 0 {
+	if rejected {
 		return nil
 	}
 
-	lastCompleteTsFile := filepath.Join(recvDir, lastCompletedTimestampFile)
+	for fileName, fileContent := range payload {
+		if err := replaceFile(filepath.Join(r.config.RecvDir, fileName), fileContent, r.config.FileMode); err != nil {
+			return fmt.Errorf("failed to replace received file %s: %w", fileName, err)
+		}
+	}
+	for fileName := range payload {
+		errorPath := filepath.Join(r.config.RecvDir, "errors", fileName)
+		if err := os.Remove(errorPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove validation error for %s: %w", fileName, err)
+		}
+	}
+	if err := replaceFile(filepath.Join(r.config.IdentityDir, "config.hash"), []byte(configHash), r.config.FileMode); err != nil {
+		return fmt.Errorf("failed to replace config hash: %w", err)
+	}
 	nowTs := fmt.Sprintf("%d", time.Now().UTC().UnixMilli())
-	if err := os.WriteFile(lastCompleteTsFile, []byte(nowTs), r.config.FileMode); err != nil {
-		r.logger.Error("failed to write last completed timestamp file", "err", err, "filename", lastCompletedTimestampFile)
-		return nil
+	if err := replaceFile(filepath.Join(r.config.RecvDir, lastCompletedTimestampFile), []byte(nowTs), r.config.FileMode); err != nil {
+		return fmt.Errorf("failed to publish file transfer: %w", err)
 	}
-	r.logger.Info("successfully received files", "count", writtenCount, "last_completed_timestamp", nowTs)
-
+	r.logger.Info("successfully applied file patch", "updated", len(payload), "last_completed_timestamp", nowTs)
 	return nil
 }
 
-// ReceiveConfigHash updates the config.hash file in the identity directory
-func (r *Receiver) ReceiveConfigHash(configHash string) error {
-	if r.config.IdentityDir == "" {
-		r.logger.Warn("Identity directory not configured, cannot update config hash")
-		return nil
+// replaceFile writes a temporary file beside path and renames it into place.
+func replaceFile(path string, content []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".nstance-recv-*")
+	if err != nil {
+		return err
 	}
-
-	configHashPath := filepath.Join(r.config.IdentityDir, "config.hash")
-	if err := os.WriteFile(configHashPath, []byte(configHash), r.config.FileMode); err != nil {
-		return fmt.Errorf("failed to write config hash: %w", err)
+	temporaryPath := temporary.Name()
+	failed := true
+	defer func() {
+		if failed {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
 	}
-
-	r.logger.Info("Updated config hash", "hash", configHash)
+	if _, err := temporary.Write(content); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	failed = false
 	return nil
 }

@@ -339,6 +339,16 @@ func (p *Provider) DeregisterFromLB(ctx context.Context, req provider.Deregister
 	return nil
 }
 
+// GetLBTargetState reports whether a target is present in the mock load balancer.
+func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLBRequest) (provider.LBTargetState, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.lbInstances[p.getLBKey(req.LBConfig)][req.ProviderInstanceID] {
+		return provider.LBTargetHealthy, nil
+	}
+	return provider.LBTargetDeregistered, nil
+}
+
 // ListLBInstances lists all instances currently registered with a mock load balancer
 func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInstancesRequest) ([]string, error) {
 	p.mu.RLock()
