@@ -6,6 +6,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,12 +14,17 @@ import (
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/internal/server/tenantstate"
 )
 
+// CreateInstance wakes the tenant and creates an on-demand instance.
 func (s *Service) CreateInstance(ctx context.Context, req *proto.CreateInstanceRequest) (*proto.CreateInstanceResponse, error) {
 	clientInfo, err := api.GetClientInfo(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get client info: %v", err)
+	}
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
 	s.logger.Info("Creating instance", "client_id", clientInfo.ClientID, "instance_id", req.InstanceId)
@@ -41,15 +47,26 @@ func (s *Service) CreateInstance(ctx context.Context, req *proto.CreateInstanceR
 		OnDemand:     true,
 	}
 
-	resp, err := s.instanceManager.CreateInstance(ctx, createReq)
+	var resp *instances.CreateInstanceResponse
+	create := func(ctx context.Context) error {
+		resp, err = s.instanceManager.CreateInstance(ctx, createReq)
+		return err
+	}
+	if s.tenantState != nil {
+		err = s.tenantState.CreateOnDemand(ctx, clientInfo.Tenant, create)
+	} else {
+		err = create(ctx)
+	}
 	if err != nil {
+		if errors.Is(err, tenantstate.ErrInactive) || errors.Is(err, context.Canceled) {
+			return nil, status.Error(codes.Unavailable, "shard leadership changed")
+		}
 		s.logger.Error("Failed to create instance",
 			"client_id", clientInfo.ClientID,
 			"group", req.Config.Group,
 			"error", err)
 		return nil, status.Errorf(codes.Internal, "failed to create instance: %v", err)
 	}
-
 	s.logger.Info("Instance created successfully",
 		"client_id", clientInfo.ClientID,
 		"instance_id", resp.InstanceID,

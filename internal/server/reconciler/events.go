@@ -5,6 +5,7 @@
 package reconciler
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/nstance-dev/nstance/internal/server/config"
@@ -21,6 +22,9 @@ func (r *Reconciler) handleSpotTerminating(instanceID string) error {
 	}
 
 	groupKey := instance.Group
+	if r.tenantState != nil && r.tenantState.IsAsleep(instance.Tenant) {
+		return nil
+	}
 
 	// Get group configuration
 	group, err := config.GetGroup(r.ctx, r.configLoader, instance.Tenant, groupKey)
@@ -43,6 +47,9 @@ func (r *Reconciler) handleSpotTerminating(instanceID string) error {
 	// Create replacement instance
 	resp, err := r.createInstanceForGroup(instance.Tenant, groupKey, *group, true)
 	if err != nil {
+		if errors.Is(err, errTenantAsleep) {
+			return nil
+		}
 		if r.notifyError != nil {
 			r.notifyError(instance.Tenant, groupKey, instanceID, fmt.Sprintf("Failed to create replacement for spot-terminating instance: %v", err))
 		}

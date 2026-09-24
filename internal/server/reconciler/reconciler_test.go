@@ -6,6 +6,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -23,6 +24,16 @@ import (
 type MockInstanceManager struct {
 	CreateInstanceFunc func(ctx context.Context, req instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error)
 	DeleteInstanceFunc func(ctx context.Context, tenant, instanceID string) error
+}
+
+// fakeTenantState provides mutable sleep state to reconciler tests.
+type fakeTenantState struct {
+	asleep bool
+}
+
+// IsAsleep returns the configured test sleep state.
+func (s *fakeTenantState) IsAsleep(string) bool {
+	return s.asleep
 }
 
 // CreateInstance invokes the configured test function or returns a default instance.
@@ -166,6 +177,38 @@ func TestRestartDiscardsQueuedEventsFromPreviousLeadershipTerm(t *testing.T) {
 	}
 }
 
+// TestEnqueueTenantChangedWaitsForQueueCapacity verifies durable state changes are not dropped.
+func TestEnqueueTenantChangedWaitsForQueueCapacity(t *testing.T) {
+	r := &Reconciler{
+		queue:   make(chan queuedEvent, 1),
+		ctx:     context.Background(),
+		started: true,
+		term:    3,
+	}
+	r.queue <- queuedEvent{event: ReconcileEvent{Type: EventCheckInstance}, term: 3}
+	done := make(chan struct{})
+	go func() {
+		r.EnqueueTenantChanged("red")
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("tenant change was dropped from a full queue")
+	case <-time.After(20 * time.Millisecond):
+	}
+	<-r.queue
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("tenant change did not enqueue after capacity became available")
+	}
+	queued := <-r.queue
+	if queued.term != 3 || queued.event.Type != EventTenantChanged || queued.event.Tenant != "red" {
+		t.Fatalf("queued tenant change = %#v", queued)
+	}
+}
+
+// Get returns the configured test object or a not-found error.
 func (m *MockStorage) Get(ctx context.Context, key string) ([]byte, string, error) {
 	if m.GetFunc != nil {
 		return m.GetFunc(ctx, key)
@@ -173,6 +216,7 @@ func (m *MockStorage) Get(ctx context.Context, key string) ([]byte, string, erro
 	return nil, "", storage.ErrNotFound
 }
 
+// Put records an object through the configured test callback.
 func (m *MockStorage) Put(ctx context.Context, key string, data []byte) error {
 	if m.PutFunc != nil {
 		return m.PutFunc(ctx, key, data)
@@ -180,6 +224,7 @@ func (m *MockStorage) Put(ctx context.Context, key string, data []byte) error {
 	return nil
 }
 
+// PutIfMatch records a conditional object write through the configured test callback.
 func (m *MockStorage) PutIfMatch(ctx context.Context, key string, data []byte, etag string) error {
 	if m.PutFunc != nil {
 		return m.PutFunc(ctx, key, data)
@@ -187,6 +232,7 @@ func (m *MockStorage) PutIfMatch(ctx context.Context, key string, data []byte, e
 	return nil
 }
 
+// TestReconciler_ScaleUp verifies reconciliation creates instances to reach desired size.
 func TestReconciler_ScaleUp(t *testing.T) {
 	// Setup
 	db, err := localdb.Open(":memory:")
@@ -284,6 +330,7 @@ func TestReconciler_ScaleUp(t *testing.T) {
 	}
 }
 
+// TestReconciler_ScaleDown verifies reconciliation removes excess instances.
 func TestReconciler_ScaleDown(t *testing.T) {
 	// Setup
 	db, err := localdb.Open(":memory:")
@@ -437,5 +484,86 @@ func TestReconciler_ScaleDown(t *testing.T) {
 		// Success
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for scale down")
+	}
+}
+
+// TestSleepingTenantUsesZeroEffectiveSizeWithoutChangingDesiredSize verifies sleep is ephemeral.
+func TestSleepingTenantUsesZeroEffectiveSizeWithoutChangingDesiredSize(t *testing.T) {
+	db, err := localdb.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.CreateInstance(&localdb.Instance{
+		ID:            "inst-1",
+		Tenant:        "red",
+		Group:         "workers",
+		Nonce:         "nonce-1",
+		ProviderState: []byte(`{"status":"running"}`),
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	store := &MockStorage{}
+	loader, err := config.NewLoader(config.LoaderOptions{Storage: store, CacheStorage: store, LocalDB: db})
+	if err != nil {
+		t.Fatalf("create loader: %v", err)
+	}
+	desired := 2
+	loader.SetConfig(&config.Config{
+		Groups: map[string]map[string]config.GroupConfig{
+			"red": {"workers": {Template: "worker", Size: &desired}},
+		},
+		Templates: map[string]config.TemplateConfig{"worker": {Kind: "server"}},
+	})
+
+	state := &fakeTenantState{asleep: true}
+	deleted := 0
+	created := 0
+	r, err := New(Options{
+		InstanceManager: &MockInstanceManager{
+			CreateInstanceFunc: func(context.Context, instances.CreateInstanceRequest) (*instances.CreateInstanceResponse, error) {
+				created++
+				return &instances.CreateInstanceResponse{InstanceID: "created"}, nil
+			},
+			DeleteInstanceFunc: func(context.Context, string, string) error {
+				deleted++
+				return nil
+			},
+		},
+		TenantState:  state,
+		ConfigLoader: loader,
+		LocalDB:      db,
+		Provider:     mock.NewProvider(mock.Options{}),
+		NotifyDrain:  func(string, string, string, time.Time, time.Time) {},
+		IsLeader:     func() bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create reconciler: %v", err)
+	}
+	if err := r.handleGroupChanged("red", "workers"); err != nil {
+		t.Fatalf("reconcile asleep tenant: %v", err)
+	}
+	if deleted != 1 || created != 0 {
+		t.Fatalf("asleep reconcile = %d deleted, %d created; want 1, 0", deleted, created)
+	}
+	if _, err := r.createInstanceForGroup("red", "workers", config.GroupConfig{Size: &desired}, true); !errors.Is(err, errTenantAsleep) {
+		t.Fatalf("stale replacement error = %v, want errTenantAsleep", err)
+	}
+	group, err := config.GetGroup(context.Background(), loader, "red", "workers")
+	if err != nil {
+		t.Fatalf("get configured group: %v", err)
+	}
+	if group.GetSize() != desired {
+		t.Fatalf("configured desired size = %d, want %d", group.GetSize(), desired)
+	}
+
+	state.asleep = false
+	if err := r.handleGroupChanged("red", "workers"); err != nil {
+		t.Fatalf("reconcile awake tenant: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("awake reconcile created %d instances, want 1", created)
 	}
 }

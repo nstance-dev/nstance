@@ -31,7 +31,7 @@ func TestManagerSleepUpdateWakeAndCleanup(t *testing.T) {
 	defer manager.Stop()
 
 	firstWake := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
-	already, effective, err := manager.Sleep(ctx, "red", &firstWake)
+	already, effective, err := manager.Sleep(ctx, "red", &firstWake, nil)
 	if err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestManagerSleepUpdateWakeAndCleanup(t *testing.T) {
 		t.Fatalf("first sleep = already %v, wake %v", already, effective)
 	}
 	secondWake := firstWake.Add(time.Hour)
-	already, effective, err = manager.Sleep(ctx, "red", &secondWake)
+	already, effective, err = manager.Sleep(ctx, "red", &secondWake, nil)
 	if err != nil {
 		t.Fatalf("update Sleep: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestManagerRetriesCASConflictWithoutLosingConcurrentState(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	defer manager.Stop()
-	if _, _, err := manager.Sleep(ctx, "red", nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", nil, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	data, _, err := base.Get(ctx, stateKey)
@@ -126,7 +126,7 @@ func TestManagerRestartResumesTimerAndConcurrentWakeConverges(t *testing.T) {
 		t.Fatalf("Start first manager: %v", err)
 	}
 	wakeAt := time.Now().UTC().Add(80 * time.Millisecond)
-	if _, _, err := first.Sleep(ctx, "red", &wakeAt); err != nil {
+	if _, _, err := first.Sleep(ctx, "red", &wakeAt, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	first.Stop()
@@ -147,7 +147,7 @@ func TestManagerRestartResumesTimerAndConcurrentWakeConverges(t *testing.T) {
 		t.Fatal("tenant remains asleep after timer")
 	}
 
-	if _, _, err := restarted.Sleep(ctx, "red", nil); err != nil {
+	if _, _, err := restarted.Sleep(ctx, "red", nil, nil); err != nil {
 		t.Fatalf("second Sleep: %v", err)
 	}
 	var woke atomic.Int32
@@ -192,8 +192,8 @@ func TestManagerRejectsUnknownStateFields(t *testing.T) {
 	}
 }
 
-// TestManagerRejectsTransitionAfterStop verifies inactive managers reject writes.
-func TestManagerRejectsTransitionAfterStop(t *testing.T) {
+// TestManagerRejectsOperationAfterStop verifies inactive managers reject writes.
+func TestManagerRejectsOperationAfterStop(t *testing.T) {
 	ctx := context.Background()
 	manager, err := New(storage.NewMock(), nil)
 	if err != nil {
@@ -203,7 +203,7 @@ func TestManagerRejectsTransitionAfterStop(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	manager.Stop()
-	if _, _, err := manager.Sleep(ctx, "red", nil); !errors.Is(err, ErrInactive) {
+	if _, _, err := manager.Sleep(ctx, "red", nil, nil); !errors.Is(err, ErrInactive) {
 		t.Fatalf("Sleep after Stop error = %v, want ErrInactive", err)
 	}
 	if _, err := manager.Wake(ctx, "red"); !errors.Is(err, ErrInactive) {
@@ -239,7 +239,7 @@ func TestManagerTimerRetriesTransientFailure(t *testing.T) {
 	}
 	defer manager.Stop()
 	wakeAt := time.Now().UTC().Add(30 * time.Millisecond)
-	if _, _, err := manager.Sleep(ctx, "red", &wakeAt); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", &wakeAt, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	store.fail.Store(true)
@@ -264,15 +264,205 @@ func TestManagerStaleTimerDoesNotRemoveUpdatedSleep(t *testing.T) {
 	}
 	defer manager.Stop()
 	first := time.Now().UTC().Add(30 * time.Millisecond)
-	if _, _, err := manager.Sleep(ctx, "red", &first); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", &first, nil); err != nil {
 		t.Fatalf("first Sleep: %v", err)
 	}
 	updated := time.Now().UTC().Add(200 * time.Millisecond)
-	if _, _, err := manager.Sleep(ctx, "red", &updated); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", &updated, nil); err != nil {
 		t.Fatalf("updated Sleep: %v", err)
 	}
 	time.Sleep(80 * time.Millisecond)
 	if !manager.IsAsleep("red") {
 		t.Fatal("stale timer removed updated sleep entry")
+	}
+}
+
+// TestManagerGuardsSleepAndOnDemandCreation verifies domain checks run under tenant serialization.
+func TestManagerGuardsSleepAndOnDemandCreation(t *testing.T) {
+	ctx := context.Background()
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer manager.Stop()
+
+	blocked := errors.New("blocked")
+	if _, _, err := manager.Sleep(ctx, "red", nil, func(context.Context) error { return blocked }); !errors.Is(err, blocked) {
+		t.Fatalf("Sleep check error = %v, want %v", err, blocked)
+	}
+	if manager.IsAsleep("red") {
+		t.Fatal("failed sleep check persisted sleep state")
+	}
+	if _, _, err := manager.Sleep(ctx, "red", nil, nil); err != nil {
+		t.Fatalf("Sleep: %v", err)
+	}
+	created := false
+	awakeAtCreate := false
+	err = manager.CreateOnDemand(ctx, "red", func(context.Context) error {
+		created = true
+		awakeAtCreate = !manager.IsAsleep("red")
+		return nil
+	})
+	if err != nil || !created || !awakeAtCreate || manager.IsAsleep("red") {
+		t.Fatalf("CreateOnDemand = created %v, awake at create %v, asleep afterward %v, error %v", created, awakeAtCreate, manager.IsAsleep("red"), err)
+	}
+}
+
+// TestManagerSerializesTenantOperations verifies every operation shares one tenant lock.
+func TestManagerSerializesTenantOperations(t *testing.T) {
+	ctx := context.Background()
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer manager.Stop()
+	if _, _, err := manager.Sleep(ctx, "red", nil, nil); err != nil {
+		t.Fatalf("Sleep: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	operationDone := make(chan error, 1)
+	go func() {
+		_, err := manager.WakeAndWait(ctx, "red", func(context.Context) error {
+			close(entered)
+			<-release
+			return nil
+		})
+		operationDone <- err
+	}()
+	<-entered
+
+	sleepDone := make(chan error, 1)
+	go func() {
+		_, _, err := manager.Sleep(ctx, "red", nil, nil)
+		sleepDone <- err
+	}()
+	select {
+	case err := <-sleepDone:
+		t.Fatalf("Sleep completed while wake was waiting: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	otherDone := make(chan error, 1)
+	go func() {
+		_, _, err := manager.Sleep(ctx, "blue", nil, nil)
+		otherDone <- err
+	}()
+	select {
+	case err := <-otherDone:
+		if err != nil {
+			t.Fatalf("other tenant operation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("independent tenant operation was blocked")
+	}
+
+	close(release)
+	if err := <-operationDone; err != nil {
+		t.Fatalf("WakeAndWait: %v", err)
+	}
+	if err := <-sleepDone; err != nil {
+		t.Fatalf("Sleep: %v", err)
+	}
+	if !manager.IsAsleep("red") {
+		t.Fatal("sleep did not run after wake completed")
+	}
+}
+
+// TestManagerLeadershipLossCancelsWaitingOperation verifies old-term work cannot outlive leadership.
+func TestManagerLeadershipLossCancelsWaitingOperation(t *testing.T) {
+	ctx := context.Background()
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = manager.runForTenant(ctx, "red", func(context.Context) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	waiterDone := make(chan error, 1)
+	go func() {
+		waiterDone <- manager.runForTenant(ctx, "red", func(context.Context) error { return nil })
+	}()
+	stopDone := make(chan struct{})
+	go func() {
+		manager.Stop()
+		close(stopDone)
+	}()
+	if err := <-waiterDone; !errors.Is(err, context.Canceled) && !errors.Is(err, ErrInactive) {
+		t.Fatalf("waiting operation error = %v, want context cancellation or ErrInactive", err)
+	}
+	close(release)
+	<-stopDone
+}
+
+// TestManagerNewTermWaitsForOldOperation verifies terms cannot overlap tenant work.
+func TestManagerNewTermWaitsForOldOperation(t *testing.T) {
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatalf("Start first term: %v", err)
+	}
+	enteredOld := make(chan struct{})
+	releaseOld := make(chan struct{})
+	oldDone := make(chan error, 1)
+	go func() {
+		oldDone <- manager.runForTenant(context.Background(), "red", func(context.Context) error {
+			close(enteredOld)
+			<-releaseOld
+			return nil
+		})
+	}()
+	<-enteredOld
+	restarted := make(chan error, 1)
+	go func() { restarted <- manager.Start(context.Background()) }()
+	defer manager.Stop()
+	select {
+	case err := <-restarted:
+		t.Fatalf("new term started before old operation exited: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(releaseOld)
+	if err := <-oldDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("old operation error = %v, want context cancellation", err)
+	}
+	if err := <-restarted; err != nil {
+		t.Fatalf("Start second term: %v", err)
+	}
+	enteredNew := make(chan struct{})
+	newDone := make(chan error, 1)
+	go func() {
+		newDone <- manager.runForTenant(context.Background(), "blue", func(context.Context) error {
+			close(enteredNew)
+			return nil
+		})
+	}()
+	select {
+	case <-enteredNew:
+	case <-time.After(time.Second):
+		t.Fatal("new operation did not start after old operation exited")
+	}
+	if err := <-newDone; err != nil {
+		t.Fatalf("new operation: %v", err)
 	}
 }

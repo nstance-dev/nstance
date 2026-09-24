@@ -61,6 +61,21 @@ func TestGroupInstanceQueriesAreTenantScoped(t *testing.T) {
 	if err != nil || fmt.Sprint(identities) != "[{blue workers} {red workers}]" {
 		t.Fatalf("active managed group identities = %v, err = %v", identities, err)
 	}
+	hasOnDemand, err := db.HasOnDemandInstances("red")
+	if err != nil || !hasOnDemand {
+		t.Fatalf("red has on-demand = %v, err = %v", hasOnDemand, err)
+	}
+	hasOnDemand, err = db.HasOnDemandInstances("blue")
+	if err != nil || hasOnDemand {
+		t.Fatalf("blue has on-demand = %v, err = %v", hasOnDemand, err)
+	}
+	if err := db.DeleteInstance("on-demand"); err != nil {
+		t.Fatalf("delete on-demand instance: %v", err)
+	}
+	hasOnDemand, err = db.HasOnDemandInstances("red")
+	if err != nil || hasOnDemand {
+		t.Fatalf("red has deleted on-demand = %v, err = %v", hasOnDemand, err)
+	}
 }
 
 // stringPtr returns a pointer to value for test records.
@@ -68,6 +83,7 @@ func stringPtr(value string) *string {
 	return &value
 }
 
+// TestDatabase exercises local database operations against a file-backed database.
 func TestDatabase(t *testing.T) {
 	// Create temporary database file
 	tempFile := "/tmp/nstance-test.db"

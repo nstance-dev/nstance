@@ -19,6 +19,12 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/tenantstate"
 )
 
+// errSleepBlocked indicates that an on-demand instance prevents sleep.
+var errSleepBlocked = errors.New("on-demand instance prevents sleep")
+
+// errGuardedSleepUnavailable indicates that activity-aware sleep is not implemented.
+var errGuardedSleepUnavailable = errors.New("guarded sleep is unavailable")
+
 // SleepTenant marks a tenant as asleep.
 func (s *Service) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest) (*proto.SleepTenantResponse, error) {
 	if req == nil {
@@ -31,9 +37,6 @@ func (s *Service) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest
 	if !s.sleepReady {
 		return nil, status.Error(codes.FailedPrecondition, "tenant sleep is unavailable until provider cutover is configured")
 	}
-	if req.IfNotBusy {
-		return nil, status.Error(codes.FailedPrecondition, "guarded sleep is unavailable until provider cutover is configured")
-	}
 	if s.tenantState == nil {
 		return nil, status.Error(codes.FailedPrecondition, "tenant state is unavailable")
 	}
@@ -45,12 +48,33 @@ func (s *Service) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest
 		value := req.WakeAt.AsTime().UTC()
 		wakeAt = &value
 	}
-	alreadyAsleep, effectiveWakeAt, err := s.tenantState.Sleep(ctx, tenant, wakeAt)
+	alreadyAsleep, effectiveWakeAt, err := s.tenantState.Sleep(ctx, tenant, wakeAt, func(context.Context) error {
+		hasOnDemand, err := s.localDB.HasOnDemandInstances(tenant)
+		if err != nil {
+			return err
+		}
+		if hasOnDemand {
+			return errSleepBlocked
+		}
+		if req.IfNotBusy {
+			return errGuardedSleepUnavailable
+		}
+		return nil
+	})
 	if err != nil {
+		if errors.Is(err, errSleepBlocked) {
+			return &proto.SleepTenantResponse{
+				Result: proto.SleepTenantResponse_RESULT_BUSY,
+				Status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE,
+			}, nil
+		}
+		if errors.Is(err, errGuardedSleepUnavailable) {
+			return nil, status.Error(codes.FailedPrecondition, "guarded sleep is unavailable until provider cutover is configured")
+		}
 		if errors.Is(err, tenantstate.ErrInactive) || errors.Is(err, context.Canceled) {
 			return nil, status.Error(codes.Unavailable, "shard leadership changed")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to persist tenant sleep state: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to begin tenant sleep: %v", err)
 	}
 	result := proto.SleepTenantResponse_RESULT_SLEPT
 	if alreadyAsleep {

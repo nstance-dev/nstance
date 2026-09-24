@@ -51,6 +51,37 @@ func (r *Reconciler) handleInitialReconcile() error {
 	return firstErr
 }
 
+// handleTenantChanged reconciles every configured or active managed group for one tenant.
+func (r *Reconciler) handleTenantChanged(tenant string) error {
+	groups, err := config.GetAllGroups(r.ctx, r.configLoader)
+	if err != nil {
+		return fmt.Errorf("failed to get groups for tenant reconciliation: %w", err)
+	}
+	identities := make(map[string]struct{})
+	for _, group := range groups {
+		if group.Tenant == tenant {
+			identities[group.Key] = struct{}{}
+		}
+	}
+	managedGroups, err := r.localDB.GetActiveManagedGroupIdentities()
+	if err != nil {
+		return fmt.Errorf("failed to get active managed groups for tenant reconciliation: %w", err)
+	}
+	for _, group := range managedGroups {
+		if group.Tenant == tenant {
+			identities[group.Group] = struct{}{}
+		}
+	}
+
+	var firstErr error
+	for group := range identities {
+		if err := r.handleGroupChanged(tenant, group); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // checkGroupExpiry checks for and handles expiry of managed instances in a group
 func (r *Reconciler) checkGroupExpiry(tenant, groupKey string) {
 	cfg := r.configLoader.GetCurrent()

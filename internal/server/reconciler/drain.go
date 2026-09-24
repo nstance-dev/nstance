@@ -5,6 +5,7 @@
 package reconciler
 
 import (
+	"errors"
 	"time"
 
 	"github.com/nstance-dev/nstance/internal/server/config"
@@ -27,6 +28,9 @@ func (r *Reconciler) replaceAndDrain(instanceID, tenant, groupKey, reason string
 	// Create replacement first, so cluster has capacity for drain (allow oversize during replacement)
 	resp, err := r.createInstanceForGroup(tenant, groupKey, group, true)
 	if err != nil {
+		if errors.Is(err, errTenantAsleep) {
+			return
+		}
 		r.logger.Error("Failed to create replacement instance",
 			"group", groupKey,
 			"old_instance_id", instanceID,

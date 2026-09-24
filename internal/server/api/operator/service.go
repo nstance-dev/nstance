@@ -82,10 +82,11 @@ type InstanceManager interface {
 	ValidateInstanceTenant(tenant, instanceID string) error
 }
 
-// TenantState persists shard-local sleep transitions.
+// TenantState coordinates shard-local tenant lifecycle operations.
 type TenantState interface {
-	Sleep(ctx context.Context, tenant string, wakeAt *time.Time) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error)
+	Sleep(ctx context.Context, tenant string, wakeAt *time.Time, check func(context.Context) error) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error)
 	Wake(ctx context.Context, tenant string) (alreadyAwake bool, err error)
+	CreateOnDemand(ctx context.Context, tenant string, create func(context.Context) error) error
 }
 
 // ptrToString converts a string pointer to string (empty if nil)

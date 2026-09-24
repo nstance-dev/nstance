@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// CreateInstance inserts an instance record.
 func (db *DB) CreateInstance(instance *Instance) error {
 	query := `
 	INSERT INTO instances (
@@ -48,6 +49,7 @@ func (db *DB) CreateInstance(instance *Instance) error {
 	return err
 }
 
+// GetInstance returns a non-deleted instance by its Nstance identifier.
 func (db *DB) GetInstance(instanceID string) (*Instance, error) {
 	query := `SELECT ` + instanceColumns + ` FROM instances WHERE id = ? AND deleted_at IS NULL`
 
@@ -60,6 +62,7 @@ func (db *DB) GetInstance(instanceID string) (*Instance, error) {
 	return instance, nil
 }
 
+// GetInstanceByProviderID returns a non-deleted instance by its provider identifier.
 func (db *DB) GetInstanceByProviderID(providerID string) (*Instance, error) {
 	query := `SELECT ` + instanceColumns + ` FROM instances WHERE provider_id = ? AND deleted_at IS NULL`
 
@@ -75,6 +78,7 @@ func (db *DB) GetInstanceByProviderID(providerID string) (*Instance, error) {
 	return instance, nil
 }
 
+// UpdateInstance replaces the mutable fields of an instance record.
 func (db *DB) UpdateInstance(instance *Instance) error {
 	now := time.Now().UTC()
 	instance.UpdatedAt = &now
@@ -123,6 +127,7 @@ func (db *DB) UpdateInstance(instance *Instance) error {
 	return nil
 }
 
+// ListInstances returns all non-deleted instances, newest first.
 func (db *DB) ListInstances() ([]*Instance, error) {
 	query := `SELECT ` + instanceColumns + ` FROM instances WHERE deleted_at IS NULL ORDER BY created_at DESC`
 
@@ -144,6 +149,7 @@ func (db *DB) ListInstances() ([]*Instance, error) {
 	return instances, rows.Err()
 }
 
+// DeleteInstance marks an instance as deleted.
 func (db *DB) DeleteInstance(instanceID string) error {
 	now := time.Now().UTC()
 
@@ -282,6 +288,7 @@ func (db *DB) CreateAgentRegistrationRecord(instanceID, nonce string, publicKeyP
 	return nil
 }
 
+// UpdateInstanceHealth records the latest health report for an instance.
 func (db *DB) UpdateInstanceHealth(instanceID string, health []byte) error {
 	now := time.Now().UTC()
 
@@ -362,6 +369,7 @@ func (db *DB) SeedFromProviderData(instances []*Instance) error {
 	return tx.Commit()
 }
 
+// SeedFromS3Data replaces registered instance state from object storage.
 func (db *DB) SeedFromS3Data(instances []*Instance) error {
 	tx, err := db.conn.Begin()
 	if err != nil {
@@ -519,6 +527,21 @@ func (db *DB) GetInstancesByGroup(tenant, groupKey string, excludeOnDemand bool)
 	return instanceIDs, rows.Err()
 }
 
+// HasOnDemandInstances reports whether a tenant has any non-deleted on-demand instances.
+func (db *DB) HasOnDemandInstances(tenant string) (bool, error) {
+	var exists bool
+	err := db.conn.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM instances
+			WHERE tenant = ?
+			AND on_demand = 1
+			AND deleted_at IS NULL
+		)
+	`, tenant).Scan(&exists)
+	return exists, err
+}
+
 // ManagedGroupIdentity identifies a tenant-scoped managed instance group.
 type ManagedGroupIdentity struct {
 	Tenant string
@@ -606,6 +629,7 @@ func (db *DB) GetInstanceCountByGroup(tenant, groupKey string, excludeOnDemand b
 	return count, nil
 }
 
+// MarkDrainStarted records that an instance has entered drain coordination.
 func (db *DB) MarkDrainStarted(instanceID string) error {
 	now := time.Now().UTC()
 
@@ -628,6 +652,7 @@ func (db *DB) MarkDrainStarted(instanceID string) error {
 	return nil
 }
 
+// MarkDrainAcked records that the operator completed an instance drain.
 func (db *DB) MarkDrainAcked(instanceID string) error {
 	now := time.Now().UTC()
 
@@ -650,6 +675,7 @@ func (db *DB) MarkDrainAcked(instanceID string) error {
 	return nil
 }
 
+// GetInstancesPendingDrain returns a tenant's draining, non-deleted instances.
 func (db *DB) GetInstancesPendingDrain(tenant string) ([]*Instance, error) {
 	if tenant == "" {
 		return nil, fmt.Errorf("tenant is required")

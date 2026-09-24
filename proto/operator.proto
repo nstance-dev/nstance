@@ -186,7 +186,8 @@ enum TenantSleepStatus {
   TENANT_SLEEP_STATUS_ASLEEP = 2;
 }
 
-// Tenant sleep request
+// Tenant sleep request. Any non-deleted on-demand instance blocks sleep,
+// regardless of if_not_busy.
 
 message SleepTenantRequest {
   string tenant = 1;

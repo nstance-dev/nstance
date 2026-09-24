@@ -26,6 +26,11 @@ type InstanceManager interface {
 	DeleteInstance(ctx context.Context, tenant, instanceID string) error
 }
 
+// TenantState exposes the effective sleep state used during reconciliation.
+type TenantState interface {
+	IsAsleep(tenant string) bool
+}
+
 // EventType represents the type of reconciliation event
 type EventType string
 
@@ -36,6 +41,7 @@ const (
 	EventDrainAcked        EventType = "DrainAcked"        // Operator acknowledged drain complete
 	EventTerminationNotice EventType = "TerminationNotice" // Instance termination notice received
 	EventInitialReconcile  EventType = "InitialReconcile"
+	EventTenantChanged     EventType = "TenantChanged"
 )
 
 // ReconcileEvent represents an event that triggers reconciliation
@@ -66,6 +72,7 @@ type groupIdentity struct {
 type Reconciler struct {
 	queue           chan queuedEvent
 	instanceManager InstanceManager
+	tenantState     TenantState
 	configLoader    *config.Loader
 	localDB         *localdb.DB
 	provider        infra.Provider
@@ -101,6 +108,7 @@ type Reconciler struct {
 // Options contains options for creating a Reconciler
 type Options struct {
 	InstanceManager InstanceManager
+	TenantState     TenantState
 	ConfigLoader    *config.Loader
 	LocalDB         *localdb.DB
 	Provider        infra.Provider
@@ -140,6 +148,7 @@ func New(opts Options) (*Reconciler, error) {
 	return &Reconciler{
 		queue:           make(chan queuedEvent, 1000),
 		instanceManager: opts.InstanceManager,
+		tenantState:     opts.TenantState,
 		configLoader:    opts.ConfigLoader,
 		localDB:         opts.LocalDB,
 		provider:        opts.Provider,
@@ -227,6 +236,27 @@ func (r *Reconciler) Enqueue(event ReconcileEvent) {
 			logAttrs = append(logAttrs, "group", event.GroupKey)
 		}
 		r.logger.Warn("Reconciliation queue full, dropping event", logAttrs...)
+	}
+}
+
+// EnqueueTenantChanged reliably enqueues a durable tenant-state change for the active term.
+// Before the reconciler starts, the initial reconciliation observes the current durable state.
+func (r *Reconciler) EnqueueTenantChanged(tenant string) {
+	r.mu.RLock()
+	ctx := r.ctx
+	term := r.term
+	started := r.started
+	r.mu.RUnlock()
+	if !started || ctx.Err() != nil {
+		return
+	}
+	select {
+	case r.queue <- queuedEvent{event: ReconcileEvent{
+		Type:      EventTenantChanged,
+		Tenant:    tenant,
+		Timestamp: time.Now().UTC(),
+	}, term: term}:
+	case <-ctx.Done():
 	}
 }
 
@@ -338,6 +368,8 @@ func (r *Reconciler) handleEvent(event ReconcileEvent) {
 	switch event.Type {
 	case EventInitialReconcile:
 		err = r.handleInitialReconcile()
+	case EventTenantChanged:
+		err = r.handleTenantChanged(event.Tenant)
 	case EventGroupChanged:
 		err = r.handleGroupChanged(event.Tenant, event.GroupKey)
 	case EventCheckInstance:

@@ -13,6 +13,9 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/instances"
 )
 
+// errTenantAsleep stops stale scale-up and replacement work after a tenant sleeps.
+var errTenantAsleep = errors.New("tenant is asleep")
+
 // handleGroupChanged reconciles a specific group to its desired size
 func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 	r.logger.Info("Reconciling group", "tenant", tenant, "group", groupKey)
@@ -37,6 +40,10 @@ func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 	}
 
 	desiredCount := group.GetSize()
+	asleep := r.tenantState != nil && r.tenantState.IsAsleep(tenant)
+	if asleep {
+		desiredCount = 0
+	}
 
 	r.logger.Info("Group reconciliation status",
 		"group", groupKey,
@@ -56,6 +63,10 @@ func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 			return err
 		}
 	}
+	if asleep {
+		r.cancelGroupExpiryTimer(tenant, groupKey)
+		return nil
+	}
 
 	// Check for infra config drift and rotate drifted instances (one at a time)
 	r.checkGroupConfigDrift(tenant, groupKey, *group)
@@ -72,6 +83,9 @@ func (r *Reconciler) scaleUp(tenant, groupKey string, group config.GroupConfig, 
 
 	for i := 0; i < count; i++ {
 		if _, err := r.createInstanceForGroup(tenant, groupKey, group, false); err != nil {
+			if errors.Is(err, errTenantAsleep) {
+				return nil
+			}
 			if r.notifyError != nil {
 				r.notifyError(tenant, groupKey, "", fmt.Sprintf("Failed to create instance: %v", err))
 			}
@@ -176,6 +190,9 @@ func (r *Reconciler) createInstanceForGroup(tenant, groupKey string, group confi
 	// Lock to serialize all instance creation and apply rate limiting
 	r.createMu.Lock()
 	defer r.createMu.Unlock()
+	if r.tenantState != nil && r.tenantState.IsAsleep(tenant) {
+		return nil, errTenantAsleep
+	}
 
 	// Safety check: ensure we're not exceeding the group size
 	// When allowOversize is true (during replacement), allow up to 1 extra instance
@@ -199,6 +216,9 @@ func (r *Reconciler) createInstanceForGroup(tenant, groupKey string, group confi
 			r.logger.Debug("Rate limiting create operation", "sleep", sleep)
 			time.Sleep(sleep)
 		}
+	}
+	if r.tenantState != nil && r.tenantState.IsAsleep(tenant) {
+		return nil, errTenantAsleep
 	}
 
 	// Create instance request
