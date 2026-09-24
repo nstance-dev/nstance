@@ -140,7 +140,9 @@ data "aws_iam_policy_document" "server" {
     actions = [
       "elasticloadbalancing:RegisterTargets",
       "elasticloadbalancing:DeregisterTargets",
-      "elasticloadbalancing:DescribeTargetHealth"
+      "elasticloadbalancing:DescribeTargetHealth",
+      "elasticloadbalancing:DescribeTargetGroupAttributes",
+      "elasticloadbalancing:ModifyTargetGroupAttributes"
     ]
     resources = ["*"]
   }

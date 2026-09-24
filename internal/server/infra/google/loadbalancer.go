@@ -16,6 +16,11 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
+// SetLBCrossZone reports that AWS target-group cross-zone configuration is unsupported.
+func (p *Provider) SetLBCrossZone(ctx context.Context, req provider.SetLBCrossZoneRequest) error {
+	return fmt.Errorf("SetLBCrossZone not implemented for Google Cloud")
+}
+
 // RegisterWithLB attaches an instance IP endpoint to its configured zonal NEG.
 func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRequest) error {
 	neg, endpoint, err := p.resolveNetworkEndpoint(ctx, req)

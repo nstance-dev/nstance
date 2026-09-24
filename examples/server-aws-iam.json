@@ -57,7 +57,9 @@
       "Action": [
         "elasticloadbalancing:RegisterTargets",
         "elasticloadbalancing:DeregisterTargets",
-        "elasticloadbalancing:DescribeTargetHealth"
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeTargetGroupAttributes",
+        "elasticloadbalancing:ModifyTargetGroupAttributes"
       ],
       "Resource": "*"
     }

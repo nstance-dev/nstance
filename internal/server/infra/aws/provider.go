@@ -20,10 +20,19 @@ import (
 // Provider implements the provider.Provider and provider.LoadBalancerProvider interfaces for AWS
 type Provider struct {
 	ec2Client   *ec2.Client
-	elbv2Client *elasticloadbalancingv2.Client
+	elbv2Client elbv2API
 	config      provider.ProviderConfig
 	logger      *slog.Logger
 	options     ProviderOptions
+}
+
+// elbv2API is the subset of the Elastic Load Balancing API used by Provider.
+type elbv2API interface {
+	RegisterTargets(context.Context, *elasticloadbalancingv2.RegisterTargetsInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.RegisterTargetsOutput, error)
+	DeregisterTargets(context.Context, *elasticloadbalancingv2.DeregisterTargetsInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DeregisterTargetsOutput, error)
+	DescribeTargetHealth(context.Context, *elasticloadbalancingv2.DescribeTargetHealthInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetHealthOutput, error)
+	DescribeTargetGroupAttributes(context.Context, *elasticloadbalancingv2.DescribeTargetGroupAttributesInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetGroupAttributesOutput, error)
+	ModifyTargetGroupAttributes(context.Context, *elasticloadbalancingv2.ModifyTargetGroupAttributesInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.ModifyTargetGroupAttributesOutput, error)
 }
 
 // ProviderOptions contains AWS-specific configuration options
@@ -76,6 +85,7 @@ func NewProvider(opts Options) (*Provider, error) {
 	}, nil
 }
 
+// Kind returns the AWS provider identifier.
 func (p *Provider) Kind() string {
 	return "aws"
 }

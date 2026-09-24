@@ -51,6 +51,7 @@ func NewProvider(opts Options) *Provider {
 	}
 }
 
+// Kind returns the mock provider identifier.
 func (p *Provider) Kind() string {
 	return "mock"
 }
@@ -370,6 +371,12 @@ func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInsta
 	return instanceIDs, nil
 }
 
+// SetLBCrossZone is a no-op for the mock provider.
+func (p *Provider) SetLBCrossZone(ctx context.Context, req provider.SetLBCrossZoneRequest) error {
+	return nil
+}
+
+// getLBKey returns the stable mock membership key for a load balancer.
 func (p *Provider) getLBKey(cfg provider.LoadBalancerConfig) string {
 	if len(cfg.TargetGroups) > 0 {
 		return cfg.TargetGroups[0].ARN

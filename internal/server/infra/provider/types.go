@@ -144,6 +144,7 @@ type RegisterLBRequest struct {
 	ProviderInstanceID string
 	LBConfig           LoadBalancerConfig
 	Zone               string
+	WakeProxy          bool // Selects ProxyPort for nstance-proxy instead of TargetPort for a direct target.
 }
 
 // DeregisterLBRequest contains parameters for deregistering an instance from a load balancer
@@ -151,6 +152,7 @@ type DeregisterLBRequest struct {
 	ProviderInstanceID string
 	LBConfig           LoadBalancerConfig
 	Zone               string
+	WakeProxy          bool // Selects ProxyPort for nstance-proxy instead of TargetPort for a direct target.
 }
 
 // LBTargetState is the provider-observed lifecycle state of one logical target
@@ -169,6 +171,12 @@ const (
 type ListLBInstancesRequest struct {
 	LBConfig LoadBalancerConfig
 	Zone     string
+}
+
+// SetLBCrossZoneRequest contains parameters for configuring cross-zone load balancing.
+type SetLBCrossZoneRequest struct {
+	LBConfig LoadBalancerConfig
+	Enabled  bool
 }
 
 // ProviderConfig contains provider-specific configuration
