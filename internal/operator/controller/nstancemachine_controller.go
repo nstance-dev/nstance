@@ -97,6 +97,7 @@ func (r *NstanceMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if err := r.Update(ctx, &nstanceMachine); err != nil {
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{}, nil
 	}
 
 	log.Info("Reconciling NstanceMachine", "name", nstanceMachine.Name, "group", nstanceMachine.Spec.Group)
