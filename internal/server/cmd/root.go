@@ -30,6 +30,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/cluster"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/election"
+	"github.com/nstance-dev/nstance/internal/server/filegen"
 	"github.com/nstance-dev/nstance/internal/server/gc"
 	"github.com/nstance-dev/nstance/internal/server/health"
 	"github.com/nstance-dev/nstance/internal/server/images"
@@ -37,12 +38,16 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 	"github.com/nstance-dev/nstance/internal/server/instances"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
+	"github.com/nstance-dev/nstance/internal/server/localfiles"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/reconciler"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
 	"github.com/nstance-dev/nstance/internal/server/storage"
 	"github.com/nstance-dev/nstance/internal/server/tenantstate"
+	"github.com/nstance-dev/nstance/internal/server/tunnelcontrol"
+	"github.com/nstance-dev/nstance/internal/server/wake"
 	"github.com/nstance-dev/nstance/pkg/instanceinfo"
+	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 var rootCmd = &cobra.Command{
@@ -64,8 +69,12 @@ var (
 	flagValidate      string
 	flagCacheDir      string
 	flagAdvertiseHost string
+	flagProxySocket   string
+	flagTunnelSocket  string
+	flagLocalFilesDir string
 )
 
+// init registers nstance-server command-line flags.
 func init() {
 	pflags := rootCmd.PersistentFlags()
 	pflags.BoolVarP(&flagDebug, "debug", "v", false, "Enable debug output")
@@ -86,8 +95,12 @@ func init() {
 	}
 	lflags.StringVar(&flagCacheDir, "cachedir", "./cache", "Directory for cache and database files")
 	lflags.StringVar(&flagAdvertiseHost, "advertise-host", "", "Override advertise host for health and election addrs (per-instance)")
+	lflags.StringVar(&flagProxySocket, "proxy-socket", "/run/nstance/nstance-server.sock", "Local nstance-proxy control socket")
+	lflags.StringVar(&flagTunnelSocket, "tunnel-socket", "/run/nstance/nstance-tunnel.sock", "Local nstance-tunnel control socket")
+	lflags.StringVar(&flagLocalFilesDir, "local-receive-dir", "/run/nstance/receive", "Local receive directory")
 }
 
+// NewRootCmd creates the nstance-server root command.
 func NewRootCmd() *cobra.Command {
 	rootCmd.PreRun = func(cmd *cobra.Command, args []string) {
 		validateFile, _ := cmd.Flags().GetString("validate")
@@ -546,6 +559,7 @@ func NewRootCmd() *cobra.Command {
 		// create reconciler
 		rec, err := reconciler.New(reconciler.Options{
 			InstanceManager: instancesManager,
+			TenantState:     tenantState,
 			ConfigLoader:    configLoader,
 			LocalDB:         localDB,
 			Provider:        infraProvider,
@@ -578,6 +592,9 @@ func NewRootCmd() *cobra.Command {
 			logger.Error("Failed to create reconciler", "error", err)
 			os.Exit(1)
 		}
+		tenantState.SetOnChanged(func(tenant string) {
+			rec.EnqueueTenantChanged(tenant)
+		})
 
 		logger.Info("Reconciler ready")
 
@@ -694,6 +711,35 @@ func NewRootCmd() *cobra.Command {
 			os.Exit(1)
 		}
 
+		// Prepare local proxy and tunnel control dependencies and protected-file publication.
+		proxyWake, err := wake.NewListenerHandler(func() (proxy.Config, error) {
+			current := configLoader.GetCurrent()
+			if current == nil {
+				return proxy.Config{}, fmt.Errorf("configuration is not loaded")
+			}
+			return current.ProxyConfig()
+		}, tenantState, localDB)
+		if err != nil {
+			logger.Error("Failed to create local proxy wake handler", "error", err)
+			os.Exit(1)
+		}
+		proxyControl, err := wake.New(flagProxySocket, proxyWake)
+		if err != nil {
+			logger.Error("Failed to create local proxy control service", "error", err)
+			os.Exit(1)
+		}
+		defer proxyControl.Stop()
+		var tunnelControl *tunnelcontrol.Controller
+		proxyFileGenerator := filegen.NewGenerator(configLoader, localDB, nil, caCertData, imageService, secretsStore, shardStorage, logger)
+		localFileWriter := localfiles.Writer{Directory: flagLocalFilesDir}
+		publishLocalFiles := func(ctx context.Context, cfg *config.Config) error {
+			files, err := proxyFileGenerator.GenerateProxyFiles(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			return localFileWriter.Write(files)
+		}
+
 		// create operator gRPC service (assign to variable declared above)
 		operatorService, err = operator.New(operator.Options{
 			ConfigLoader:    configLoader,
@@ -715,6 +761,14 @@ func NewRootCmd() *cobra.Command {
 					InstanceID: instanceID,
 					Timestamp:  time.Now().UTC(),
 				})
+			},
+			OnConfigRefreshed: func(ctx context.Context, refreshed *config.Config) error {
+				proxyConfig, err := refreshed.ProxyConfig()
+				if err != nil {
+					return err
+				}
+				proxyControl.Publish(proxyConfig)
+				return publishLocalFiles(ctx, refreshed)
 			},
 			Logger: logger,
 			// Certificate renewal dependencies
@@ -796,11 +850,19 @@ func NewRootCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("failed to refresh configuration on leadership acquisition: %w", err)
 				}
+				proxyConfig, err := refreshedCfg.ProxyConfig()
+				if err != nil {
+					return fmt.Errorf("failed to derive proxy configuration: %w", err)
+				}
+				proxyControl.Publish(proxyConfig)
 				// Start image resolution service
 				if imageService != nil {
 					if err := imageService.Start(ctx); err != nil {
 						return fmt.Errorf("failed to start image resolution service: %w", err)
 					}
+				}
+				if err := publishLocalFiles(ctx, refreshedCfg); err != nil {
+					return fmt.Errorf("failed to publish local proxy files: %w", err)
 				}
 
 				// Rebuild local cache from S3 and provider
@@ -823,8 +885,29 @@ func NewRootCmd() *cobra.Command {
 				// refresh, instance cache rebuild, and load-balancer observations
 				// complete, so requests and watches cannot use stale state.
 				logger.Info("Starting leader services")
+				tunnelControl, err = tunnelcontrol.New(flagTunnelSocket, logger.With("component", "tunnel-control"))
+				if err != nil {
+					return fmt.Errorf("failed to create tunnel control client: %w", err)
+				}
+				if err := tunnelControl.Start(ctx); err != nil {
+					return fmt.Errorf("failed to start tunnel control client: %w", err)
+				}
+				if err := tenantState.Start(ctx); err != nil {
+					tunnelControl.Stop()
+					return fmt.Errorf("failed to start tenant state manager: %w", err)
+				}
 				if err := server.Start(ctx); err != nil {
+					tenantState.Stop()
+					tunnelControl.Stop()
 					return fmt.Errorf("failed to start gRPC server: %w", err)
+				}
+				if err := proxyControl.Start(ctx); err != nil {
+					stopCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+					defer cancel()
+					_ = server.Stop(stopCtx)
+					tenantState.Stop()
+					tunnelControl.Stop()
+					return fmt.Errorf("failed to start proxy control service: %w", err)
 				}
 				logger.Info("Leader service started")
 
@@ -846,7 +929,13 @@ func NewRootCmd() *cobra.Command {
 
 				// Stop leader services
 				logger.Info("Stopping leader services")
+				proxyControl.Stop()
+				if tunnelControl != nil {
+					tunnelControl.Stop()
+					tunnelControl = nil
+				}
 				gcRunner.Stop()
+				tenantState.Stop()
 
 				stopCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 				defer cancel()

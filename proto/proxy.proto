@@ -1,0 +1,40 @@
+// Nstance <https://nstance.dev>
+// Copyright The Nstance Authors
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package nstance.v1;
+
+option go_package = "github.com/nstance-dev/nstance/internal/proto";
+
+import "proto/operator.proto";
+
+// ProxyService is the complete local API available to nstance-proxy.
+service ProxyService {
+  rpc WatchConfig(WatchProxyConfigRequest) returns (stream ProxyConfigSnapshot);
+  rpc WakeTenant(ProxyWakeRequest) returns (WakeTenantResponse);
+}
+
+// WatchProxyConfigRequest starts a complete proxy configuration watch.
+message WatchProxyConfigRequest {}
+
+// ProxyWakeRequest identifies the local listener that received traffic.
+message ProxyWakeRequest {
+  string listener = 1;
+}
+
+// ProxyConfigSnapshot replaces the proxy's complete listener configuration.
+message ProxyConfigSnapshot {
+  uint64 generation = 1;
+  map<string, ProxyListener> listeners = 2;
+}
+
+// ProxyListener describes one listener route delivered to the local proxy.
+message ProxyListener {
+  string tenant = 1;
+  repeated string groups = 2;
+  uint32 target_port = 3;
+  uint32 proxy_port = 4;
+  optional string destination_ip = 5;
+}

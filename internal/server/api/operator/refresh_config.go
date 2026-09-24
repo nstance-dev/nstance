@@ -55,10 +55,15 @@ func (s *Service) RefreshConfig(ctx context.Context, req *emptypb.Empty) (*proto
 	}
 
 	// Bypass the static configuration cache and synchronize the effective group cache.
-	_, err = s.configLoader.LoadConfigAndGroups(ctx, true)
+	refreshedConfig, err := s.configLoader.LoadConfigAndGroups(ctx, true)
 	if err != nil {
 		s.logger.Error("Failed to refresh configuration", "client_id", clientInfo.ClientID, "error", err)
 		return nil, status.Errorf(codes.Internal, "failed to refresh configuration: %v", err)
+	}
+	if s.onConfigRefreshed != nil {
+		if err := s.onConfigRefreshed(ctx, refreshedConfig); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to publish proxy configuration: %v", err)
+		}
 	}
 
 	newMetadata := s.configLoader.GetMetadata()

@@ -9,19 +9,79 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/proxy"
+	proxyconfig "github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // testHandler records local wake requests.
 type testHandler struct {
-	request *proto.WakeTenantRequest
+	listener string
+}
+
+// TestWatchConfigInitialSnapshotAndCoalescing verifies latest-only publication.
+func TestWatchConfigInitialSnapshotAndCoalescing(t *testing.T) {
+	server, err := New(filepath.Join(t.TempDir(), "control.sock"), &testHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Publish(proxyconfig.Config{Listeners: map[string]proxyconfig.Listener{"first": {Tenant: "red", ProxyPort: 1001}}})
+	subscriber, initial := server.subscribe()
+	defer server.unsubscribe(subscriber)
+	if initial.Generation != 1 || initial.Listeners["first"].Tenant != "red" {
+		t.Fatalf("initial snapshot = %#v", initial)
+	}
+	server.Publish(proxyconfig.Config{Listeners: map[string]proxyconfig.Listener{"second": {Tenant: "blue", ProxyPort: 1002}}})
+	server.Publish(proxyconfig.Config{Listeners: map[string]proxyconfig.Listener{"latest": {Tenant: "green", ProxyPort: 1003}}})
+	select {
+	case got := <-subscriber:
+		if got.Generation != 3 || got.Listeners["latest"] == nil || len(got.Listeners) != 1 {
+			t.Fatalf("coalesced snapshot = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no replacement snapshot")
+	}
+}
+
+// TestServerExposesOnlyProxyService verifies the local API excludes operator methods.
+func TestServerExposesOnlyProxyService(t *testing.T) {
+	directory, err := os.MkdirTemp("", "nstance-control-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	path := filepath.Join(directory, "control.sock")
+	server, err := New(path, &testHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer server.Stop()
+	connection, err := grpc.NewClient("unix://"+path, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close() }()
+	_, err = proto.NewOperatorServiceClient(connection).RefreshConfig(ctx, &emptypb.Empty{})
+	if status.Code(err).String() != "Unimplemented" {
+		t.Fatalf("operator RPC error = %v", err)
+	}
 }
 
 // WakeListener records the request and returns a test upstream.
-func (h *testHandler) WakeListener(_ context.Context, request *proto.WakeTenantRequest) (*proto.WakeTenantResponse, error) {
-	h.request = request
+func (h *testHandler) WakeListener(_ context.Context, listener string) (*proto.WakeTenantResponse, error) {
+	h.listener = listener
 	upstream := "10.0.0.2:6443"
 	return &proto.WakeTenantResponse{
 		Result:   proto.WakeTenantResponse_RESULT_WOKE,
@@ -39,7 +99,7 @@ func TestServerExposesWakeOnProtectedUnixSocket(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
 	path := filepath.Join(directory, "wake.sock")
 	handler := &testHandler{}
-	server, err := New(path, -1, -1, handler)
+	server, err := New(path, handler)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -61,12 +121,12 @@ func TestServerExposesWakeOnProtectedUnixSocket(t *testing.T) {
 		t.Fatalf("NewUnixWaker: %v", err)
 	}
 	defer func() { _ = client.Close() }()
-	upstream, err := client.Wake(ctx, "api:16443", "red")
+	upstream, err := client.Wake(ctx, "api:16443")
 	if err != nil {
 		t.Fatalf("Wake: %v", err)
 	}
-	if upstream != "10.0.0.2:6443" || handler.request.GetListener() != "api:16443" || handler.request.GetTenant() != "red" {
-		t.Fatalf("upstream = %q, request = %#v", upstream, handler.request)
+	if upstream != "10.0.0.2:6443" || handler.listener != "api:16443" {
+		t.Fatalf("upstream = %q, listener = %q", upstream, handler.listener)
 	}
 }
 
@@ -77,7 +137,7 @@ func TestServerRefusesToReplaceRegularFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(path, -1, -1, &testHandler{})
+	server, err := New(path, &testHandler{})
 	if err != nil {
 		t.Fatal(err)
 	}

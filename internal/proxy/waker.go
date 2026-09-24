@@ -12,17 +12,18 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
-// Waker wakes a listener's tenant and returns its ready private upstream.
+// Waker wakes the tenant mapped to a listener and returns its ready upstream.
 type Waker interface {
-	Wake(ctx context.Context, listener, tenant string) (string, error)
+	Wake(ctx context.Context, listener string) (string, error)
 }
 
 // UnixWaker invokes listener-scoped WakeTenant over the local root-owned socket.
 type UnixWaker struct {
 	connection *grpc.ClientConn
-	client     proto.OperatorServiceClient
+	client     proto.ProxyServiceClient
 }
 
 // NewUnixWaker connects to the nstance-server local wake socket.
@@ -31,12 +32,54 @@ func NewUnixWaker(socketPath string) (*UnixWaker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect wake socket: %w", err)
 	}
-	return &UnixWaker{connection: connection, client: proto.NewOperatorServiceClient(connection)}, nil
+	return &UnixWaker{connection: connection, client: proto.NewProxyServiceClient(connection)}, nil
+}
+
+// WatchConfig watches complete replacement snapshots until the connection fails.
+func (w *UnixWaker) WatchConfig(ctx context.Context, apply func(proxy.Config) error) error {
+	stream, err := w.client.WatchConfig(ctx, &proto.WatchProxyConfigRequest{})
+	if err != nil {
+		return err
+	}
+	return watchConfigSnapshots(stream, apply)
+}
+
+// configSnapshotReceiver receives complete proxy configuration snapshots.
+type configSnapshotReceiver interface {
+	Recv() (*proto.ProxyConfigSnapshot, error)
+}
+
+// watchConfigSnapshots validates snapshot ordering and applies each replacement.
+func watchConfigSnapshots(stream configSnapshotReceiver, apply func(proxy.Config) error) error {
+	var previous uint64
+	received := false
+	for {
+		snapshot, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		generation := snapshot.GetGeneration()
+		if received && generation == 0 {
+			return fmt.Errorf("proxy config generation is zero after initial publication")
+		}
+		if received && generation <= previous {
+			return fmt.Errorf("proxy config generation %d is not greater than %d", generation, previous)
+		}
+		cfg := proxy.Config{Listeners: make(map[string]proxy.Listener, len(snapshot.Listeners))}
+		for key, item := range snapshot.Listeners {
+			cfg.Listeners[key] = proxy.Listener{Tenant: item.Tenant, Groups: append([]string(nil), item.Groups...), TargetPort: int(item.TargetPort), ProxyPort: int(item.ProxyPort), DestinationIP: item.GetDestinationIp()}
+		}
+		if err := apply(cfg); err != nil {
+			return err
+		}
+		previous = generation
+		received = true
+	}
 }
 
 // Wake requests a listener-scoped wake and requires a ready upstream.
-func (w *UnixWaker) Wake(ctx context.Context, listener, tenant string) (string, error) {
-	response, err := w.client.WakeTenant(ctx, &proto.WakeTenantRequest{Tenant: tenant, Listener: &listener})
+func (w *UnixWaker) Wake(ctx context.Context, listener string) (string, error) {
+	response, err := w.client.WakeTenant(ctx, &proto.ProxyWakeRequest{Listener: listener})
 	if err != nil {
 		return "", err
 	}

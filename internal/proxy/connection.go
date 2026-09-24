@@ -56,28 +56,30 @@ func (s *Server) handleConnection(serverCtx context.Context, client net.Conn, li
 	if n == 0 {
 		return
 	}
-	identity := listeners.exclusiveKey
-	if identity == "" {
+	listeners.mu.RLock()
+	routes := listeners.routes
+	listeners.mu.RUnlock()
+	route := routes.exclusive
+	if route == nil {
 		tcpAddress, ok := client.LocalAddr().(*net.TCPAddr)
 		if !ok {
 			return
 		}
 		destination := tcpAddress.IP.String()
-		identity = listeners.byIP[destination]
-		if identity == "" {
+		route = routes.byIP[destination]
+		if route == nil {
 			s.logger.Warn("No proxy listener for destination", "destination", destination)
 			return
 		}
 	}
-	listener, exists := s.config.Listeners[identity]
-	if !exists {
-		return
+	if s.routeSelected != nil {
+		s.routeSelected()
 	}
 	wakeCtx, cancel := context.WithDeadline(serverCtx, deadline)
-	upstreamAddress, err := s.waker.Wake(wakeCtx, identity, listener.Tenant)
+	upstreamAddress, err := s.waker.Wake(wakeCtx, route.identity)
 	cancel()
 	if err != nil {
-		s.logger.Warn("Listener wake failed", "listener", identity, "error", err)
+		s.logger.Warn("Listener wake failed", "listener", route.identity, "error", err)
 		return
 	}
 	remaining := time.Until(deadline)
@@ -87,7 +89,7 @@ func (s *Server) handleConnection(serverCtx context.Context, client net.Conn, li
 	dialer := net.Dialer{Timeout: min(s.dialTimeout, remaining)}
 	upstream, err := dialer.DialContext(serverCtx, "tcp", upstreamAddress)
 	if err != nil {
-		s.logger.Warn("Ready upstream dial failed", "listener", identity, "upstream", upstreamAddress, "error", err)
+		s.logger.Warn("Ready upstream dial failed", "listener", route.identity, "upstream", upstreamAddress, "error", err)
 		return
 	}
 	s.trackConnection(upstream)

@@ -1,0 +1,45 @@
+// Nstance <https://nstance.dev>
+// Copyright The Nstance Authors
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package nstance.v1;
+
+option go_package = "github.com/nstance-dev/nstance/internal/proto";
+
+// TunnelService controls nstance-server leader-owned local wake tunnels.
+service TunnelService {
+  rpc Manage(stream TunnelDesiredState) returns (stream TunnelStatus);
+}
+
+// TunnelDesiredState requests a revisioned lifecycle state for one tunnel.
+message TunnelDesiredState {
+  // State is the requested tunnel lifecycle state.
+  enum State {
+    TUNNEL_DESIRED_STATE_UNSPECIFIED = 0;
+    TUNNEL_DESIRED_STATE_RUNNING = 1;
+    TUNNEL_DESIRED_STATE_STOPPED = 2;
+  }
+
+  string tunnel_name = 1;
+  uint64 revision = 2;
+  State state = 3;
+}
+
+// TunnelStatus reports a revisioned tunnel lifecycle observation.
+message TunnelStatus {
+  // State is the observed tunnel lifecycle state.
+  enum State {
+    TUNNEL_STATUS_STATE_UNSPECIFIED = 0;
+    TUNNEL_STATUS_STATE_STARTING = 1;
+    TUNNEL_STATUS_STATE_READY = 2;
+    TUNNEL_STATUS_STATE_FAILED = 3;
+    TUNNEL_STATUS_STATE_STOPPED = 4;
+  }
+
+  string tunnel_name = 1;
+  uint64 revision = 2;
+  State state = 3;
+  optional string error = 4;
+}

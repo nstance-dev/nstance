@@ -49,14 +49,15 @@ type instancesStream struct {
 type Service struct {
 	proto.UnimplementedOperatorServiceServer
 
-	configLoader    *config.Loader
-	tenantState     TenantState
-	sleepReady      bool
-	localDB         *localdb.DB
-	instanceManager InstanceManager
-	onGroupChanged  func(tenant, groupKey string)
-	onDrainAcked    func(tenant, instanceID string)
-	logger          *slog.Logger
+	configLoader      *config.Loader
+	tenantState       TenantState
+	sleepReady        bool
+	localDB           *localdb.DB
+	instanceManager   InstanceManager
+	onGroupChanged    func(tenant, groupKey string)
+	onDrainAcked      func(tenant, instanceID string)
+	onConfigRefreshed func(context.Context, *config.Config) error
+	logger            *slog.Logger
 
 	// Certificate renewal dependencies
 	clusterStorage  storage.Storage
@@ -110,14 +111,15 @@ func tenantInstanceError(err error) error {
 
 // Options contains options for creating an OperatorService
 type Options struct {
-	ConfigLoader    *config.Loader
-	TenantState     TenantState
-	SleepReady      bool
-	LocalDB         *localdb.DB
-	InstanceManager InstanceManager
-	OnGroupChanged  func(tenant, groupKey string)
-	OnDrainAcked    func(tenant, instanceID string)
-	Logger          *slog.Logger
+	ConfigLoader      *config.Loader
+	TenantState       TenantState
+	SleepReady        bool
+	LocalDB           *localdb.DB
+	InstanceManager   InstanceManager
+	OnGroupChanged    func(tenant, groupKey string)
+	OnDrainAcked      func(tenant, instanceID string)
+	OnConfigRefreshed func(context.Context, *config.Config) error
+	Logger            *slog.Logger
 
 	// Certificate renewal dependencies
 	ClusterStorage  storage.Storage
@@ -148,14 +150,15 @@ func New(opts Options) (*Service, error) {
 	}
 
 	return &Service{
-		configLoader:    opts.ConfigLoader,
-		tenantState:     opts.TenantState,
-		sleepReady:      opts.SleepReady,
-		localDB:         opts.LocalDB,
-		instanceManager: opts.InstanceManager,
-		onGroupChanged:  opts.OnGroupChanged,
-		onDrainAcked:    opts.OnDrainAcked,
-		logger:          opts.Logger,
+		configLoader:      opts.ConfigLoader,
+		tenantState:       opts.TenantState,
+		sleepReady:        opts.SleepReady,
+		localDB:           opts.LocalDB,
+		instanceManager:   opts.InstanceManager,
+		onGroupChanged:    opts.OnGroupChanged,
+		onDrainAcked:      opts.OnDrainAcked,
+		onConfigRefreshed: opts.OnConfigRefreshed,
+		logger:            opts.Logger,
 
 		// Certificate renewal dependencies (optional for backward compatibility)
 		clusterStorage:   opts.ClusterStorage,

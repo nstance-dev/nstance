@@ -19,12 +19,91 @@ import (
 
 // testWaker delegates wake requests to a test callback.
 type testWaker struct {
-	wake func(context.Context, string, string) (string, error)
+	wake func(context.Context, string) (string, error)
+}
+
+// TestReconcileRetainsAddsAndRemovesPorts verifies socket reuse and replacement.
+func TestReconcileRetainsAddsAndRemovesPorts(t *testing.T) {
+	firstPort := unusedPort(t)
+	secondPort := unusedPort(t)
+	waker := testWaker{wake: func(context.Context, string) (string, error) { return "", nil }}
+	server, err := New(Options{Config: proxy.Config{Listeners: map[string]proxy.Listener{"old": {Tenant: "red", ProxyPort: firstPort}}}, Waker: waker, HoldTimeout: time.Second, BindHost: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	retained := server.ports[firstPort].listener
+	err = server.Reconcile(proxy.Config{Listeners: map[string]proxy.Listener{"new": {Tenant: "blue", ProxyPort: firstPort}, "added": {Tenant: "green", ProxyPort: secondPort}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.ports[firstPort].listener != retained || server.config.Listeners["new"].Tenant != "blue" || server.ports[secondPort] == nil {
+		t.Fatal("listeners were not reconciled in place")
+	}
+	if err := server.Reconcile(proxy.Config{Listeners: map[string]proxy.Listener{"added": {Tenant: "green", ProxyPort: secondPort}}}); err != nil {
+		t.Fatal(err)
+	}
+	if server.ports[firstPort] != nil {
+		t.Fatal("removed port remains")
+	}
+}
+
+// TestReconcileDoesNotMixSelectedRouteGenerations verifies route snapshots are atomic.
+func TestReconcileDoesNotMixSelectedRouteGenerations(t *testing.T) {
+	port := unusedPort(t)
+	selected := make(chan struct{})
+	resume := make(chan struct{})
+	woken := make(chan string, 1)
+	server, err := New(Options{
+		Config: proxy.Config{Listeners: map[string]proxy.Listener{
+			"old": {Tenant: "red", ProxyPort: port},
+		}},
+		Waker: testWaker{wake: func(_ context.Context, listener string) (string, error) {
+			woken <- listener
+			return "", fmt.Errorf("test wake completed")
+		}},
+		HoldTimeout: time.Second,
+		BindHost:    "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.routeSelected = func() {
+		close(selected)
+		<-resume
+	}
+	if err := server.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	client, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	if _, err := client.Write([]byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	<-selected
+	if err := server.Reconcile(proxy.Config{Listeners: map[string]proxy.Listener{
+		"new": {Tenant: "blue", ProxyPort: port},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	close(resume)
+	if got := <-woken; got != "old" {
+		t.Fatalf("selected route = %q, want old", got)
+	}
 }
 
 // Wake invokes the configured test callback.
-func (w testWaker) Wake(ctx context.Context, listener, tenant string) (string, error) {
-	return w.wake(ctx, listener, tenant)
+func (w testWaker) Wake(ctx context.Context, listener string) (string, error) {
+	return w.wake(ctx, listener)
 }
 
 // TestServerHealthCheckDoesNotWakeAndPayloadForwards verifies probe and payload handling.
@@ -37,9 +116,9 @@ func TestServerHealthCheckDoesNotWakeAndPayloadForwards(t *testing.T) {
 		Config: proxy.Config{Listeners: map[string]proxy.Listener{
 			"api:proxy": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
-		Waker: testWaker{wake: func(_ context.Context, listener, tenant string) (string, error) {
-			if listener != "api:proxy" || tenant != "red" {
-				t.Errorf("Wake(%q, %q)", listener, tenant)
+		Waker: testWaker{wake: func(_ context.Context, listener string) (string, error) {
+			if listener != "api:proxy" {
+				t.Errorf("Wake(%q)", listener)
 			}
 			wakes.Add(1)
 			return upstream, nil
@@ -96,7 +175,7 @@ func TestServerDispatchesSharedPortByDestinationIP(t *testing.T) {
 			"one": {Tenant: "red", ProxyPort: port, TargetPort: port, DestinationIP: "127.0.0.1"},
 			"two": {Tenant: "red", ProxyPort: port, TargetPort: port, DestinationIP: "127.0.0.2"},
 		}},
-		Waker: testWaker{wake: func(_ context.Context, listener, _ string) (string, error) {
+		Waker: testWaker{wake: func(_ context.Context, listener string) (string, error) {
 			mu.Lock()
 			identities = append(identities, listener)
 			mu.Unlock()
@@ -140,7 +219,7 @@ func TestServerBoundsConnectionHoldTimeout(t *testing.T) {
 		Config: proxy.Config{Listeners: map[string]proxy.Listener{
 			"api": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
-		Waker: testWaker{wake: func(ctx context.Context, _, _ string) (string, error) {
+		Waker: testWaker{wake: func(ctx context.Context, _ string) (string, error) {
 			<-ctx.Done()
 			return "", ctx.Err()
 		}},
@@ -182,7 +261,7 @@ func TestServerForcesIdleConnectionsClosedAtShutdownDeadline(t *testing.T) {
 		Config: proxy.Config{Listeners: map[string]proxy.Listener{
 			"api": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
-		Waker:           testWaker{wake: func(context.Context, string, string) (string, error) { return "", nil }},
+		Waker:           testWaker{wake: func(context.Context, string) (string, error) { return "", nil }},
 		HoldTimeout:     time.Minute,
 		ShutdownTimeout: 30 * time.Millisecond,
 		BindHost:        "127.0.0.1",
@@ -226,7 +305,7 @@ func TestServerCloseIsBoundedWhenWakerIgnoresContext(t *testing.T) {
 		Config: proxy.Config{Listeners: map[string]proxy.Listener{
 			"api": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
-		Waker: testWaker{wake: func(context.Context, string, string) (string, error) {
+		Waker: testWaker{wake: func(context.Context, string) (string, error) {
 			<-blocked
 			return "", nil
 		}},
