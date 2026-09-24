@@ -81,12 +81,19 @@
       "subnet_pool": "default"
     }
   },
+  "load_balancers": {
+    "dev-api": {
+      "provider": "tunnel",
+      "listeners": [{"target_port": 6443, "proxy_port": 16443}]
+    }
+  },
   "groups": {
     "default": {
       "test": {
         "template": "test",
         "size": 2,
-        "subnet_pool": "default"
+        "subnet_pool": "default",
+        "load_balancers": ["dev-api"]
       }
     }
   }

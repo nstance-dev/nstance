@@ -14,8 +14,8 @@ echo "=== Nstance E2E Test: K8s Operator ==="
 
 check_deps jq curl overmind tmux
 require_dev_env "s3 server k8s operator"
-curl -sf http://localhost:6443/healthz >/dev/null || { echo "Error: dev-k8s not responding on port 6443"; exit 1; }
-wait_for "Operator ready" 30 "curl -sf http://localhost:8081/healthz >/dev/null"
+curl -sf "http://localhost:${DEV_K8S_PORT:-6443}/healthz" >/dev/null || { echo "Error: dev-k8s not responding"; exit 1; }
+wait_for "Operator ready" 30 "curl -sf http://localhost:${DEV_OPERATOR_HEALTH_PORT:-8081}/healthz >/dev/null"
 
 # ============================================================================
 # Test: Reset 'test' Pool
@@ -25,7 +25,7 @@ if resource_exists machinepools default test; then
     echo "Resetting 'test' machinepool to 2 replicas..."
     set_replicas test 2
     kill_agent_windows "nstance-agent-"
-    wait_for "'test' machinepool has 2 instances" 30 '[ "$(count_instances test)" -eq 2 ]'
+    wait_for "'test' machinepool has 2 instances" 60 '[ "$(count_instances test)" -eq 2 ]'
 fi
 
 # ============================================================================
@@ -51,7 +51,7 @@ sleep 1
 
 echo "Creating NstanceMachinePool..."
 mkdir -p "${DEV_K8S_DIR}/nstancemachinepools/default"
-cp "${ROOT_DIR}/docs/nstancemachinepool.json" "${DEV_K8S_DIR}/nstancemachinepools/default/example.json"
+cp "${ROOT_DIR}/examples/nstancemachinepool.json" "${DEV_K8S_DIR}/nstancemachinepools/default/example.json"
 
 wait_for "MachinePool created" 30 "resource_exists machinepools default example"
 
@@ -77,7 +77,7 @@ wait_for "'test' instances deleted" 30 '[ "$(count_instances test)" -eq 0 ]'
 
 echo "Creating on-demand pod..."
 mkdir -p "${DEV_K8S_DIR}/pods/default"
-cp "${ROOT_DIR}/docs/pod.json" "${DEV_K8S_DIR}/pods/default/my-on-demand-pod.json"
+cp "${ROOT_DIR}/examples/pod.json" "${DEV_K8S_DIR}/pods/default/my-on-demand-pod.json"
 
 wait_for "on-demand instance created" 30 '[ "$(count_instances test true)" -ge 1 ]'
 

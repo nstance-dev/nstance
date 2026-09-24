@@ -8,6 +8,10 @@ description: "Setting up and running the full Nstance development environment lo
 
 This document describes the local development environment for Nstance, which simulates the full production architecture without requiring cloud infrastructure or real object storage servers / Kubernetes clusters.
 
+The full profile runs the real `nstance-operator`, `nstance-proxy`, and `nstance-tunnel` binaries. A minimal allowlisted loopback process stands in for the external tunnel implementation, while all lifecycle control still crosses the production Unix gRPC interfaces.
+
+Each launch selects one free random port base and derives every process address from it. The coordinated plan is written to `temp/dev-ports.env`; processes never select ports independently.
+
 There's also [Development with Kind](./dev-with-kind.md) which explains how to run a dev environment using Kind for testing nstance-operator with a real Kubernetes cluster instead the mock dev-k8s server used in this document.
 
 ## Architecture Overview
@@ -19,8 +23,8 @@ There's also [Development with Kind](./dev-with-kind.md) which explains how to r
 │  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐ │
 │  │   dev-s3    │     │   server    │     │   dev-k8s   │     │  operator   │ │
 │  │  (gofakes3) │     │  (nstance-  │     │  (fake k8s  │     │  (nstance-  │ │
-│  │   :8989     │◄────│   server)   │────►│    API)     │◄────│  operator)  │ │
-│  │             │     │             │     │   :6443     │     │             │ │
+│  │ dynamic port│◄────│   server)   │────►│    API)     │◄────│  operator)  │ │
+│  │             │     │             │     │ dynamic port│     │             │ │
 │  └─────────────┘     └──────┬──────┘     └──────┬──────┘     └─────────────┘ │
 │                             │                   │                            │
 │                             │                   │                            │
@@ -47,8 +51,8 @@ There's also [Development with Kind](./dev-with-kind.md) which explains how to r
 
 A fake S3 server using [gofakes3](https://github.com/johannesboyne/gofakes3) that stores files on the local filesystem.
 
-- **Port:** 8989
-- **Storage:** `temp/dev-s3/`
+- **Port:** Selected per run
+- **Storage:** `temp/run-{base}/dev-s3/`
 - **Bucket:** `dev`
 
 Used by nstance-server to store:
@@ -61,14 +65,7 @@ Used by nstance-server to store:
 
 The main Nstance control plane server running with the **tmux provider**.
 
-**Ports:**
-| Port | Service | Description |
-|------|---------|-------------|
-| 8990 | Health | HTTP health checks |
-| 8991 | Leader | Leader election health |
-| 8992 | Registration | gRPC - Agent/Operator registration (TLS, no client cert) |
-| 8993 | Operator | gRPC - Operator sync/drain (mTLS) |
-| 8994 | Agent | gRPC - Agent communication (mTLS) |
+**Ports:** Each server receives a non-overlapping five-port range for health, leader election, registration, operator, and agent traffic. See `temp/dev-ports.env` for the current run.
 
 **Tmux Provider Behavior:**
 - Creates agents as tmux windows (running nstance-agent processes directly) instead of cloud VMs
@@ -80,8 +77,8 @@ The main Nstance control plane server running with the **tmux provider**.
 
 A minimal fake Kubernetes API server that stores/reads resources to/from JSON files.
 
-- **Port:** 6443
-- **Storage:** `temp/dev-k8s/`
+- **Port:** Selected per run
+- **Storage:** `temp/run-{base}/dev-k8s/`
 
 **Supported Resources:**
 - Core API (`/api/v1`): Secrets, ConfigMaps, Namespaces, Nodes, Pods
@@ -90,8 +87,7 @@ A minimal fake Kubernetes API server that stores/reads resources to/from JSON fi
 - Coordination (`coordination.k8s.io/v1`): Lease
 
 **How it works:**
-- Resources are stored as JSON files in `temp/dev-k8s/{resource}/{namespace}/{name}.json`
-- Cluster-scoped resources (Nodes) are stored in `temp/dev-k8s/{resource}/{name}.json`
+- Resources are stored as JSON files under the current run's `dev-k8s` directory.
 - No schema validation - accepts any valid JSON
 - Supports watch via file system notifications (fsnotify) so you can change resources simply by editing the respective JSON file
 
@@ -101,18 +97,22 @@ The Kubernetes operator that syncs instance groups between nstance-server and Ku
 
 **Configuration:**
 - Uses a generated kubeconfig pointing to dev-k8s
-- Connects to nstance-server on separate ports for registration (8992) and operations (8993)
+- Connects to each nstance-server on its assigned registration and operator ports
 - Uses JSON content type instead of protobuf (dev-k8s limitation)
 
 **Startup Flow:**
 1. Waits for nstance-server to be healthy
 2. Waits for dev-k8s to be healthy
-3. Creates CA ConfigMap from `temp/dev-s3/cluster/ca.crt`
+3. Creates a CA ConfigMap from the current run's dev-s3 state
 4. Generates registration nonce via `nstance-admin` CLI tool and writes to a Secret
 5. Creates operator config with shard endpoints
 6. Starts operator with Air for hot-reload
 
-### 5. tmux Agent Session
+### 5. Local proxy and tunnel supervisor
+
+Each server has a matching `nstance-proxy` and `nstance-tunnel` process. The proxy receives complete listener snapshots and listener-scoped wake results over its Unix gRPC socket. The tunnel supervisor uses a generated local allowlist and a minimal Go loopback process solely to exercise process lifecycle and readiness without external tunnel credentials.
+
+### 6. tmux Agent Session
 
 Agents run in a dedicated tmux session for isolation from Overmind's tmux session.
 
@@ -135,13 +135,15 @@ make setup  # Verifies dependencies (go, tmux, air, overmind, shellcheck, golang
 # Full stack: s3 + server + dev-k8s + operator (clean start recommended)
 make clean-dev && make dev-tmux-k8s
 
-# Server only: s3 + server (for admin CLI testing or running operator separately)
+# Core stack without Kubernetes/operator (for admin CLI testing or running operator separately)
 make clean-dev && make dev-tmux
 ```
 
 This starts components via Overmind:
 - `s3`: dev-s3 fake object storage server
 - `server`: nstance-server with tmux dev provider (2 instances)
+- `proxy`: nstance-proxy (one per server)
+- `tunnel`: nstance-tunnel supervisor with a minimal loopback implementation (one per server)
 - `k8s`: dev-k8s fake Kubernetes API (`dev-tmux-k8s` only)
 - `operator`: nstance-operator (`dev-tmux-k8s` only)
 
@@ -171,33 +173,36 @@ tmux attach -t nstance-dev-agents
 
 ```
 temp/
-├── cache/                    # nstance-server cache (SQLite, etc.)
-│   └── db/
-│       └── nstance.db
-├── dev-k8s/                  # dev-k8s resource storage
-│   ├── configmaps/
-│   │   └── default/
-│   │       └── nstance-cluster-ca.json
-│   ├── secrets/
-│   │   └── default/
-│   │       ├── nstance-operator-cert.json
-│   │       ├── nstance-operator-key.json
-│   │       └── nstance-operator-nonce.json
-│   ├── nstancemachinepools/
-│   │   └── default/
-│   │       └── nstance-test.json
-│   ├── machinepools/
-│   │   └── default/
-│   │       └── nstance-test.json
-│   └── nodes/
-│       └── {instanceID}.json   # Created by tmux provider
-├── dev-s3/                   # dev-s3 file storage (object storage bucket contents)
-│   ├── ca.crt                # Cluster CA certificate
-│   ├── ca.key                # Cluster CA private key (encrypted)
-│   ├── config/
-│   │   └── config.jsonc      # Server configuration
-│   └── secret/
-│       └── ...               # Encrypted secrets
+├── dev-ports.env             # Coordinated port plan for the current run
+├── run-{base}/
+│   ├── server-cache-N/       # Per-server cache (N is the process number)
+│   │   ├── db/
+│   │   │   └── nstance.db    # SQLite database
+│   │   └── shard/
+│   │       └── dev-N/        # Cached shard configuration and groups
+│   ├── dev-s3/               # Isolated fake object storage
+│   │   ├── cluster/
+│   │   │   ├── ca.crt        # Cluster CA certificate
+│   │   │   └── secret/       # Encrypted cluster secrets
+│   │   └── shard/
+│   │       └── dev-{1,2}/
+│   │           ├── config.jsonc
+│   │           └── groups.jsonc
+│   ├── dev-k8s/              # Isolated dev-k8s resource storage
+│   │   ├── configmaps/
+│   │   │   └── default/
+│   │   │       └── nstance-cluster-ca.json
+│   │   ├── secrets/
+│   │   │   └── default/
+│   │   │       ├── nstance-operator-cert.json
+│   │   │       ├── nstance-operator-key.json
+│   │   │       └── nstance-operator-nonce.json
+│   │   ├── nstancemachinepools/default/
+│   │   ├── machinepools/default/
+│   │   └── nodes/
+│   │       └── {instanceID}.json # Created by the tmux provider
+│   ├── files-N/              # Files published locally by each server
+│   └── nstance-tunnel-N.json # Generated tunnel allowlists
 └── operator/                 # Operator runtime config
     ├── config.yaml           # Shard endpoints
     └── kubeconfig            # dev-k8s kubeconfig
@@ -207,26 +212,7 @@ temp/
 
 ### Server Configuration
 
-The server reads configuration from `examples/config-tmux.jsonc`. Key settings for dev mode:
-
-```jsonc
-{
-  "server": {
-    "provider": {
-      "kind": "tmux",     // Uses tmux provider (local agents in tmux)
-      "region": "dev",
-      "zone": "deva"
-    },
-    "bind": {
-      "health_addr": "0.0.0.0:8990",
-      "election_addr": "0.0.0.0:8991",
-      "registration_addr": "0.0.0.0:8992",
-      "operator_addr": "0.0.0.0:8993",
-      "agent_addr": "0.0.0.0:8994"
-    }
-  }
-}
-```
+The launcher derives addresses from its selected base and writes the resulting server configuration to dev-s3. `examples/config-tmux.jsonc` supplies the remaining settings; inspect the generated `config.jsonc` files under `DEV_RUN_DIR` for the effective addresses.
 
 ### Operator Configuration
 
@@ -236,9 +222,9 @@ Generated automatically by `scripts/dev-operator.sh`:
 cluster_id: example-cluster
 tenant: default
 shards:
-  dev:
-    registration_addr: "127.0.0.1:8992"  # For initial mTLS registration
-    operator_addr: "127.0.0.1:8993"      # For ongoing sync/drain operations
+  dev-1:
+    registration_addr: "127.0.0.1:<generated>"  # For initial mTLS registration
+    operator_addr: "127.0.0.1:<generated>"      # For ongoing sync/drain operations
 ```
 
 Note: Uses `127.0.0.1` instead of `localhost` to avoid IPv6 resolution issues on macOS.
@@ -248,20 +234,20 @@ Note: Uses `127.0.0.1` instead of `localhost` to avoid IPv6 resolution issues on
 1. **Operator starts** and loads CA certificate from `nstance-cluster-ca` ConfigMap
 2. **Operator generates keypair** and stores in `nstance-operator-key` Secret
 3. **Operator loads nonce** from `nstance-operator-nonce` Secret
-4. **Operator connects** to registration port (8992) with TLS (server auth only)
+4. **Operator connects** to the shard's assigned registration port with TLS (server auth only)
 5. **Server issues certificate** signed by cluster CA
 6. **Operator stores certificate** in `nstance-operator-cert` Secret
-7. **Operator connects** to operator port (8993) with mTLS for sync/drain
+7. **Operator connects** to the shard's assigned operator port with mTLS for sync/drain
 
 ## How Instance Creation Works
 
 1. **Reconciler** decides to create an instance
 2. **Tmux provider** creates temp directory with identity files (nonce, CA cert)
 3. **Tmux provider** creates tmux window running `air -c scripts/air/agent.toml`
-4. **Tmux provider** creates fake Node JSON in `temp/dev-k8s/nodes/`
+4. **Tmux provider** creates fake Node JSON in the current run's `dev-k8s/nodes/` directory
 5. **Agent** starts, registers with server using nonce
 6. **Server** issues client certificate to agent
-7. **Agent** connects to agent service (8994) with mTLS
+7. **Agent** connects to the shard's assigned agent service with mTLS
 8. **Operator** can see the Node via dev-k8s and perform drain operations
 
 ## Troubleshooting
@@ -276,7 +262,7 @@ This is a controller-runtime cache issue. The code now builds TLS config directl
 
 ### "unknown service" errors from operator
 
-The operator might be connecting to the wrong port. Registration happens on 8992, but sync/drain operations use 8993.
+The operator might be connecting to the wrong generated port. Compare `temp/operator/config.yaml` with `temp/dev-ports.env`.
 
 ### Agents not appearing
 
@@ -314,7 +300,7 @@ The first thing you'll want to do is ensure you have your `nstance-server` runni
 ```bash
 make clean-dev && make dev-tmux
 ```
-This starts s3 + server only (no dev-k8s or operator), which is what you want since the operator will run separately against kind.
+This starts the core stack without dev-k8s or the operator, which is what you want since the operator will run separately against kind.
 
 ### Start a Kubernetes Cluster
 
@@ -376,13 +362,14 @@ kubectl apply -k config/crd/
 
 **7. Deploy the Nstance Cluster CA certificate ConfigMap**
 
-The `nstance-server` you started in step 1 will generate a new CA certificate and upload it to the `dev-s3` server, stored at `./temp/dev-s3/cluster/ca.crt`.
+The `nstance-server` you started in step 1 generates a new CA certificate in the current run directory.
 
 Let's create a new ConfigMap with it embedded, for the Nstance Operator to use:
 
 ```bash
+. temp/dev-ports.env
 kubectl create configmap nstance-cluster-ca \
-  --from-file=ca.crt=temp/dev-s3/cluster/ca.crt
+  --from-file=ca.crt="$DEV_RUN_DIR/dev-s3/cluster/ca.crt"
 ```
 
 **8. Export the Kind kubeconfig for the Operator**:
@@ -394,31 +381,20 @@ kind get kubeconfig --name nstance-dev > temp/operator/kubeconfig
 
 **9. Create the operator config file** (read from `--config` flag, not a ConfigMap):
 
-The shard IDs and ports must match the `dev-tmux` server instances. By default, `dev-tmux` runs 2 server instances (`server=2`) with port scheme: base + (instance-1) * 10.
+The shard IDs and ports must match the coordinated values in `temp/dev-ports.env`.
 
-```bash
-cat > temp/operator/config.yaml << 'EOF'
-cluster_id: example-cluster
-tenant: default
-shards:
-  dev-1:
-    registration_addr: "127.0.0.1:8992"
-    operator_addr: "127.0.0.1:8993"
-  dev-2:
-    registration_addr: "127.0.0.1:9002"
-    operator_addr: "127.0.0.1:9003"
-EOF
-```
+`make kind-provision` generates this file from the active port plan. Use that target rather than writing fixed addresses.
 
 **10. Generate the registration nonce & store in a Kubernetes Secret**:
 
 Compile and use the `nstance-admin` binary and run it against the `dev-s3` service (started in step 1):
 
 ```bash
+. temp/dev-ports.env
 make nstance-admin
 NONCE_JWT=$(AWS_ACCESS_KEY_ID=dev \
 AWS_SECRET_ACCESS_KEY=dev \
-AWS_ENDPOINT_URL=http://localhost:8989 \
+AWS_ENDPOINT_URL="$AWS_ENDPOINT_URL" \
 AWS_S3_USE_PATH_STYLE=true \
 NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 \
 ./bin/nstance-admin cluster nonce \
@@ -467,7 +443,7 @@ The operator will:
 - Load or generate an Ed25519 keypair (stored in `nstance-operator-key` Secret)
 - Register with nstance-server using the nonce from `nstance-operator-nonce` Secret
 - Receive and store a client certificate in `nstance-operator-cert` Secret
-- Connect to the operator gRPC port (8993) with mTLS for sync/drain operations
+- Connect to each shard's assigned operator gRPC port with mTLS for sync/drain operations
 - Reconcile `NstanceMachinePool`, `NstanceMachine`, and `NstanceShardGroup` CRDs
 
 This setup allows for rapid development cycles without needing to rebuild container images for each change.

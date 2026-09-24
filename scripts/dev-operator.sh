@@ -20,9 +20,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DEV_K8S_DIR="${ROOT_DIR}/temp/dev-k8s"
-DEV_S3_DIR="${ROOT_DIR}/temp/dev-s3"
-DEV_K8S_URL="${DEV_K8S_URL:-http://localhost:6443}"
+DEV_K8S_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}/dev-k8s"
+DEV_S3_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}/dev-s3"
+DEV_K8S_URL="${DEV_K8S_URL:-http://localhost:${DEV_K8S_PORT:-6443}}"
 NAMESPACE="${NAMESPACE:-default}"
 
 # Port configuration
@@ -79,7 +79,7 @@ make -B -C "$ROOT_DIR" bin/nstance-admin >/dev/null 2>&1 || {
 
 # Wait for dev-s3 to be ready
 echo "==> Waiting for dev-s3 to be healthy..."
-until curl -sf "http://localhost:8989/" > /dev/null 2>&1; do
+until curl -sf "${AWS_ENDPOINT_URL:-http://localhost:${DEV_S3_PORT:-8989}}/" > /dev/null 2>&1; do
     sleep 1
 done
 echo "==> dev-s3 is healthy"
@@ -129,7 +129,7 @@ fi
 
 # Generate operator nonce using nstance-admin
 echo "==> Generating operator registration nonce..."
-NONCE_JWT=$(NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 AWS_ACCESS_KEY_ID=dev AWS_SECRET_ACCESS_KEY=dev AWS_ENDPOINT_URL=http://localhost:8989 AWS_S3_USE_PATH_STYLE=true ./bin/nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket dev --key-provider env --output - 2>/dev/null || echo "")
+NONCE_JWT=$(NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 AWS_ACCESS_KEY_ID=dev AWS_SECRET_ACCESS_KEY=dev AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL:-http://localhost:${DEV_S3_PORT:-8989}}" AWS_S3_USE_PATH_STYLE=true ./bin/nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket dev --secrets-provider object-storage --key-provider env --output - 2>/dev/null || echo "")
 
 if [ -z "$NONCE_JWT" ]; then
     echo "==> Warning: Could not generate nonce, operator registration may fail"
@@ -212,6 +212,7 @@ export NSTANCE_NONCE_SECRET="nstance-operator-nonce"
 export NSTANCE_KEY_SECRET="nstance-operator-key"
 export NSTANCE_CERT_SECRET="nstance-operator-cert"
 export NSTANCE_K8S_JSON="true"
+export DEV_OPERATOR_HEALTH_PORT="${DEV_OPERATOR_HEALTH_PORT:-8081}"
 
 echo "==> Starting operator with air..."
 exec air -c scripts/air/operator.toml

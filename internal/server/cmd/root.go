@@ -59,19 +59,19 @@ var rootCmd = &cobra.Command{
 const validateRemote = ":remote:"
 
 var (
-	flagDebug         bool
-	flagVersion       bool
-	flagServerID      string
-	flagShard         string
-	flagStorage       string
-	flagBucket        string
-	flagPrefix        string
-	flagValidate      string
-	flagCacheDir      string
-	flagAdvertiseHost string
-	flagProxySocket   string
-	flagTunnelSocket  string
-	flagLocalFilesDir string
+	flagDebug          bool
+	flagVersion        bool
+	flagServerID       string
+	flagShard          string
+	flagStorage        string
+	flagBucket         string
+	flagPrefix         string
+	flagValidate       string
+	flagCacheDir       string
+	flagAdvertiseHost  string
+	flagProxySocket    string
+	flagTunnelSocket   string
+	flagServerFilesDir string
 )
 
 // init registers nstance-server command-line flags.
@@ -97,7 +97,7 @@ func init() {
 	lflags.StringVar(&flagAdvertiseHost, "advertise-host", "", "Override advertise host for health and election addrs (per-instance)")
 	lflags.StringVar(&flagProxySocket, "proxy-socket", "/run/nstance/nstance-server.sock", "Local nstance-proxy control socket")
 	lflags.StringVar(&flagTunnelSocket, "tunnel-socket", "/run/nstance/nstance-tunnel.sock", "Local nstance-tunnel control socket")
-	lflags.StringVar(&flagLocalFilesDir, "local-receive-dir", "/run/nstance/receive", "Local receive directory")
+	lflags.StringVar(&flagServerFilesDir, "server-files-dir", "/run/nstance/files", "Directory for server-local files")
 }
 
 // NewRootCmd creates the nstance-server root command.
@@ -730,14 +730,14 @@ func NewRootCmd() *cobra.Command {
 		}
 		defer proxyControl.Stop()
 		var tunnelControl *tunnelcontrol.Controller
-		proxyFileGenerator := filegen.NewGenerator(configLoader, localDB, nil, caCertData, imageService, secretsStore, shardStorage, logger)
-		localFileWriter := localfiles.Writer{Directory: flagLocalFilesDir}
-		publishLocalFiles := func(ctx context.Context, cfg *config.Config) error {
-			files, err := proxyFileGenerator.GenerateProxyFiles(ctx, cfg)
+		fileGenerator := filegen.NewGenerator(configLoader, localDB, nil, caCertData, imageService, secretsStore, shardStorage, logger)
+		serverFileWriter := localfiles.Writer{Directory: flagServerFilesDir}
+		publishServerFiles := func(ctx context.Context, cfg *config.Config) error {
+			files, err := fileGenerator.GenerateServerFiles(ctx, cfg)
 			if err != nil {
 				return err
 			}
-			return localFileWriter.Write(files)
+			return serverFileWriter.Write(files)
 		}
 
 		// create operator gRPC service (assign to variable declared above)
@@ -768,7 +768,7 @@ func NewRootCmd() *cobra.Command {
 					return err
 				}
 				proxyControl.Publish(proxyConfig)
-				return publishLocalFiles(ctx, refreshed)
+				return publishServerFiles(ctx, refreshed)
 			},
 			Logger: logger,
 			// Certificate renewal dependencies
@@ -861,8 +861,8 @@ func NewRootCmd() *cobra.Command {
 						return fmt.Errorf("failed to start image resolution service: %w", err)
 					}
 				}
-				if err := publishLocalFiles(ctx, refreshedCfg); err != nil {
-					return fmt.Errorf("failed to publish local proxy files: %w", err)
+				if err := publishServerFiles(ctx, refreshedCfg); err != nil {
+					return fmt.Errorf("failed to publish server-local files: %w", err)
 				}
 
 				// Rebuild local cache from S3 and provider

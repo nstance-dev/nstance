@@ -17,22 +17,22 @@ echo "=== Nstance E2E Test: Admin CLI ==="
 # ============================================================================
 
 ADMIN_CLI="${ROOT_DIR}/bin/nstance-admin"
-ADMIN_BUCKET="dev"
+ADMIN_IDENTITY_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}/admin-identity"
+ADMIN_SERVERS=""
+ADMIN_TEST_GROUP="admin-e2e"
 
+# Runs nstance-admin against the current development servers.
 admin() {
-    AWS_ACCESS_KEY_ID=dev \
-    AWS_SECRET_ACCESS_KEY=dev \
-    AWS_ENDPOINT_URL=http://localhost:8989 \
-    AWS_S3_USE_PATH_STYLE=true \
-    NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 \
-    "${ADMIN_CLI}" --bucket "${ADMIN_BUCKET}" "$@"
+    "${ADMIN_CLI}" --servers "${ADMIN_SERVERS}" --identity-dir "${ADMIN_IDENTITY_DIR}" "$@"
 }
 
+# Reports whether the named group exists on any shard.
 group_exists() {
     local group="$1"
     admin group list --all-shards 2>/dev/null | grep -qE "^[^ ]+[[:space:]]+${group}[[:space:]]"
 }
 
+# Sums the configured size of the named group across all shards.
 get_group_total_size() {
     local group="$1"
     admin group list --all-shards 2>/dev/null | grep -E "^[^ ]+[[:space:]]+${group}[[:space:]]" | awk '{sum += $3} END {print sum+0}'
@@ -42,11 +42,29 @@ get_group_total_size() {
 # Preflight Checks
 # ============================================================================
 
-check_deps jq curl overmind
+check_deps overmind
 require_dev_env "s3 server"
 
 [ -x "${ADMIN_CLI}" ] || { echo "Error: Admin CLI not found at ${ADMIN_CLI} - run 'make build' first"; exit 1; }
 echo "✓ Admin CLI found at ${ADMIN_CLI}"
+
+for i in $(seq 1 "${SERVER_COUNT}"); do
+    shard="dev-${i}"
+    port=$(( BASE_OPERATOR_PORT + (i - 1) * PORT_STEP ))
+    [ -z "${ADMIN_SERVERS}" ] || ADMIN_SERVERS+=","
+    ADMIN_SERVERS+="${shard}=127.0.0.1:${port}"
+done
+
+NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 \
+AWS_ACCESS_KEY_ID=dev \
+AWS_SECRET_ACCESS_KEY=dev \
+AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL}" \
+AWS_S3_USE_PATH_STYLE=true \
+"${ADMIN_CLI}" cluster register-operator \
+    --storage-bucket dev \
+    --secrets-provider object-storage \
+    --key-provider env \
+    --output-dir "${ADMIN_IDENTITY_DIR}"
 
 # ============================================================================
 # Test: List Groups (baseline)
@@ -81,47 +99,47 @@ echo "✓ Scaled 'test' to 2 per shard (4 total)"
 # Test: Create New Group
 # ============================================================================
 
-echo "Cleaning up 'example' group if it exists..."
-if group_exists example; then
-    admin group delete example --all-shards 2>/dev/null || true
+echo "Cleaning up '${ADMIN_TEST_GROUP}' group if it exists..."
+if group_exists "${ADMIN_TEST_GROUP}"; then
+    admin group delete "${ADMIN_TEST_GROUP}" --all-shards 2>/dev/null || true
     sleep 1
 fi
 
-echo "Creating 'example' group..."
-admin group create example --template test --size 1 --all-shards || { echo "Error: group create failed"; exit 1; }
+echo "Creating '${ADMIN_TEST_GROUP}' group..."
+admin group create "${ADMIN_TEST_GROUP}" --template test --size 1 --all-shards || { echo "Error: group create failed"; exit 1; }
 
-if group_exists example; then
-    echo "✓ 'example' group created and visible in list"
+if group_exists "${ADMIN_TEST_GROUP}"; then
+    echo "✓ '${ADMIN_TEST_GROUP}' group created and visible in list"
 else
-    echo "Error: 'example' group not visible after create"
+    echo "Error: '${ADMIN_TEST_GROUP}' group not visible after create"
     exit 1
 fi
 
-[ "$(get_group_total_size example)" -eq 2 ] || { echo "Error: 'example' group total size not 2 after create"; exit 1; }
-echo "✓ 'example' group has total size 2 (1 per shard)"
+[ "$(get_group_total_size "${ADMIN_TEST_GROUP}")" -eq 2 ] || { echo "Error: '${ADMIN_TEST_GROUP}' group total size not 2 after create"; exit 1; }
+echo "✓ '${ADMIN_TEST_GROUP}' group has total size 2 (1 per shard)"
 
 # ============================================================================
 # Test: Scale New Group
 # ============================================================================
 
-echo "Scaling 'example' group to 3..."
-admin group scale example 3 --all-shards || { echo "Error: scale example to 3 failed"; exit 1; }
-[ "$(get_group_total_size example)" -eq 6 ] || { echo "Error: 'example' group total size not 6 after scale"; exit 1; }
-echo "✓ Scaled 'example' to 3 per shard (6 total)"
+echo "Scaling '${ADMIN_TEST_GROUP}' group to 3..."
+admin group scale "${ADMIN_TEST_GROUP}" 3 --all-shards || { echo "Error: scale ${ADMIN_TEST_GROUP} to 3 failed"; exit 1; }
+[ "$(get_group_total_size "${ADMIN_TEST_GROUP}")" -eq 6 ] || { echo "Error: '${ADMIN_TEST_GROUP}' group total size not 6 after scale"; exit 1; }
+echo "✓ Scaled '${ADMIN_TEST_GROUP}' to 3 per shard (6 total)"
 
 # ============================================================================
 # Test: Delete Group
 # ============================================================================
 
-echo "Deleting 'example' group..."
-admin group delete example --all-shards || { echo "Error: group delete failed"; exit 1; }
+echo "Deleting '${ADMIN_TEST_GROUP}' group..."
+admin group delete "${ADMIN_TEST_GROUP}" --all-shards || { echo "Error: group delete failed"; exit 1; }
 sleep 1
 
-if group_exists example; then
-    echo "Error: 'example' group still exists after delete"
+if group_exists "${ADMIN_TEST_GROUP}"; then
+    echo "Error: '${ADMIN_TEST_GROUP}' group still exists after delete"
     exit 1
 else
-    echo "✓ 'example' group deleted successfully"
+    echo "✓ '${ADMIN_TEST_GROUP}' group deleted successfully"
 fi
 
 # ============================================================================

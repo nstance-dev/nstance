@@ -15,7 +15,7 @@ COMMIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 BUILDVARS_PKG=github.com/nstance-dev/nstance/internal/buildvars
 
 BINARYDIR=$(CURRENT)bin
-BINARIES=nstance-server nstance-agent nstance-proxy nstance-operator nstance-admin
+BINARIES=nstance-server nstance-agent nstance-proxy nstance-tunnel nstance-operator nstance-admin
 
 # Cross-compilation settings for SQLite support
 GOOS ?= $(shell go env GOOS)
@@ -178,13 +178,11 @@ manifests: ## Generate Kubernetes manifests
 
 ##@ Dev Environment
 
-dev-tmux: ## Start dev environment with s3 + server only (for admin CLI testing)
-	@$(CURRENT)scripts/check-dev-ports.sh
-	@trap 'tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^nstance-.*-agents$$" | xargs -I{} tmux kill-session -t {} 2>/dev/null || true' EXIT; cd $(CURRENT) && OVERMIND_FORMATION=s3=1,server=2,k8s=0,operator=0 overmind start
+dev-tmux: ## Start core local stack for admin CLI testing
+	@$(CURRENT)scripts/dev-tmux.sh server
 
 dev-tmux-k8s: ## Start dev environment with s3 + server + k8s + operator (for K8s testing)
-	@$(CURRENT)scripts/check-dev-ports.sh
-	@trap 'tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "^nstance-.*-agents$$" | xargs -I{} tmux kill-session -t {} 2>/dev/null || true' EXIT; cd $(CURRENT) && OVERMIND_FORMATION=s3=1,server=2,k8s=1,operator=1 overmind start
+	@$(CURRENT)scripts/dev-tmux.sh full
 
 dev-operator: ## Run operator with air against KUBECONFIG (for Kind/real K8s)
 	@if [ ! -f "$(CURRENT)temp/operator/kubeconfig" ]; then \
@@ -239,9 +237,13 @@ kind-create: ## Create a Kind cluster for dev
 
 kind-provision: ## Install cert-manager, CAPI, and Nstance CRDs into Kind cluster
 	@test -f "$(BINARYDIR)/nstance-admin" || $(MAKE) nstance-admin
-	@if [ ! -f "$(CURRENT)temp/dev-s3/cluster/ca.crt" ]; then \
-		echo "Error: temp/dev-s3/cluster/ca.crt does not exist."; \
+	@if [ ! -f "$(CURRENT)temp/dev-ports.env" ]; then \
+		echo "Error: temp/dev-ports.env does not exist."; \
 		echo "  Start the nstance-server first: make clean-dev && make dev-tmux"; \
+		exit 1; \
+	fi
+	@. $(CURRENT)temp/dev-ports.env; if [ ! -f "$$DEV_RUN_DIR/dev-s3/cluster/ca.crt" ]; then \
+		echo "Error: $$DEV_RUN_DIR/dev-s3/cluster/ca.crt does not exist."; \
 		exit 1; \
 	fi
 	@echo "Installing cert-manager..."
@@ -258,23 +260,36 @@ kind-provision: ## Install cert-manager, CAPI, and Nstance CRDs into Kind cluste
 	@echo "Creating CAPI ServiceAccount and RBAC..."
 	kubectl apply -f $(CURRENT)config/rbac/capi-workload.yaml
 	@echo "Creating cluster CA ConfigMap..."
-	kubectl create configmap nstance-cluster-ca \
-		--from-file=ca.crt=$(CURRENT)temp/dev-s3/cluster/ca.crt \
+	@. $(CURRENT)temp/dev-ports.env; kubectl create configmap nstance-cluster-ca \
+		--from-file=ca.crt="$$DEV_RUN_DIR/dev-s3/cluster/ca.crt" \
 		--dry-run=client -o yaml | kubectl apply -f -
 	@echo "Exporting Kind kubeconfig..."
 	@mkdir -p $(CURRENT)temp/operator
 	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > $(CURRENT)temp/operator/kubeconfig
 	@echo "Creating operator config..."
-	@printf 'cluster_id: example-cluster\ntenant: default\nshards:\n  dev-1:\n    registration_addr: "127.0.0.1:8992"\n    operator_addr: "127.0.0.1:8993"\n  dev-2:\n    registration_addr: "127.0.0.1:9002"\n    operator_addr: "127.0.0.1:9003"\n' > $(CURRENT)temp/operator/config.yaml
+	@. $(CURRENT)temp/dev-ports.env; \
+		SERVER_COUNT=$$(echo "$$OVERMIND_FORMATION" | grep -oE 'server=[0-9]+' | cut -d= -f2); \
+		{ \
+			echo 'cluster_id: example-cluster'; \
+			echo 'tenant: default'; \
+			echo 'shards:'; \
+			for i in $$(seq 1 "$$SERVER_COUNT"); do \
+				offset=$$(( (i - 1) * PORT_STEP )); \
+				echo "  dev-$$i:"; \
+				echo "    registration_addr: \"127.0.0.1:$$((BASE_REGISTRATION_PORT + offset))\""; \
+				echo "    operator_addr: \"127.0.0.1:$$((BASE_OPERATOR_PORT + offset))\""; \
+			done; \
+		} > $(CURRENT)temp/operator/config.yaml
 	@echo "Generating registration nonce..."
-	@NONCE_JWT=$$(AWS_ACCESS_KEY_ID=dev \
+	@. $(CURRENT)temp/dev-ports.env; NONCE_JWT=$$(AWS_ACCESS_KEY_ID=dev \
 		AWS_SECRET_ACCESS_KEY=dev \
-		AWS_ENDPOINT_URL=http://localhost:8989 \
+		AWS_ENDPOINT_URL="$$AWS_ENDPOINT_URL" \
 		AWS_S3_USE_PATH_STYLE=true \
 		NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012 \
 		$(BINARYDIR)/nstance-admin cluster nonce \
 		--cluster-id example-cluster \
 		--storage-bucket dev \
+		--secrets-provider object-storage \
 		--key-provider env \
 		--output -) && \
 	kubectl create secret generic nstance-operator-nonce \

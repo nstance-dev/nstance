@@ -10,8 +10,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DEV_K8S_DIR="${ROOT_DIR}/temp/dev-k8s"
-DEV_S3_DIR="${ROOT_DIR}/temp/dev-s3"
+# shellcheck disable=SC1091
+[ ! -f "${ROOT_DIR}/temp/dev-ports.env" ] || source "${ROOT_DIR}/temp/dev-ports.env"
+DEV_K8S_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}/dev-k8s"
+DEV_S3_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}/dev-s3"
 
 # Polls a condition until true or timeout, printing success/failure
 wait_for() {
@@ -35,7 +37,7 @@ count_instances() {
     local group="$1" on_demand_only="${2:-false}"
     local count=0
     shopt -s nullglob
-    for f in "${DEV_S3_DIR}/instance/"*/*.json; do
+    for f in "${DEV_S3_DIR}/shard/"*/instance/*.json; do
         local g s od
         g=$(jq -r '.group // empty' "$f" 2>/dev/null)
         s=$(jq -r '.status // empty' "$f" 2>/dev/null)

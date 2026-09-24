@@ -48,6 +48,7 @@ var (
 	flagRegisterOperatorCertTTLHours  int
 )
 
+// init registers the operator bootstrap command.
 func init() {
 	flags := clusterRegisterOperatorCmd.Flags()
 	flags.StringVar(&flagRegisterOperatorTenant, "tenant", "default", "Tenant name for the operator")
@@ -59,6 +60,7 @@ func init() {
 	clusterCmd.AddCommand(clusterRegisterOperatorCmd)
 }
 
+// runClusterRegisterOperator creates and persists an operator identity.
 func runClusterRegisterOperator(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
@@ -91,7 +93,7 @@ func runClusterRegisterOperator(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	caCertPEM, _, err := clusterStorage.Get(ctx, "secret/ca.crt")
+	caCertPEM, _, err := clusterStorage.Get(ctx, "ca.crt")
 	if err != nil {
 		return fmt.Errorf("failed to read CA certificate: %w", err)
 	}

@@ -2,7 +2,7 @@
 // Copyright The Nstance Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package localfiles atomically publishes files for the local vmconfig receive watcher.
+// Package localfiles atomically publishes files for server-local services.
 package localfiles
 
 import (
@@ -29,20 +29,20 @@ type Writer struct {
 // Write atomically replaces every file, then publishes a completion timestamp.
 func (w Writer) Write(files map[string][]byte) error {
 	if w.Directory == "" {
-		return fmt.Errorf("local receive directory is required")
+		return fmt.Errorf("local files directory is required")
 	}
 	if err := os.MkdirAll(w.Directory, 0700); err != nil {
-		return fmt.Errorf("create local receive directory: %w", err)
+		return fmt.Errorf("create local files directory: %w", err)
 	}
 	info, err := os.Lstat(w.Directory)
 	if err != nil {
-		return fmt.Errorf("inspect local receive directory: %w", err)
+		return fmt.Errorf("inspect local files directory: %w", err)
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("local receive path %s is not a real directory", w.Directory)
+		return fmt.Errorf("local files path %s is not a real directory", w.Directory)
 	}
 	if err := os.Chmod(w.Directory, 0700); err != nil {
-		return fmt.Errorf("secure local receive directory: %w", err)
+		return fmt.Errorf("secure local files directory: %w", err)
 	}
 	mode := w.Mode
 	if mode == 0 {
@@ -50,7 +50,7 @@ func (w Writer) Write(files map[string][]byte) error {
 	}
 	for name := range files {
 		if name == "" || filepath.IsAbs(name) || filepath.Base(name) != name || name == completionFile || name == manifestFile {
-			return fmt.Errorf("invalid local receive filename %q", name)
+			return fmt.Errorf("invalid local filename %q", name)
 		}
 	}
 	previous, err := readManifest(filepath.Join(w.Directory, manifestFile))
@@ -83,11 +83,11 @@ func (w Writer) Write(files map[string][]byte) error {
 	}
 	directory, err := os.Open(w.Directory)
 	if err != nil {
-		return fmt.Errorf("open local receive directory: %w", err)
+		return fmt.Errorf("open local files directory: %w", err)
 	}
 	defer func() { _ = directory.Close() }()
 	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("sync local receive directory: %w", err)
+		return fmt.Errorf("sync local files directory: %w", err)
 	}
 	completed := []byte(strconv.FormatInt(time.Now().UTC().UnixMilli(), 10))
 	if err := writeAtomic(w.Directory, completionFile, completed, mode); err != nil {

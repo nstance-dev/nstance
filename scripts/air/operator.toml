@@ -10,7 +10,7 @@ testdata_dir = "testdata"
 tmp_dir = "temp/air-operator"
 
 [build]
-args_bin = ["--config", "./temp/operator/config.yaml", "--disable-webhooks"]
+args_bin = []
 bin = "./bin/nstance-operator"
 cmd = "go build -o ./bin/nstance-operator ./cmd/nstance-operator"
 delay = 1000
@@ -19,7 +19,7 @@ exclude_file = []
 exclude_regex = ["_test.go"]
 exclude_unchanged = false
 follow_symlink = false
-full_bin = ""
+full_bin = "./bin/nstance-operator --config ./temp/operator/config.yaml --disable-webhooks --health-probe-bind-address 127.0.0.1:$DEV_OPERATOR_HEALTH_PORT"
 include_dir = ["cmd", "internal"]
 include_ext = ["go", "tpl", "tmpl", "html"]
 include_file = []

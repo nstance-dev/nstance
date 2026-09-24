@@ -4,17 +4,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Check that all required ports for dev services are available.
-# Reads OVERMIND_FORMATION from .env to determine server count.
 
 set -e
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-# Load .env if it exists
-if [ -f "${ROOT_DIR}/.env" ]; then
-    export "$(grep -v '^#' "${ROOT_DIR}/.env" | xargs)"
-fi
 
 # Parse server count from OVERMIND_FORMATION (default to 1)
 SERVER_COUNT=1
@@ -28,14 +19,13 @@ fi
 # Build list of ports to check
 PORTS=""
 
-# s3: 8989
-PORTS="8989"
+PORTS="${DEV_S3_PORT:-8989}"
 
 # k8s: 6443
-PORTS="${PORTS} 6443"
+PORTS="${PORTS} ${DEV_K8S_PORT:-6443}"
 
 # operator: 8081 (health probe)
-PORTS="${PORTS} 8081"
+PORTS="${PORTS} ${DEV_OPERATOR_HEALTH_PORT:-8081}"
 
 # server instances: each uses 5 ports with 10-port gap
 # Instance 1: 8990-8994
@@ -43,15 +33,16 @@ PORTS="${PORTS} 8081"
 # Instance N: base + (N-1)*10
 for i in $(seq 1 "${SERVER_COUNT}"); do
     OFFSET=$(( (i - 1) * 10 ))
-    for p in 8990 8991 8992 8993 8994; do
+    for p in "${BASE_HEALTH_PORT:-8990}" "${BASE_LEADER_PORT:-8991}" "${BASE_REGISTRATION_PORT:-8992}" "${BASE_OPERATOR_PORT:-8993}" "${BASE_AGENT_PORT:-8994}"; do
         PORT=$((p + OFFSET))
         PORTS="${PORTS} ${PORT}"
     done
+    PORTS="${PORTS} $((${BASE_PROXY_PORT:-16443} + OFFSET)) $((${BASE_TUNNEL_READINESS_PORT:-28080} + i))"
 done
 
 # Check for existing dev processes
 STALE_PROCS=""
-for PROC in "dev-k8s" "dev-s3" "nstance-operator"; do
+for PROC in "dev-k8s" "dev-s3" "nstance-operator" "nstance-proxy" "nstance-tunnel"; do
     if pgrep -f "${PROC}" >/dev/null 2>&1; then
         STALE_PROCS="${STALE_PROCS} ${PROC}"
     fi

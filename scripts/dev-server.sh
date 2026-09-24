@@ -25,7 +25,7 @@ export AWS_S3_USE_PATH_STYLE=true
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_REGION=us-east-1
-export AWS_ENDPOINT_URL=http://localhost:8989
+export AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL:-http://127.0.0.1:${DEV_S3_PORT:-8989}}"
 
 # Nstance encryption key (must be 32 bytes)
 export NSTANCE_ENCRYPTION_KEY=thisisatest32bytekey123456789012
@@ -40,32 +40,33 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Config file (can be overridden via NSTANCE_DEV_CONFIG)
 BASE_CONFIG="${NSTANCE_DEV_CONFIG:-${ROOT_DIR}/examples/config-tmux.jsonc}"
+export BASE_PROXY_PORT="${BASE_PROXY_PORT:-16443}"
+export PORT_STEP="${PORT_STEP:-10}"
 
 # Determine instance number using lock file (Overmind doesn't set a per-instance env var)
-LOCK_DIR="${ROOT_DIR}/temp"
+LOCK_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}"
 mkdir -p "${LOCK_DIR}"
 PROC_NUM=1
-while [ -f "${LOCK_DIR}/server-${PROC_NUM}.lock" ]; do
+while ! mkdir "${LOCK_DIR}/server-${PROC_NUM}.lock" 2>/dev/null; do
     PROC_NUM=$((PROC_NUM + 1))
 done
-touch "${LOCK_DIR}/server-${PROC_NUM}.lock"
-trap 'rm -f "${LOCK_DIR}/server-${PROC_NUM}.lock"' EXIT
+trap 'rmdir "${LOCK_DIR}/server-${PROC_NUM}.lock"' EXIT
 
 # Calculate port offset: (N-1) * 10
 OFFSET=$(( (PROC_NUM - 1) * 10 ))
 
 # Derived ports for this instance
-HEALTH_PORT=$((8990 + OFFSET))
-LEADER_PORT=$((8991 + OFFSET))
-REGISTRATION_PORT=$((8992 + OFFSET))
-OPERATOR_PORT=$((8993 + OFFSET))
-AGENT_PORT=$((8994 + OFFSET))
+HEALTH_PORT=$((${BASE_HEALTH_PORT:-8990} + OFFSET))
+LEADER_PORT=$((${BASE_LEADER_PORT:-8991} + OFFSET))
+REGISTRATION_PORT=$((${BASE_REGISTRATION_PORT:-8992} + OFFSET))
+OPERATOR_PORT=$((${BASE_OPERATOR_PORT:-8993} + OFFSET))
+AGENT_PORT=$((${BASE_AGENT_PORT:-8994} + OFFSET))
 
 # Per-instance shard name
 SHARD_NAME="dev-${PROC_NUM}"
 
 # Per-instance cache directory (for SQLite DB and other cache files)
-export NSTANCE_DEV_CACHE_DIR="${ROOT_DIR}/temp/server-cache-${PROC_NUM}"
+export NSTANCE_DEV_CACHE_DIR="${LOCK_DIR}/server-cache-${PROC_NUM}"
 
 # Per-instance log file
 LOG_DIR="${ROOT_DIR}/temp/logs"
@@ -74,6 +75,10 @@ LOG_FILE="${LOG_DIR}/server-${PROC_NUM}.log"
 
 # Per-instance shard (used by scripts/air/server.toml full_bin)
 export NSTANCE_DEV_SHARD="${SHARD_NAME}"
+export NSTANCE_DEV_PROXY_SOCKET="${LOCK_DIR}/nstance-server-${PROC_NUM}.sock"
+export NSTANCE_DEV_TUNNEL_SOCKET="${LOCK_DIR}/nstance-tunnel-${PROC_NUM}.sock"
+export NSTANCE_DEV_SERVER_FILES_DIR="${LOCK_DIR}/files-${PROC_NUM}"
+mkdir -p "$(dirname "${NSTANCE_DEV_PROXY_SOCKET}")"
 
 # Ensure cache directory exists
 mkdir -p "${NSTANCE_DEV_CACHE_DIR}"
@@ -82,7 +87,7 @@ mkdir -p "${NSTANCE_DEV_CACHE_DIR}"
 # Server loads from shard-scoped storage:
 # - shard/{shard}/config.jsonc
 # - shard/{shard}/groups.jsonc
-SHARD_DIR="${ROOT_DIR}/temp/dev-s3/shard/${SHARD_NAME}"
+SHARD_DIR="${DEV_RUN_DIR:-${ROOT_DIR}/temp}/dev-s3/shard/${SHARD_NAME}"
 mkdir -p "${SHARD_DIR}"
 
 # Copy groups file for this shard (all shards use same groups in dev)
@@ -117,7 +122,8 @@ grep -v '^\s*//' "$BASE_CONFIG" | jq \
      .shard.advertise.election_addr = $advertise_election_addr |
      .shard.advertise.registration_addr = $advertise_registration_addr |
      .shard.advertise.operator_addr = $advertise_operator_addr |
-     .shard.advertise.agent_addr = $advertise_agent_addr' \
+     .shard.advertise.agent_addr = $advertise_agent_addr |
+     (if .load_balancers["dev-api"] then .load_balancers["dev-api"].listeners[0].proxy_port = (env.BASE_PROXY_PORT | tonumber) + ((($shard | split("-") | last | tonumber) - 1) * (env.PORT_STEP | tonumber)) else . end)' \
     > "$INSTANCE_CONFIG"
 
 echo "==> Starting nstance-server instance ${PROC_NUM}"
@@ -167,7 +173,7 @@ else
     SHOULD_RESTART=true
     trap 'SHOULD_RESTART=false' SIGINT SIGTERM
     while $SHOULD_RESTART; do
-        "${BINARY}" --id dev --storage s3 --bucket dev --shard "${NSTANCE_DEV_SHARD}" --cachedir "${NSTANCE_DEV_CACHE_DIR}" --advertise-host 127.0.0.1 --debug 2>&1 | tee "${LOG_FILE}"
+        "${BINARY}" --id dev --storage s3 --bucket dev --shard "${NSTANCE_DEV_SHARD}" --cachedir "${NSTANCE_DEV_CACHE_DIR}" --advertise-host 127.0.0.1 --proxy-socket "${NSTANCE_DEV_PROXY_SOCKET}" --tunnel-socket "${NSTANCE_DEV_TUNNEL_SOCKET}" --server-files-dir "${NSTANCE_DEV_SERVER_FILES_DIR}" --debug 2>&1 | tee "${LOG_FILE}"
         EXIT_CODE=$?
         if $SHOULD_RESTART; then
             echo "    Server exited with code ${EXIT_CODE}, restarting in 2s..."

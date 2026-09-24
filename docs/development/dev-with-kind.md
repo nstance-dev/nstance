@@ -20,7 +20,7 @@ The first thing you'll want to do is ensure you have your `nstance-server` runni
 make clean-dev && make dev-tmux
 ```
 
-This starts s3 + server only (no dev-k8s or operator), which is what you want since the operator will run separately against kind.
+This starts the core stack without dev-k8s or the operator, which is what you want since the operator will run separately against kind.
 
 ### Terminal Tab/Window 2
 
@@ -88,7 +88,7 @@ The operator will:
 - Load or generate an Ed25519 keypair (stored in `nstance-operator-key` Secret)
 - Register with nstance-server using the nonce from `nstance-operator-nonce` Secret
 - Receive and store a client certificate in `nstance-operator-cert` Secret
-- Connect to the operator gRPC port (8993) with mTLS for sync/drain operations
+- Connect to each shard server's operator gRPC endpoint using its dynamically assigned port and mTLS for sync/drain operations
 - Reconcile `NstanceMachinePool`, `NstanceMachine`, and `NstanceShardGroup` CRDs
 
 This setup allows for rapid development cycles without needing to rebuild container images for each change.

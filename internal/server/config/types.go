@@ -47,15 +47,15 @@ type Config struct {
 	LoadBalancers map[string]LoadBalancerConfig     `json:"load_balancers"`
 	Images        map[string]ImageConfig            `json:"images"`
 	Certificates  map[string]CertConfig             `json:"certificates"`
-	Proxy         ProxyRuntimeConfig                `json:"proxy,omitempty"`
+	Server        ServerRuntimeConfig               `json:"server,omitempty"`
 	Defaults      DefaultsConfig                    `json:"defaults"`
 	Templates     map[string]TemplateConfig         `json:"templates" validate:"required"`
 	Groups        map[string]map[string]GroupConfig `json:"groups"`        // tenant -> group key -> config
 	NAT           map[string]NATConfig              `json:"nat,omitempty"` // tenant -> managed NAT config
 }
 
-// ProxyRuntimeConfig defines files consumed by services local to nstance-server.
-type ProxyRuntimeConfig struct {
+// ServerRuntimeConfig defines files consumed by services local to nstance-server.
+type ServerRuntimeConfig struct {
 	Files map[string]FileConfig `json:"files,omitempty"`
 }
 
@@ -595,14 +595,14 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate file references in templates
-	for fileName, fileConfig := range c.Proxy.Files {
+	for fileName, fileConfig := range c.Server.Files {
 		if fileName == "" || filepath.IsAbs(fileName) || filepath.Base(fileName) != fileName {
-			return fmt.Errorf("proxy file %q must be a non-empty base filename", fileName)
+			return fmt.Errorf("server file %q must be a non-empty base filename", fileName)
 		}
 		if fileConfig.Kind == "certificate" {
-			return fmt.Errorf("proxy file %s cannot use agent-key certificate generation", fileName)
+			return fmt.Errorf("server file %s cannot use agent-key certificate generation", fileName)
 		}
-		if err := validateGeneratedFile("proxy", fileName, fileConfig); err != nil {
+		if err := validateGeneratedFile("server", fileName, fileConfig); err != nil {
 			return err
 		}
 	}
