@@ -27,9 +27,28 @@ type CreateInstanceRequest struct {
 	Nonce        string                 `json:"nonce"`   // Registration nonce JWT (used by dev provider)
 	CACertPEM    []byte                 `json:"ca_cert"` // CA certificate PEM (used by dev provider)
 	Args         map[string]interface{} `json:"args"`
+	IPForwarding bool                   `json:"ip_forwarding,omitempty"`
+	NetworkTags  []string               `json:"network_tags,omitempty"`
 
 	// CustomTags are user-defined tags that providers apply as-is
 	CustomTags map[string]string `json:"custom_tags"`
+}
+
+// PublicAddress contains provider resources for an optional stable egress address.
+type PublicAddress struct {
+	IPv4         string `json:"ipv4"`
+	AllocationID string `json:"allocation_id,omitempty"`
+}
+
+// NATRouteRequest identifies one tenant subnet route and its permitted next hops.
+type NATRouteRequest struct {
+	ClusterID                  string         `json:"cluster_id"`
+	Tenant                     string         `json:"tenant"`
+	InstanceSubnetID           string         `json:"instance_subnet_id"`
+	ProviderInstanceID         string         `json:"provider_instance_id,omitempty"`
+	PreviousProviderInstanceID string         `json:"previous_provider_instance_id,omitempty"`
+	PublicAddress              *PublicAddress `json:"public_address,omitempty"`
+	InstanceTag                string         `json:"instance_tag,omitempty"`
 }
 
 // CreateInstanceResponse contains the result of instance creation
@@ -144,7 +163,7 @@ type RegisterLBRequest struct {
 	ProviderInstanceID string
 	LBConfig           LoadBalancerConfig
 	Zone               string
-	WakeProxy          bool // Selects ProxyPort for nstance-proxy instead of TargetPort for a direct target.
+	WakeProxy          bool // Selects ProxyPort for the wake proxy instead of TargetPort for a direct target.
 }
 
 // DeregisterLBRequest contains parameters for deregistering an instance from a load balancer
@@ -152,7 +171,7 @@ type DeregisterLBRequest struct {
 	ProviderInstanceID string
 	LBConfig           LoadBalancerConfig
 	Zone               string
-	WakeProxy          bool // Selects ProxyPort for nstance-proxy instead of TargetPort for a direct target.
+	WakeProxy          bool // Selects ProxyPort for the wake proxy instead of TargetPort for a direct target.
 }
 
 // LBTargetState is the provider-observed lifecycle state of one logical target

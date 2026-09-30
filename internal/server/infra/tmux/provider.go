@@ -409,6 +409,18 @@ func (p *Provider) CheckSubnetCapacity(ctx context.Context, subnetID string) (bo
 	return true, nil
 }
 
+// EnsureNATRoute is a no-op for the dev provider.
+func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
+	p.logger.Debug("Dev managed NAT route ensure operation (no-op)", "request", req)
+	return nil
+}
+
+// RemoveNATRoute is a no-op for the dev provider.
+func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
+	p.logger.Debug("Dev managed NAT route removal operation (no-op)", "request", req)
+	return nil
+}
+
 // RegisterWithLB is a no-op for dev provider
 func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRequest) error {
 	p.logger.Info("Dev LoadBalancer register operation (no-op)", "instance_id", req.ProviderInstanceID)

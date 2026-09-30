@@ -22,6 +22,8 @@ type Provider interface {
 
 	// Networking
 	CheckSubnetCapacity(ctx context.Context, subnetID string) (bool, error)
+	EnsureNATRoute(ctx context.Context, req NATRouteRequest) error
+	RemoveNATRoute(ctx context.Context, req NATRouteRequest) error
 
 	// Load balancer groups
 	RegisterWithLB(ctx context.Context, req RegisterLBRequest) error

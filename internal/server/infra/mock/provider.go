@@ -305,6 +305,18 @@ func (p *Provider) CheckSubnetCapacity(ctx context.Context, subnetID string) (bo
 	return true, nil
 }
 
+// EnsureNATRoute simulates installing a managed NAT route.
+func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
+	p.logger.Debug("Mock: Ensuring managed NAT route", "request", req)
+	return nil
+}
+
+// RemoveNATRoute simulates removing a managed NAT route.
+func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
+	p.logger.Debug("Mock: Removing managed NAT route", "request", req)
+	return nil
+}
+
 // RegisterWithLB registers an instance with a mock load balancer
 func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRequest) error {
 	p.mu.Lock()

@@ -18,6 +18,12 @@ type CreateInstanceRequest = provider.CreateInstanceRequest
 // CreateInstanceResponse describes a created infrastructure instance.
 type CreateInstanceResponse = provider.CreateInstanceResponse
 
+// PublicAddress contains provider resources for an optional stable egress address.
+type PublicAddress = provider.PublicAddress
+
+// NATRouteRequest identifies one managed tenant subnet route.
+type NATRouteRequest = provider.NATRouteRequest
+
 // InstanceStatus describes provider-observed instance state.
 type InstanceStatus = provider.InstanceStatus
 

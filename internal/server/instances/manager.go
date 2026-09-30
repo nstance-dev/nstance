@@ -5,11 +5,13 @@
 package instances
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,12 +27,20 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
 
+// ErrSubnetDependencyCapacity indicates that a subnet cannot acquire a required dependency.
+var ErrSubnetDependencyCapacity = errors.New("subnet dependency has no capacity")
+
 // ErrInstanceTenantMismatch indicates that an instance belongs to another tenant.
 var ErrInstanceTenantMismatch = errors.New("instance belongs to another tenant")
 
 // ImageGetter provides access to resolved image IDs
 type ImageGetter interface {
 	GetAll() map[string]string
+}
+
+// SubnetPreparer makes a tenant subnet ready before a dependent instance starts.
+type SubnetPreparer interface {
+	PrepareSubnet(context.Context, string, string) error
 }
 
 // Manager handles instance lifecycle management
@@ -44,6 +54,9 @@ type Manager struct {
 	imageGetter               ImageGetter
 	caCert                    []byte
 	logger                    *slog.Logger
+	placementMu               sync.Mutex
+	natMu                     sync.Mutex
+	subnetPreparer            SubnetPreparer
 	lbMu                      sync.Mutex
 	targetRegistrationBlocked func(string) bool
 }
@@ -105,6 +118,13 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 	return manager, nil
 }
 
+// SetSubnetPreparer installs the managed-NAT dependency used by ordinary instances.
+func (m *Manager) SetSubnetPreparer(preparer SubnetPreparer) {
+	m.placementMu.Lock()
+	defer m.placementMu.Unlock()
+	m.subnetPreparer = preparer
+}
+
 // RegisterTarget registers a load-balancer target while excluding other target mutations.
 func (m *Manager) RegisterTarget(ctx context.Context, req infra.RegisterLBRequest) error {
 	m.lbMu.Lock()
@@ -139,6 +159,25 @@ func (m *Manager) initialize(ctx context.Context) error {
 
 // CreateInstance creates a new instance using the specified group and configuration
 func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest) (*CreateInstanceResponse, error) {
+	m.placementMu.Lock()
+	defer m.placementMu.Unlock()
+	return m.createInstance(ctx, req, true)
+}
+
+// CreateNATInstance creates a dedicated NAT member without recursively preparing its service subnet.
+func (m *Manager) CreateNATInstance(ctx context.Context, req CreateInstanceRequest) (*CreateInstanceResponse, error) {
+	m.natMu.Lock()
+	defer m.natMu.Unlock()
+	current := m.configLoader.GetCurrent()
+	natConfig, ok := current.NAT[req.Tenant]
+	if !ok || natConfig.Group == "" || req.Group != natConfig.Group {
+		return nil, fmt.Errorf("group %q is not the tenant NAT group", req.Group)
+	}
+	return m.createInstance(ctx, req, false)
+}
+
+// createInstance performs one instance creation with optional subnet dependency preparation.
+func (m *Manager) createInstance(ctx context.Context, req CreateInstanceRequest, prepareSubnet bool) (*CreateInstanceResponse, error) {
 	// Validate required group reference and tenant is specified
 	if req.Group == "" {
 		return nil, fmt.Errorf("group is required for on-demand instances")
@@ -288,10 +327,24 @@ func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest)
 		return nil, fmt.Errorf("no subnet pool specified for instance")
 	}
 
-	// Select a subnet with available capacity
-	subnetID, selectedSubnetKey, err := m.selectSubnetWithCapacity(ctx, currentConfig, subnetPool)
+	subnetID, selectedSubnetKey, err := m.selectSubnetWithCapacity(ctx, currentConfig, req.Tenant, subnetPool, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to select subnet: %w", err)
+	}
+	if prepareSubnet && m.subnetPreparer != nil {
+		if err := m.subnetPreparer.PrepareSubnet(ctx, req.Tenant, subnetID); err != nil {
+			if !errors.Is(err, ErrSubnetDependencyCapacity) {
+				return nil, fmt.Errorf("prepare subnet %s: %w", subnetID, err)
+			}
+			fallbackID, fallbackKey, fallbackErr := m.selectSubnetWithCapacity(ctx, currentConfig, req.Tenant, subnetPool, true)
+			if fallbackErr != nil || fallbackID == subnetID {
+				return nil, fmt.Errorf("prepare subnet %s: %w", subnetID, err)
+			}
+			if err := m.subnetPreparer.PrepareSubnet(ctx, req.Tenant, fallbackID); err != nil {
+				return nil, fmt.Errorf("prepare fallback subnet %s: %w", fallbackID, err)
+			}
+			subnetID, selectedSubnetKey = fallbackID, fallbackKey
+		}
 	}
 	m.logger.Info("Selected subnet for instance",
 		"instance_id", req.InstanceID,
@@ -314,6 +367,12 @@ func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest)
 		Args:         processedArgs,
 		CustomTags:   req.Tags,
 	}
+	if natConfig, ok := currentConfig.NAT[req.Tenant]; ok && req.Group != natConfig.Group {
+		providerReq.NetworkTags = []string{provider.NATNetworkTag(currentConfig.Cluster.ID, req.Tenant, subnetID)}
+	}
+	if natConfig, ok := currentConfig.NAT[req.Tenant]; ok && req.Group == natConfig.Group {
+		providerReq.IPForwarding = true
+	}
 
 	// Compute infra config hash for this instance
 	infraHash := config.HashInfraConfig(*mergedConfig)
@@ -327,6 +386,7 @@ func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest)
 		Tenant:          req.Tenant,
 		Group:           req.Group,
 		OnDemand:        req.OnDemand,
+		SubnetID:        subnetID,
 		Nonce:           registrationJWT,
 		IssuedAt:        &now,
 		InfraConfigHash: &infraHash,
@@ -350,6 +410,7 @@ func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest)
 		Tenant:          req.Tenant,
 		Group:           req.Group,
 		OnDemand:        req.OnDemand,
+		SubnetID:        subnetID,
 		InstanceType:    mergedConfig.InstanceType,
 		Status:          "pending",
 		CreatedAt:       now,
@@ -410,6 +471,7 @@ func (m *Manager) CreateInstance(ctx context.Context, req CreateInstanceRequest)
 		ID:         req.InstanceID,
 		Group:      req.Group,
 		OnDemand:   req.OnDemand,
+		SubnetID:   subnetID,
 		ProviderID: &providerResp.ProviderInstanceID,
 		ProviderAt: &providerAt,
 		Hostname:   hostname,
@@ -729,7 +791,6 @@ func (m *Manager) ReconcileLoadBalancers(ctx context.Context, instanceID string)
 	if instance.DrainStartedAt != nil {
 		return nil
 	}
-
 	cfg := m.configLoader.GetCurrent()
 	if cfg == nil {
 		return fmt.Errorf("configuration not loaded")
@@ -939,6 +1000,7 @@ func (m *Manager) seedFromS3(ctx context.Context, shard string) error {
 			Tenant:     record.Tenant,
 			Group:      record.Group,
 			OnDemand:   record.OnDemand,
+			SubnetID:   record.SubnetID,
 			ProviderID: providerIDPtr,
 			// Note: Hostname, IP4, IP6, ProviderAt will be filled by seedFromProvider
 			// Registration data
@@ -1080,9 +1142,9 @@ func (m *Manager) seedFromProvider(ctx context.Context, shard string) error {
 	return nil
 }
 
-// selectSubnetWithCapacity selects a provider subnet ID with available capacity.
-// Resolves the subnet pool to provider IDs and returns the first with capacity.
-func (m *Manager) selectSubnetWithCapacity(ctx context.Context, cfg *config.Config, subnetPool string) (subnetID, key string, err error) {
+// selectSubnetWithCapacity fills sorted subnets to 90% of conservative /26
+// capacity, then balances subsequent instances across available subnets.
+func (m *Manager) selectSubnetWithCapacity(ctx context.Context, cfg *config.Config, tenant, subnetPool string, populatedOnly bool) (subnetID, key string, err error) {
 	subnetIDs, resolveErr := cfg.ResolveSubnetKey(subnetPool)
 	if resolveErr != nil {
 		return "", "", fmt.Errorf("failed to resolve subnet pool %q: %w", subnetPool, resolveErr)
@@ -1090,8 +1152,23 @@ func (m *Manager) selectSubnetWithCapacity(ctx context.Context, cfg *config.Conf
 	if len(subnetIDs) == 0 {
 		return "", "", fmt.Errorf("subnet pool %q has no provider subnet IDs", subnetPool)
 	}
-
+	slices.Sort(subnetIDs)
+	counts, countErr := m.localDB.CountInstancesBySubnet(tenant)
+	if countErr != nil {
+		return "", "", fmt.Errorf("count instances by subnet: %w", countErr)
+	}
+	candidates := append([]string(nil), subnetIDs...)
+	slices.SortStableFunc(candidates, func(a, b string) int {
+		if counts[a] != counts[b] {
+			return cmp.Compare(counts[a], counts[b])
+		}
+		return cmp.Compare(a, b)
+	})
+	const fillLimit = 53
 	for _, id := range subnetIDs {
+		if counts[id] >= fillLimit || populatedOnly && counts[id] == 0 {
+			continue
+		}
 		hasCapacity, capacityErr := m.provider.CheckSubnetCapacity(ctx, id)
 		if capacityErr != nil {
 			m.logger.Warn("Failed to check subnet capacity", "subnet_pool", subnetPool, "subnet_id", id, "error", capacityErr)
@@ -1101,6 +1178,19 @@ func (m *Manager) selectSubnetWithCapacity(ctx context.Context, cfg *config.Conf
 			return id, subnetPool, nil
 		}
 		m.logger.Debug("Subnet has no capacity", "subnet_pool", subnetPool, "subnet_id", id)
+	}
+	for _, id := range candidates {
+		if populatedOnly && counts[id] == 0 {
+			continue
+		}
+		hasCapacity, capacityErr := m.provider.CheckSubnetCapacity(ctx, id)
+		if capacityErr != nil {
+			m.logger.Warn("Failed to check subnet capacity", "subnet_pool", subnetPool, "subnet_id", id, "error", capacityErr)
+			continue
+		}
+		if hasCapacity {
+			return id, subnetPool, nil
+		}
 	}
 
 	return "", "", fmt.Errorf("no subnets with available capacity for subnet pool %q", subnetPool)

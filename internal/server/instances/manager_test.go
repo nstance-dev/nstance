@@ -7,6 +7,7 @@ package instances
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -115,6 +116,55 @@ func TestReconcileLoadBalancersHonorsWithdrawalBoundary(t *testing.T) {
 	}
 	if got := provider.registrations.Load(); got != 1 {
 		t.Fatalf("registrations after restoration intent = %d, want 1", got)
+	}
+}
+
+// TestSelectSubnetFillsThenBalances verifies the /26 placement boundary and
+// the post-boundary balancing rule use durable instance placement.
+func TestSelectSubnetFillsThenBalances(t *testing.T) {
+	db, err := localdb.Open(filepath.Join(t.TempDir(), "placement.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for i := range 53 {
+		id := fmt.Sprintf("a-%d", i)
+		if err := db.CreateInstance(&localdb.Instance{ID: id, Tenant: "red", Group: "workers", SubnetID: "subnet-a", Nonce: id, CreatedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider := mock.NewProvider(mock.Options{Config: infra.ProviderConfig{Kind: "mock"}, Logger: slog.Default()})
+	manager := &Manager{localDB: db, provider: provider, logger: slog.Default()}
+	cfg := &config.Config{Shard: config.ShardConfig{SubnetPools: map[string][]string{"nodes": {"subnet-b", "subnet-a"}}}}
+	subnet, _, err := manager.selectSubnetWithCapacity(context.Background(), cfg, "red", "nodes", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subnet != "subnet-b" {
+		t.Fatalf("fill selection = %q, want subnet-b", subnet)
+	}
+	for i := range 53 {
+		id := fmt.Sprintf("b-%d", i)
+		if err := db.CreateInstance(&localdb.Instance{ID: id, Tenant: "red", Group: "workers", SubnetID: "subnet-b", Nonce: id, CreatedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.CreateInstance(&localdb.Instance{ID: "a-extra", Tenant: "red", Group: "workers", SubnetID: "subnet-a", Nonce: "a-extra", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	subnet, _, err = manager.selectSubnetWithCapacity(context.Background(), cfg, "red", "nodes", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subnet != "subnet-b" {
+		t.Fatalf("balanced selection = %q, want subnet-b", subnet)
+	}
+	subnet, _, err = manager.selectSubnetWithCapacity(context.Background(), cfg, "red", "nodes", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subnet != "subnet-b" {
+		t.Fatalf("populated selection = %q, want subnet-b", subnet)
 	}
 }
 

@@ -240,6 +240,11 @@ func (s *Service) NotifyDrain(notification DrainNotification) {
 
 // NotifyGroupEvent sends a group change event to the tenant's connected operator (if any).
 func (s *Service) NotifyGroupEvent(tenant string, event *proto.GroupEvent) {
+	if event.Group != nil {
+		if natConfig, ok := s.configLoader.GetCurrent().NAT[tenant]; ok && natConfig.Group == event.Group.Key {
+			return
+		}
+	}
 	s.streamMu.Lock()
 	stream := s.groupsStreams[tenant]
 	s.streamMu.Unlock()

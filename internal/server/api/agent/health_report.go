@@ -192,7 +192,7 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			if err := s.onHealthReport(ctx, req.InstanceId); err != nil {
+			if err := s.onHealthReport(ctx, req.InstanceId, req.Metrics, req.Timestamp.AsTime().UTC()); err != nil {
 				s.logger.Error("Failed to handle health report callback",
 					"instance_id", req.InstanceId,
 					"error", err)

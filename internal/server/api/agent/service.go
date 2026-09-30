@@ -33,7 +33,7 @@ type Service struct {
 	imageGetter          filegen.ImageGetter
 	listenerActivity     *listeneractivity.Tracker
 	logger               *slog.Logger
-	onHealthReport       func(context.Context, string) error
+	onHealthReport       func(context.Context, string, *proto.Metrics, time.Time) error
 	onSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
 	onReconcileRequested func(tenant, groupKey, reason string) error
 	onInstanceDisconnect func(instanceID string, graceful bool) error
@@ -62,7 +62,7 @@ type Options struct {
 	ImageGetter          filegen.ImageGetter
 	ListenerActivity     *listeneractivity.Tracker
 	Logger               *slog.Logger
-	OnHealthReport       func(context.Context, string) error
+	OnHealthReport       func(context.Context, string, *proto.Metrics, time.Time) error
 	OnSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
 	OnReconcileRequested func(tenant, groupKey, reason string) error
 	OnInstanceDisconnect func(instanceID string, graceful bool) error

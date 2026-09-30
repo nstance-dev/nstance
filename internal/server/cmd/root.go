@@ -42,6 +42,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/localfiles"
+	"github.com/nstance-dev/nstance/internal/server/nat"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/reconciler"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
@@ -559,6 +560,28 @@ func NewRootCmd() *cobra.Command {
 			os.Exit(1)
 		}
 		logger.Info("Instances manager ready")
+		var natManager *nat.Manager
+		if len(cfg.NAT) != 0 {
+			assignments, err := nat.NewAssignmentStore(shardStorage)
+			if err != nil {
+				logger.Error("Failed to create NAT assignment store", "error", err)
+				os.Exit(1)
+			}
+			natManager, err = nat.NewManager(nat.ManagerOptions{
+				ConfigLoader: configLoader,
+				LocalDB:      localDB,
+				Provider:     infraProvider,
+				Assignments:  assignments,
+				Instances:    instancesManager,
+				Logger:       logger,
+			})
+			if err != nil {
+				logger.Error("Failed to create managed NAT manager", "error", err)
+				os.Exit(1)
+			}
+			instancesManager.SetSubnetPreparer(natManager)
+			logger.Info("Managed NAT manager ready")
+		}
 
 		// create operator service first so we can wire drain notifications
 		var operatorService *operator.Service
@@ -587,6 +610,7 @@ func NewRootCmd() *cobra.Command {
 			}
 			tenantState.SetCutover(providerCutover)
 		}
+
 		// create reconciler
 		rec, err := reconciler.New(reconciler.Options{
 			InstanceManager: instancesManager,
@@ -707,7 +731,15 @@ func NewRootCmd() *cobra.Command {
 			ImageGetter:      imageService,
 			ListenerActivity: listenerActivity,
 			Logger:           logger,
-			OnHealthReport:   instancesManager.ReconcileLoadBalancers,
+			OnHealthReport: func(ctx context.Context, instanceID string, metrics *proto.Metrics, observedAt time.Time) error {
+				if err := instancesManager.ReconcileLoadBalancers(ctx, instanceID); err != nil {
+					return err
+				}
+				if natManager != nil {
+					return natManager.Observe(ctx, instanceID, metrics, observedAt)
+				}
+				return nil
+			},
 			OnSpotTermination: func(instanceID string, notice *proto.TerminationNotice) error {
 				logger.Info("Enqueuing spot termination event", "instance_id", instanceID, "action", notice.Action)
 				rec.Enqueue(reconciler.ReconcileEvent{
@@ -905,6 +937,9 @@ func NewRootCmd() *cobra.Command {
 				defer cacheCancel()
 				if err := instancesManager.RebuildCache(cacheCtx); err != nil {
 					return fmt.Errorf("failed to rebuild authoritative cache: %w", err)
+				}
+				if natManager != nil {
+					go natManager.Run(ctx, time.Minute)
 				}
 
 				// Validate load balancers only after provider IDs have been rebuilt.

@@ -20,6 +20,7 @@ type Instance struct {
 	Tenant          string     `json:"tenant"`            // Tenant identifier
 	Group           string     `json:"group"`             // Group key (from config groups map)
 	OnDemand        bool       `json:"on_demand"`         // Whether this is an on-demand instance (not managed by group reconciliation)
+	SubnetID        string     `json:"subnet_id"`         // Provider subnet selected for this instance
 	ProviderID      *string    `json:"provider_id"`       // Provider's instance ID (e.g., i-1234567890abcdef0)
 	ProviderAt      *time.Time `json:"provider_at"`       // When provider data was last cached
 	Hostname        *string    `json:"hostname"`          // Instance hostname
@@ -66,7 +67,7 @@ type DB struct {
 	conn *sql.DB
 }
 
-// Open opens a SQLite database and initializes the schema
+// Open opens a SQLite database and initializes the schema.
 func Open(file string) (*DB, error) {
 	if file == "" {
 		return nil, fmt.Errorf("database file path not configured")
@@ -119,6 +120,7 @@ func (db *DB) Close() error {
 	return nil
 }
 
+// createSchema creates the local cache tables.
 func (db *DB) createSchema() error {
 	instancesTable := `
 	CREATE TABLE IF NOT EXISTS instances (
@@ -126,6 +128,7 @@ func (db *DB) createSchema() error {
 		tenant TEXT NOT NULL,
 		group_key TEXT,
 		on_demand INTEGER DEFAULT 0,
+		subnet_id TEXT NOT NULL,
 		provider_id TEXT,
 		provider_at DATETIME,
 		hostname TEXT,
@@ -235,16 +238,19 @@ func (db *DB) createSchema() error {
 	return nil
 }
 
+// scanner is implemented by SQLite rows and row results.
 type scanner interface {
 	Scan(dest ...interface{}) error
 }
 
+// scanInstance reads one instance from the canonical column order.
 func scanInstance(s scanner, i *Instance) error {
 	return s.Scan(
 		&i.ID,
 		&i.Tenant,
 		&i.Group,
 		&i.OnDemand,
+		&i.SubnetID,
 		&i.ProviderID,
 		&i.ProviderAt,
 		&i.Hostname,
@@ -268,4 +274,4 @@ func scanInstance(s scanner, i *Instance) error {
 	)
 }
 
-const instanceColumns = `id, tenant, group_key, on_demand, provider_id, provider_at, hostname, fqdn, ip4, ip6, provider_state, nonce, issued_at, instance_pub, registered_at, certificates_at, health_at, health, infra_config_hash, drain_started_at, drain_acked_at, created_at, updated_at, deleted_at`
+const instanceColumns = `id, tenant, group_key, on_demand, subnet_id, provider_id, provider_at, hostname, fqdn, ip4, ip6, provider_state, nonce, issued_at, instance_pub, registered_at, certificates_at, health_at, health, infra_config_hash, drain_started_at, drain_acked_at, created_at, updated_at, deleted_at`

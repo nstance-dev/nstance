@@ -98,6 +98,12 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 		Disks:             disks,
 		Metadata:          metadata,
 	}
+	if len(req.NetworkTags) != 0 {
+		instance.Tags = &computepb.Tags{Items: req.NetworkTags}
+	}
+	if req.IPForwarding {
+		instance.CanIpForward = proto.Bool(true)
+	}
 
 	// Apply provider-specific arguments
 	if err := p.applyProviderArgs(instance, req.Args); err != nil {

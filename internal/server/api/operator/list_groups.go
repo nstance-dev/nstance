@@ -20,6 +20,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/config"
 )
 
+// ListGroups returns operator-managed groups for the authenticated tenant.
 func (s *Service) ListGroups(ctx context.Context, req *emptypb.Empty) (*proto.ListGroupsResponse, error) {
 	clientInfo, err := api.GetClientInfo(ctx)
 	if err != nil {
@@ -42,6 +43,7 @@ func (s *Service) ListGroups(ctx context.Context, req *emptypb.Empty) (*proto.Li
 	}, nil
 }
 
+// listGroups returns operator-managed groups while hiding internal NAT groups.
 func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
 	dbGroups, err := s.localDB.GetAllGroups(tenant)
 	if err != nil {
@@ -58,6 +60,9 @@ func (s *Service) listGroups(tenant string) ([]*proto.GroupStatus, error) {
 
 	var groups []*proto.GroupStatus
 	for groupKey := range dbGroups {
+		if natConfig, ok := cfg.NAT[tenant]; ok && natConfig.Group == groupKey {
+			continue
+		}
 		var staticGroup config.GroupConfig
 		var isStatic bool
 		if staticGroups != nil {

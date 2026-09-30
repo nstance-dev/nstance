@@ -19,6 +19,9 @@ var errTenantAsleep = errors.New("tenant is asleep")
 // handleGroupChanged reconciles a specific group to its desired size
 func (r *Reconciler) handleGroupChanged(tenant, groupKey string) error {
 	r.logger.Info("Reconciling group", "tenant", tenant, "group", groupKey)
+	if natConfig, ok := r.configLoader.GetCurrent().NAT[tenant]; ok && natConfig.Group == groupKey {
+		return nil
+	}
 
 	// Get current instances for this group from localDB
 	currentInstances, err := r.getGroupInstances(tenant, groupKey)

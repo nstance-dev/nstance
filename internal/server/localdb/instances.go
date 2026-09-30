@@ -15,10 +15,10 @@ import (
 func (db *DB) CreateInstance(instance *Instance) error {
 	query := `
 	INSERT INTO instances (
-		id, tenant, group_key, on_demand, provider_id, provider_at, hostname, fqdn, ip4, ip6, provider_state, nonce, issued_at,
+		id, tenant, group_key, on_demand, subnet_id, provider_id, provider_at, hostname, fqdn, ip4, ip6, provider_state, nonce, issued_at,
 		instance_pub, registered_at, certificates_at, health_at, health, infra_config_hash,
 		created_at, updated_at, deleted_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := db.conn.Exec(query,
@@ -26,6 +26,7 @@ func (db *DB) CreateInstance(instance *Instance) error {
 		instance.Tenant,
 		instance.Group,
 		instance.OnDemand,
+		instance.SubnetID,
 		instance.ProviderID,
 		instance.ProviderAt,
 		instance.Hostname,
@@ -85,7 +86,7 @@ func (db *DB) UpdateInstance(instance *Instance) error {
 
 	query := `
 	UPDATE instances SET
-		group_key = ?, on_demand = ?, provider_id = ?, provider_at = ?, hostname = ?, fqdn = ?, ip4 = ?, ip6 = ?, provider_state = ?,
+		group_key = ?, on_demand = ?, subnet_id = ?, provider_id = ?, provider_at = ?, hostname = ?, fqdn = ?, ip4 = ?, ip6 = ?, provider_state = ?,
 		instance_pub = ?, registered_at = ?, certificates_at = ?,
 		health_at = ?, health = ?, updated_at = ?, deleted_at = ?
 	WHERE id = ?
@@ -94,6 +95,7 @@ func (db *DB) UpdateInstance(instance *Instance) error {
 	result, err := db.conn.Exec(query,
 		instance.Group,
 		instance.OnDemand,
+		instance.SubnetID,
 		instance.ProviderID,
 		instance.ProviderAt,
 		instance.Hostname,
@@ -383,14 +385,15 @@ func (db *DB) SeedFromS3Data(instances []*Instance) error {
 	// Prepare the upsert query
 	query := `
 	INSERT INTO instances (
-		id, tenant, group_key, on_demand, provider_id, provider_at, hostname, fqdn, ip4, ip6, nonce, issued_at,
+		id, tenant, group_key, on_demand, subnet_id, provider_id, provider_at, hostname, fqdn, ip4, ip6, nonce, issued_at,
 		instance_pub, registered_at, certificates_at, health_at, health,
 		created_at, updated_at, deleted_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		tenant = excluded.tenant,
 		group_key = excluded.group_key,
 		on_demand = excluded.on_demand,
+		subnet_id = excluded.subnet_id,
 		provider_id = COALESCE(excluded.provider_id, instances.provider_id),
 		provider_at = COALESCE(excluded.provider_at, instances.provider_at),
 		hostname = excluded.hostname,
@@ -418,6 +421,7 @@ func (db *DB) SeedFromS3Data(instances []*Instance) error {
 			instance.Tenant,
 			instance.Group,
 			instance.OnDemand,
+			instance.SubnetID,
 			instance.ProviderID,
 			instance.ProviderAt,
 			instance.Hostname,
@@ -525,6 +529,31 @@ func (db *DB) GetInstancesByGroup(tenant, groupKey string, excludeOnDemand bool)
 	}
 
 	return instanceIDs, rows.Err()
+}
+
+// CountInstancesBySubnet returns active instance counts for one tenant.
+func (db *DB) CountInstancesBySubnet(tenant string) (map[string]int, error) {
+	rows, err := db.conn.Query(`
+		SELECT subnet_id, COUNT(*)
+		FROM instances
+		WHERE tenant = ? AND deleted_at IS NULL
+		AND (provider_state IS NULL OR json_extract(provider_state, '$.status') NOT IN ('deleting', 'deleted'))
+		GROUP BY subnet_id
+	`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	counts := make(map[string]int)
+	for rows.Next() {
+		var subnet string
+		var count int
+		if err := rows.Scan(&subnet, &count); err != nil {
+			return nil, err
+		}
+		counts[subnet] = count
+	}
+	return counts, rows.Err()
 }
 
 // HasOnDemandInstances reports whether a tenant has any non-deleted on-demand instances.

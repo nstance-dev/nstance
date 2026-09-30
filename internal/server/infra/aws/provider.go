@@ -20,10 +20,27 @@ import (
 // Provider implements the provider.Provider and provider.LoadBalancerProvider interfaces for AWS
 type Provider struct {
 	ec2Client   *ec2.Client
+	natClient   natAPI
+	routeClient routeAPI
 	elbv2Client elbv2API
 	config      provider.ProviderConfig
 	logger      *slog.Logger
 	options     ProviderOptions
+}
+
+// natAPI is the subset of EC2 used for managed NAT instances.
+type natAPI interface {
+	DescribeInstances(context.Context, *ec2.DescribeInstancesInput, ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	ModifyNetworkInterfaceAttribute(context.Context, *ec2.ModifyNetworkInterfaceAttributeInput, ...func(*ec2.Options)) (*ec2.ModifyNetworkInterfaceAttributeOutput, error)
+	AssociateAddress(context.Context, *ec2.AssociateAddressInput, ...func(*ec2.Options)) (*ec2.AssociateAddressOutput, error)
+}
+
+// routeAPI is the subset of EC2 used for managed NAT routes.
+type routeAPI interface {
+	DescribeRouteTables(context.Context, *ec2.DescribeRouteTablesInput, ...func(*ec2.Options)) (*ec2.DescribeRouteTablesOutput, error)
+	CreateRoute(context.Context, *ec2.CreateRouteInput, ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error)
+	ReplaceRoute(context.Context, *ec2.ReplaceRouteInput, ...func(*ec2.Options)) (*ec2.ReplaceRouteOutput, error)
+	DeleteRoute(context.Context, *ec2.DeleteRouteInput, ...func(*ec2.Options)) (*ec2.DeleteRouteOutput, error)
 }
 
 // elbv2API is the subset of the Elastic Load Balancing API used by Provider.
@@ -76,6 +93,8 @@ func NewProvider(opts Options) (*Provider, error) {
 
 	return &Provider{
 		ec2Client:   ec2Client,
+		natClient:   ec2Client,
+		routeClient: ec2Client,
 		elbv2Client: elbv2Client,
 		config:      opts.Config,
 		logger:      opts.Logger,

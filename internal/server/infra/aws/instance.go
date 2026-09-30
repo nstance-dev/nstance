@@ -86,6 +86,17 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 	}
 
 	ec2Instance := result.Instances[0]
+	if req.IPForwarding {
+		if len(ec2Instance.NetworkInterfaces) == 0 || ec2Instance.NetworkInterfaces[0].NetworkInterfaceId == nil {
+			return nil, fmt.Errorf("created forwarding instance has no primary network interface")
+		}
+		if _, err := p.ec2Client.ModifyNetworkInterfaceAttribute(ctx, &ec2.ModifyNetworkInterfaceAttributeInput{
+			NetworkInterfaceId: ec2Instance.NetworkInterfaces[0].NetworkInterfaceId,
+			SourceDestCheck:    &types.AttributeBooleanValue{Value: aws.Bool(false)},
+		}); err != nil {
+			return nil, fmt.Errorf("disable source/destination check: %w", err)
+		}
+	}
 
 	// Extract response data
 	response := &provider.CreateInstanceResponse{

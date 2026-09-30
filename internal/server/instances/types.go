@@ -58,6 +58,7 @@ type InstanceRecord struct {
 	Tenant             string               `json:"tenant"`
 	Group              string               `json:"group"`
 	OnDemand           bool                 `json:"on_demand"`
+	SubnetID           string               `json:"subnet_id"`
 	ProviderInstanceID string               `json:"provider_instance_id"`
 	InstanceType       string               `json:"instance_type"`
 	Status             string               `json:"status"`
