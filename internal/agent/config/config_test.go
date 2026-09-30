@@ -119,6 +119,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("NSTANCE_INSTANCE_IPV6", "2001:db8::1")
 	t.Setenv("NSTANCE_REPORT_INTERVAL", "0")
 	t.Setenv("NSTANCE_METRICS_INTERFACE", "eth0")
+	t.Setenv("NSTANCE_EBPF_COUNTERS_PATH", "/sys/fs/bpf/nstance/counters")
 
 	cfg, err := Load()
 	if err != nil {
@@ -136,6 +137,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.MetricsInterface != "eth0" {
 		t.Errorf("MetricsInterface = %q, want eth0", cfg.MetricsInterface)
+	}
+	if cfg.EBPFCountersPath != "/sys/fs/bpf/nstance/counters" {
+		t.Errorf("EBPFCountersPath = %q, want /sys/fs/bpf/nstance/counters", cfg.EBPFCountersPath)
 	}
 
 	if cfg.IdentityDir != identityDir {

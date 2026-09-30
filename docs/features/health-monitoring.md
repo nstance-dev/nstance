@@ -71,7 +71,7 @@ successive reports using constant-size state per relevant instance.
 | `cpu_core_usage` | percent | Per-core CPU usage measured while building the report. |
 | `memory_usage` | percent | Current memory utilization at report time. |
 | `ebpf_counters[port]` | connections | Exact active TCP connection count at report time. |
-| `ebpf_error` | text | Latest eBPF collection or pinned-link validation error; omitted on success or when no proxy listeners are configured. |
+| `ebpf_error` | text | Latest eBPF collection or pinned-link validation error; omitted on success or when eBPF collection is disabled. |
 | `network_interface.rx_bytes`, `tx_bytes` | bytes | Cumulative interface counters at report time. |
 | `network_interface.rx_packets`, `tx_packets` | packets | Cumulative interface counters at report time. |
 | `network_interface.rx_drops`, `tx_drops` | packets | Cumulative dropped-packet counters at report time. |
@@ -82,10 +82,11 @@ successive reports using constant-size state per relevant instance.
 
 Interface and conntrack collection is enabled by setting
 `NSTANCE_METRICS_INTERFACE`; without it those fields are omitted. eBPF
-collection is enabled when the instance has configured proxy listeners;
-without them the eBPF fields are omitted. A missing or stale required
-observation is not treated as zero. Nstance Server calculates interface rates
-from counter differences and elapsed time between successive reports.
+collection is enabled by setting `NSTANCE_EBPF_COUNTERS_PATH` to the directory
+containing the pinned loader link and active-connection map. Without it the
+eBPF fields are omitted. A missing or stale required observation is not treated
+as zero. Nstance Server calculates interface rates from counter differences
+and elapsed time between successive reports.
 
 ## Health Report Processing
 

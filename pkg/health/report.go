@@ -45,6 +45,7 @@ type ReportConfig struct {
 	RecvDir          string
 	IdentityDir      string // Path to identity directory for reading config.hash
 	MetricsInterface string
+	EBPFCountersPath string
 	// GetTerminationNotice returns the current spot termination notice, if any
 	GetTerminationNotice func() *TerminationNotice
 }
@@ -151,7 +152,7 @@ func ReportLoop(ctx context.Context, logger *slog.Logger, reportInterval time.Du
 		select {
 		case <-reportTicker.C:
 			count++
-			metrics := collectMetrics(cfg.MetricsInterface)
+			metrics := collectMetrics(cfg.MetricsInterface, cfg.EBPFCountersPath)
 			report, err := NewReport(count, cfg, metrics)
 			if err != nil {
 				logger.Error("failed to generate health report", "err", err)

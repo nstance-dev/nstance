@@ -41,6 +41,7 @@ type Config struct {
 	InstanceIPv6     string        `env:"INSTANCE_IPV6" validate:"omitempty,ipv6"`
 	ReportInterval   time.Duration `env:"REPORT_INTERVAL" envDefault:"60s" validate:"gte=0"`
 	MetricsInterface string        `env:"METRICS_INTERFACE"`
+	EBPFCountersPath string        `env:"EBPF_COUNTERS_PATH"`
 	SpotPollInterval time.Duration `env:"SPOT_POLL_INTERVAL" envDefault:"2s" validate:"gte=0"`
 }
 

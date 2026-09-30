@@ -248,6 +248,7 @@ func NewRootCmd() *cobra.Command {
 				RecvDir:              cfg.RecvDir,
 				IdentityDir:          cfg.IdentityDir,
 				MetricsInterface:     cfg.MetricsInterface,
+				EBPFCountersPath:     cfg.EBPFCountersPath,
 				GetTerminationNotice: getTerminationNotice,
 			}
 

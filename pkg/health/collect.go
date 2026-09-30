@@ -7,6 +7,7 @@ package health
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 )
 
 // collectMetrics observes current CPU, memory, and configured interface metrics.
-func collectMetrics(interfaceName string) Metrics {
+func collectMetrics(interfaceName, ebpfCountersPath string) Metrics {
 	metrics := Metrics{}
 	if coreUsage, err := cpu.Percent(100*time.Millisecond, true); err == nil && len(coreUsage) > 0 {
 		metrics.CPUCoreUsage = coreUsage
@@ -32,7 +33,28 @@ func collectMetrics(interfaceName string) Metrics {
 		collectInterface(interfaceName, &metrics)
 		collectConntrack(&metrics)
 	}
+	collectEBPF(ebpfCountersPath, &metrics)
 	return metrics
+}
+
+// collectEBPF reads active connection counters when traffic accounting is configured.
+func collectEBPF(path string, metrics *Metrics) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	if err := validatePinnedBPFLink(filepath.Join(path, "links", "count_active_connections")); err != nil {
+		message := fmt.Sprintf("validate pinned eBPF link: %v", err)
+		metrics.EBPFError = &message
+		return
+	}
+	counters, err := readPinnedEBPFCounters(filepath.Join(path, "maps", "active_connections"))
+	if err != nil {
+		message := fmt.Sprintf("read pinned eBPF counters: %v", err)
+		metrics.EBPFError = &message
+		return
+	}
+	metrics.EBPFCounters = counters
 }
 
 // collectInterface adds cumulative counters for the configured interface.

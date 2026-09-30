@@ -41,6 +41,7 @@ All environment variables use the `NSTANCE_` prefix.
 | `NSTANCE_INSTANCE_IPV6` | *(optional)* | Instance IPv6 address |
 | `NSTANCE_REPORT_INTERVAL` | `60s` | Health report interval (`0` to disable) |
 | `NSTANCE_METRICS_INTERFACE` | *(optional)* | Network interface to collect rate and conntrack metrics for |
+| `NSTANCE_EBPF_COUNTERS_PATH` | *(optional)* | Directory containing the pinned active-connection link and map |
 | `NSTANCE_SPOT_POLL_INTERVAL` | `2s` | Spot termination polling interval |
 
 ## Agent Lifecycle
