@@ -24,7 +24,7 @@ import (
 func TestConfigureTenantAndInstanceEnv(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStore()
-	server, err := New(Config{Store: store, ClusterID: "podplane-local", ShardID: "local"})
+	server, err := New(Config{Store: store, ClusterID: "nstance-local", ShardID: "local"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestConfigureTenantAndInstanceEnv(t *testing.T) {
 func TestConfigureInstanceWithoutTenantFails(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStore()
-	server, err := New(Config{Store: store, ClusterID: "podplane-local", ShardID: "local"})
+	server, err := New(Config{Store: store, ClusterID: "nstance-local", ShardID: "local"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestConfigureInstanceWithoutTenantFails(t *testing.T) {
 func TestInstanceEnvWithAddrsDoesNotRequireStartedServer(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStore()
-	server, err := New(Config{Store: store, ClusterID: "podplane-local", ShardID: "local"})
+	server, err := New(Config{Store: store, ClusterID: "nstance-local", ShardID: "local"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

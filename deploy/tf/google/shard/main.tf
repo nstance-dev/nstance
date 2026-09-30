@@ -51,6 +51,11 @@ locals {
   # Resolve server subnet ID from the server_subnet role
   server_subnet_id = try(local.filtered_subnets[var.server_subnet][0], "")
 
+  load_balancer_server_tags = [
+    for lb_key in keys(var.network.load_balancers) :
+    "nstance-lb-${substr(md5(lb_key), 0, 12)}-${substr(md5(var.shard), 0, 12)}-server"
+  ]
+
   # Common tags applied to all resources
   common_tags = merge(
     {

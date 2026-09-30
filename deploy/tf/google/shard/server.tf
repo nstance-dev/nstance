@@ -36,7 +36,7 @@ data "google_compute_image" "debian_arm64" {
 locals {
   server_image = local.server_arch == "arm64" ? data.google_compute_image.debian_arm64.self_link : data.google_compute_image.debian_amd64.self_link
 
-  server_userdata = templatefile("${path.module}/templates/server-userdata.sh.tpl", {
+  default_server_userdata = templatefile("${path.module}/templates/server-userdata.sh.tpl", {
     nstance_version = local.nstance_version
     github_repo     = local.github_repo
     binary_url      = var.nstance_server_binary_url
@@ -48,6 +48,7 @@ locals {
     shard           = var.shard
     enable_ssm      = false
   })
+  server_userdata = coalesce(var.server_userdata, local.default_server_userdata)
 }
 
 # ============================================================================
@@ -69,6 +70,13 @@ resource "google_compute_instance_template" "server" {
 
   network_interface {
     subnetwork = local.server_subnet_id
+
+    dynamic "access_config" {
+      for_each = var.network.nat_mode == "nstance-managed" ? [1] : []
+      content {
+        network_tier = "PREMIUM"
+      }
+    }
   }
 
   service_account {
@@ -89,7 +97,7 @@ resource "google_compute_instance_template" "server" {
     } : {}
   )
 
-  tags = ["nstance-server-${var.shard}"]
+  tags = concat(["nstance-server-${var.shard}"], local.load_balancer_server_tags)
 
   labels = local.common_tags
 

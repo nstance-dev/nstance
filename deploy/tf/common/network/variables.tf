@@ -9,6 +9,7 @@
 variable "cluster" {
   description = "Cluster configuration from cluster module output"
   type = object({
+    id                      = string
     name_prefix             = optional(string, "nstance")
     shards                  = optional(list(string), [])
     secrets_provider        = string
@@ -62,6 +63,28 @@ variable "region" {
   default     = ""
 }
 
+variable "nat_mode" {
+  description = "IPv4 egress mode for subnets with nat_subnet: cloud-managed or nstance-managed"
+  type        = string
+  default     = "cloud-managed"
+
+  validation {
+    condition     = contains(["cloud-managed", "nstance-managed"], var.nat_mode)
+    error_message = "nat_mode must be cloud-managed or nstance-managed."
+  }
+}
+
+variable "fixed_public_ipv4_count" {
+  description = "Optional fixed public IPv4 addresses to pre-provision per NAT service subnet in nstance-managed mode"
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.fixed_public_ipv4_count >= 0 && floor(var.fixed_public_ipv4_count) == var.fixed_public_ipv4_count
+    error_message = "fixed_public_ipv4_count must be a non-negative integer."
+  }
+}
+
 variable "subnets" {
   description = <<-EOT
     Subnet definitions by role key and zone. Structure: role key -> zone -> list of subnet definitions.
@@ -72,13 +95,13 @@ variable "subnets" {
     - ipv6_cidr   (string, optional) - Explicit IPv6 CIDR (alternative to ipv6_netnum).
     - existing    (string, optional) - Reference an existing subnet ID. Mutually exclusive with 'ipv4_cidr'.
     - public      (bool, default false) - Route via IGW, assign public IPs on launch.
-    - nat_gateway (bool, default false) - Place a NAT gateway in this subnet. Requires public = true.
+    - nat_gateway (bool, default false) - Use this public subnet for the selected NAT mode. Requires public = true.
     - nat_subnet  (string, optional) - Route via NAT from this role key (same AZ), e.g., nat_subnet = "public".
     - shards      (list of strings, optional) - Restrict to specific shards.
     
     Routing behavior:
     - public = true: associates subnet with public route table (IGW route)
-    - nat_subnet = "X": associates with private route table routing to NAT gateway in role "X" for same AZ
+    - nat_subnet = "X": routes IPv4 egress through the selected NAT mode in role "X" for the same zone
     - Neither: no route table association (isolated or user-managed)
     
     Example:
@@ -107,8 +130,9 @@ variable "load_balancers" {
     load balancer (Google Cloud) with all specified listeners. Each listener has
     an external port and an optional VM target port, which defaults to the external port.
     
-    The 'subnets' field references a role key from the subnets variable. The LB will be placed
-    in all subnets matching that role (one per zone).
+    The 'subnets' field references the frontend subnet role. On Google Cloud,
+    backend_subnets and proxy_subnets optionally name the production and
+    nstance-server subnet roles; each defaults to subnets.
     
     The 'public' field controls whether the LB is internet-facing (true) or internal (false).
     On AWS, public load balancers require public subnets (with IGW routes).
@@ -123,9 +147,12 @@ variable "load_balancers" {
     listeners = list(object({
       port        = number
       target_port = optional(number)
+      proxy_port  = optional(number)
     }))
-    subnets = string
-    public  = bool
+    subnets         = string
+    backend_subnets = optional(string)
+    proxy_subnets   = optional(string)
+    public          = bool
   }))
   default = {}
 
@@ -136,9 +163,10 @@ variable "load_balancers" {
       alltrue([
         for listener in lb.listeners :
         listener.port >= 1 && listener.port <= 65535 && floor(listener.port) == listener.port &&
-        (listener.target_port == null ? true : listener.target_port >= 1 && listener.target_port <= 65535 && floor(listener.target_port) == listener.target_port)
+        (listener.target_port == null ? true : listener.target_port >= 1 && listener.target_port <= 65535 && floor(listener.target_port) == listener.target_port) &&
+        (listener.proxy_port == null ? true : listener.proxy_port >= 1 && listener.proxy_port <= 65535 && floor(listener.proxy_port) == listener.proxy_port)
       ])
     ])
-    error_message = "Load-balancer listener ports must be unique, and listener and target ports must be whole numbers from 1 through 65535."
+    error_message = "Load-balancer listener ports must be unique, and listener, target, and proxy ports must be whole numbers from 1 through 65535."
   }
 }

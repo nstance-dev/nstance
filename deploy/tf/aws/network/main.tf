@@ -121,6 +121,18 @@ locals {
   # Subnets with nat_subnet set (need private route table association)
   nat_routed_subnets = { for k, v in local.subnet_definitions : k => v if v.nat_subnet != null }
 
+  # Pre-provision optional Elastic IPs for fixed NAT egress.
+  fixed_public_ipv4 = merge([
+    for subnet_key, subnet in local.nat_gateway_subnets : {
+      for index in range(var.fixed_public_ipv4_count) : "${subnet.role}-${subnet.zone}-${index}" => {
+        role       = subnet.role
+        zone       = subnet.zone
+        subnet_key = subnet_key
+        index      = index
+      }
+    } if var.nat_mode == "nstance-managed"
+  ]...)
+
   # Unique AZs that have NAT gateways
   nat_gateway_azs = distinct([for k, v in local.nat_gateway_subnets : v.zone])
 
@@ -161,18 +173,18 @@ locals {
 
   # NAT gateway IDs by AZ
   nat_gateway_ids_by_az = {
-    for az in local.nat_gateway_azs : az => aws_nat_gateway.per_az[az].id
+    for az, gateway in aws_nat_gateway.per_az : az => gateway.id
   }
 
-  # Private route table IDs by AZ
-  private_route_table_ids_by_az = {
-    for az in local.nat_gateway_azs : az => aws_route_table.private_per_az[az].id
+  # Private route table IDs by subnet.
+  private_route_table_ids = {
+    for key, route_table in aws_route_table.private : key => route_table.id
   }
 
   # All route table IDs for S3 endpoint attachment
   all_route_table_ids = concat(
     local.use_existing_vpc ? [] : [aws_route_table.public[0].id],
-    [for az in local.nat_gateway_azs : aws_route_table.private_per_az[az].id]
+    [for route_table in values(aws_route_table.private) : route_table.id]
   )
 
   # First private subnet per AZ for VPC interface endpoints
@@ -209,6 +221,21 @@ resource "terraform_data" "validate_nat_gateway_public" {
     precondition {
       condition     = each.value.public
       error_message = "Subnet ${each.key}: nat_gateway = true requires public = true."
+    }
+  }
+}
+
+resource "terraform_data" "validate_managed_nat" {
+  for_each = var.nat_mode == "nstance-managed" ? local.nat_gateway_subnets : {}
+
+  lifecycle {
+    precondition {
+      condition     = !local.use_existing_vpc
+      error_message = "Subnet ${each.key}: nstance-managed NAT requires a module-managed VPC so route-table ownership can be guaranteed."
+    }
+    precondition {
+      condition     = each.value.public
+      error_message = "Subnet ${each.key}: nstance-managed NAT VMs require a public service subnet."
     }
   }
 }
@@ -304,7 +331,7 @@ resource "aws_route_table" "public" {
 
 # Elastic IP for NAT Gateway - one per AZ
 resource "aws_eip" "per_az" {
-  for_each = local.use_existing_vpc ? toset([]) : toset(local.nat_gateway_azs)
+  for_each = local.use_existing_vpc || var.nat_mode != "cloud-managed" ? toset([]) : toset(local.nat_gateway_azs)
 
   domain = "vpc"
 
@@ -317,7 +344,7 @@ resource "aws_eip" "per_az" {
 
 # NAT Gateway - one per AZ in the subnet with nat_gateway = true
 resource "aws_nat_gateway" "per_az" {
-  for_each = local.use_existing_vpc ? {} : {
+  for_each = local.use_existing_vpc || var.nat_mode != "cloud-managed" ? {} : {
     for az in local.nat_gateway_azs : az => local.nat_gateway_by_az[az][0]
   }
 
@@ -331,15 +358,30 @@ resource "aws_nat_gateway" "per_az" {
   depends_on = [aws_internet_gateway.main, aws_subnet.managed]
 }
 
-# Private route table - one per AZ with NAT gateway
-resource "aws_route_table" "private_per_az" {
-  for_each = local.use_existing_vpc ? toset([]) : toset(local.nat_gateway_azs)
+# Fixed Elastic IPs are reassociated with active NAT instances by nstance-server.
+resource "aws_eip" "managed_nat" {
+  for_each = local.fixed_public_ipv4
+
+  domain = "vpc"
+
+  tags = merge(var.tags, { Name = "${local.name_prefix}-${each.key}" })
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+# Each NAT-routed subnet has its own route table so Nstance can safely mutate
+# only that subnet's IPv4 default route.
+resource "aws_route_table" "private" {
+  for_each = local.use_existing_vpc ? {} : local.nat_routed_subnets
 
   vpc_id = local.vpc_id
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.per_az[each.key].id
+  dynamic "route" {
+    for_each = var.nat_mode == "cloud-managed" ? [1] : []
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.per_az[each.value.zone].id
+    }
   }
 
   dynamic "route" {
@@ -351,7 +393,8 @@ resource "aws_route_table" "private_per_az" {
   }
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-private-rt-${each.key}"
+    Name                 = "${local.name_prefix}-private-rt-${replace(each.key, "/", "-")}"
+    "nstance:cluster-id" = var.cluster.id
   })
 }
 
@@ -370,7 +413,7 @@ resource "aws_route_table_association" "private" {
   for_each = local.use_existing_vpc ? {} : local.nat_routed_subnets
 
   subnet_id      = local.all_subnet_ids[each.key]
-  route_table_id = aws_route_table.private_per_az[each.value.zone].id
+  route_table_id = aws_route_table.private[each.key].id
 
   depends_on = [aws_subnet.managed]
 }

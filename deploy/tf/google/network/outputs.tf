@@ -28,13 +28,29 @@ output "public_subnet_names" {
 }
 
 output "nat_gateway_name" {
-  description = "Cloud NAT name (null when using existing VPC or no NAT configured)"
-  value       = local.use_existing_vpc ? null : (local.has_nat_gateway ? google_compute_router_nat.main[0].name : null)
+  description = "Cloud NAT name (null when no NAT is configured)"
+  value       = local.has_nat_gateway && var.nat_mode == "cloud-managed" ? google_compute_router_nat.main[0].name : null
 }
 
 output "router_name" {
-  description = "Cloud Router name (null when using existing VPC or no NAT configured)"
-  value       = local.use_existing_vpc ? null : (local.has_nat_gateway ? google_compute_router.main[0].name : null)
+  description = "Cloud Router name (null when no NAT is configured)"
+  value       = local.has_nat_gateway && var.nat_mode == "cloud-managed" ? google_compute_router.main[0].name : null
+}
+
+output "nat_mode" {
+  description = "Selected IPv4 egress mode"
+  value       = var.nat_mode
+}
+
+output "public_addresses" {
+  description = "Optional fixed public IPv4 addresses for Nstance-managed NAT, keyed by service role and zone"
+  value = {
+    for group in distinct([for address in values(local.fixed_public_ipv4) : "${address.role}-${address.zone}"]) : group => [
+      for key, address in local.fixed_public_ipv4 : {
+        ipv4 = google_compute_address.nat_external[key].address
+      } if "${address.role}-${address.zone}" == group
+    ]
+  }
 }
 
 output "subnet_names" {
@@ -48,14 +64,21 @@ output "subnets" {
 }
 
 output "load_balancers" {
-  description = "Map of load balancer configurations with instance group info"
+  description = "Map of load balancer network endpoint groups and forwarding-rule frontends"
   value = {
     for lb_key, lb in var.load_balancers : lb_key => {
-      ip_address = google_compute_address.lb[lb_key].address
-      instance_groups = {
-        for ig_key, ig in local.lb_instance_groups : ig.zone => google_compute_instance_group.nstance[ig_key].name
-        if ig.lb_key == lb_key
+      network_endpoint_groups = {
+        for zone in distinct([for neg in values(local.lb_network_endpoint_groups) : neg.zone if neg.lb_key == lb_key]) : zone => [
+          for neg_key, neg in local.lb_network_endpoint_groups : google_compute_network_endpoint_group.nstance[neg_key].name
+          if neg.lb_key == lb_key && neg.zone == zone
+        ]
       }
+      frontends = [
+        for listener in lb.listeners : {
+          ip   = lb.public ? google_compute_address.lb_external[lb_key].address : google_compute_address.lb_internal[lb_key].address
+          port = listener.port
+        }
+      ]
     }
   }
 }

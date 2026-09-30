@@ -24,6 +24,12 @@ variable "cluster_id" {
   type        = string
 }
 
+variable "nat_mode" {
+  description = "IPv4 egress mode"
+  type        = string
+  default     = "cloud-managed"
+}
+
 provider "google" {
   project = var.project
   region  = var.region
@@ -46,6 +52,7 @@ module "network" {
 
   cluster       = module.cluster
   vpc_cidr_ipv4 = "172.18.0.0/16"
+  nat_mode      = var.nat_mode
 
   # Define subnets by role and zone
   # ipv6_netnum (0-65535) auto-computes /64 from VPC's Google Cloud-assigned /48
@@ -85,16 +92,35 @@ module "shard" {
   account = module.account
   network = module.network
 
-  shard = "us-central1-a"
-  zone  = "us-central1-a"
-  # server_subnet defaults to "nstance" - uses first subnet from that role in zone
+  shard         = "us-central1-a"
+  zone          = "us-central1-a"
+  server_subnet = var.nat_mode == "nstance-managed" ? "public" : "nstance"
+
+  nat = var.nat_mode == "nstance-managed" ? {
+    default = {
+      group                = "nat"
+      public_addresses     = try(module.network.public_addresses["public-us-central1-a"], [])
+      instance_type_ladder = ["e2-micro"]
+    }
+  } : {}
+
+  templates = {
+    default = { kind = "dft", arch = "amd64" }
+    nat     = { kind = "nat", arch = "amd64" }
+  }
 
   groups = {
-    "default" = {
+    "default" = merge({
       "workers" = {
         size        = 1
         subnet_pool = "workers" # References key from subnets map
       }
-    }
+      }, var.nat_mode == "nstance-managed" ? {
+      nat = {
+        subnet_pool  = "public"
+        template     = "nat"
+        machine_type = "e2-micro"
+      }
+    } : {})
   }
 }

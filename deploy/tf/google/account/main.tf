@@ -73,6 +73,31 @@ resource "google_project_iam_member" "server_network_user" {
   member  = "serviceAccount:${google_service_account.server.email}"
 }
 
+# Nstance owns only dynamic NEG membership and Nstance-tagged NAT routes.
+resource "google_project_iam_custom_role" "server_network_control" {
+  project     = var.cluster.project_id
+  role_id     = "${replace(local.name_prefix, "-", "_")}_network_control"
+  title       = "Nstance Network Control"
+  description = "Manage Nstance load-balancer membership and NAT routes"
+  permissions = [
+    "compute.forwardingRules.list",
+    "compute.networkEndpointGroups.attachNetworkEndpoints",
+    "compute.networkEndpointGroups.detachNetworkEndpoints",
+    "compute.networkEndpointGroups.get",
+    "compute.networkEndpointGroups.list",
+    "compute.networkEndpointGroups.use",
+    "compute.routes.create",
+    "compute.routes.delete",
+    "compute.routes.get",
+  ]
+}
+
+resource "google_project_iam_member" "server_network_control" {
+  project = var.cluster.project_id
+  role    = google_project_iam_custom_role.server_network_control.id
+  member  = "serviceAccount:${google_service_account.server.email}"
+}
+
 # Service Account User to attach agent service account to VMs
 resource "google_service_account_iam_member" "server_can_use_agent_sa" {
   service_account_id = google_service_account.agent.name
@@ -87,12 +112,4 @@ resource "google_service_account_iam_member" "server_can_use_agent_sa" {
 resource "google_service_account" "agent" {
   account_id   = "${local.name_prefix}-agent"
   display_name = "Nstance Agent Service Account"
-}
-
-# Minimal permissions for agent - mainly just needs to describe itself
-# Agents communicate with server via gRPC, not directly with Google Cloud services
-resource "google_project_iam_member" "agent_compute_viewer" {
-  project = var.cluster.project_id
-  role    = "roles/compute.viewer"
-  member  = "serviceAccount:${google_service_account.agent.email}"
 }

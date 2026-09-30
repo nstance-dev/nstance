@@ -28,13 +28,30 @@ output "public_route_table_id" {
 }
 
 output "private_route_table_ids" {
-  description = "Map of AZ -> private route table ID"
-  value       = local.private_route_table_ids_by_az
+  description = "Map of subnet role/zone/index keys to private route table IDs"
+  value       = local.private_route_table_ids
 }
 
 output "nat_gateway_ids" {
   description = "Map of AZ -> NAT gateway ID"
   value       = local.nat_gateway_ids_by_az
+}
+
+output "public_addresses" {
+  description = "Optional fixed public IPv4 attachments for Nstance-managed NAT, keyed by service role and zone"
+  value = {
+    for group in distinct([for address in values(local.fixed_public_ipv4) : "${address.role}-${address.zone}"]) : group => [
+      for key, address in local.fixed_public_ipv4 : {
+        ipv4          = aws_eip.managed_nat[key].public_ip
+        allocation_id = aws_eip.managed_nat[key].allocation_id
+      } if "${address.role}-${address.zone}" == group
+    ]
+  }
+}
+
+output "nat_mode" {
+  description = "Selected IPv4 egress mode"
+  value       = var.nat_mode
 }
 
 output "public_subnet_ids" {
@@ -61,9 +78,12 @@ output "load_balancers" {
       zone_id           = aws_lb.nstance[lb_key].zone_id
       security_group_id = aws_security_group.load_balancer[lb_key].id
       target_ports      = distinct([for listener in lb.listeners : coalesce(listener.target_port, listener.port)])
-      target_group_arns = {
-        for listener in lb.listeners : tostring(listener.port) => aws_lb_target_group.nstance["${lb_key}:${listener.port}"].arn
-      }
+      target_groups = [for listener in lb.listeners : {
+        arn           = aws_lb_target_group.nstance["${lb_key}:${listener.port}"].arn
+        listener_port = listener.port
+        target_port   = coalesce(listener.target_port, listener.port)
+        proxy_port    = coalesce(listener.proxy_port, listener.target_port, listener.port)
+      }]
     }
   }
 }

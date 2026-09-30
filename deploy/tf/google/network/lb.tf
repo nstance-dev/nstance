@@ -7,56 +7,123 @@
 # ============================================================================
 
 locals {
-  # Flatten load balancers into per-listener entries for health checks and forwarding rules
   lb_ports = merge([
     for lb_key, lb in var.load_balancers : {
       for listener in lb.listeners : "${lb_key}:${listener.port}" => {
         lb_key        = lb_key
         listener_port = listener.port
         target_port   = coalesce(listener.target_port, listener.port)
+        proxy_port    = coalesce(listener.proxy_port, listener.target_port, listener.port)
         public        = lb.public
+        subnet_role   = lb.subnets
       }
     }
   ]...)
 
-  # Get zones for each LB based on its subnet role
-  lb_zones_by_role = {
-    for role in distinct([for k, v in local.subnet_definitions : v.role]) : role =>
-    distinct([for k, v in local.subnet_definitions : v.zone if v.role == role])
-  }
-
-  # Create instance group entries: one per lb_key per zone in that LB's subnet role
-  lb_instance_groups = merge([
+  # A GCE_VM_IP NEG is scoped to one subnet and zone. Keep every eligible
+  # subnet so independently managed instances can register by VM and IP.
+  lb_network_endpoint_groups = merge([
     for lb_key, lb in var.load_balancers : {
-      for zone in local.lb_zones_by_role[lb.subnets] : "${lb_key}:${zone}" => {
-        lb_key    = lb_key
-        zone      = zone
-        listeners = lb.listeners
-      }
+      for subnet_key, subnet in local.subnet_definitions : "${lb_key}:${subnet_key}" => {
+        lb_key      = lb_key
+        subnet_key  = subnet_key
+        zone        = subnet.zone
+        subnet_name = local.all_subnet_names[subnet_key]
+      } if contains(distinct([coalesce(lb.backend_subnets, lb.subnets), coalesce(lb.proxy_subnets, lb.subnets)]), subnet.role)
     }
   ]...)
+
+  lb_target_tags = {
+    for lb_key in keys(var.load_balancers) : lb_key => flatten([
+      for shard in local.shards : [
+        "nstance-lb-${substr(md5(lb_key), 0, 12)}-${substr(md5(shard), 0, 12)}-agent",
+        "nstance-lb-${substr(md5(lb_key), 0, 12)}-${substr(md5(shard), 0, 12)}-server"
+      ]
+    ])
+  }
 }
 
-# ============================================================================
-# Static IPs (one per logical LB)
-# ============================================================================
-
-resource "google_compute_address" "lb" {
+resource "terraform_data" "validate_load_balancer_subnets" {
   for_each = var.load_balancers
 
-  name   = "${local.name_prefix}-${each.key}-ip"
-  region = local.region
+  lifecycle {
+    precondition {
+      condition     = length(local.shards) > 0
+      error_message = "Google Cloud load balancers require cluster.shards for firewall targeting."
+    }
+    precondition {
+      condition     = anytrue([for subnet in values(local.subnet_definitions) : subnet.role == each.value.subnets])
+      error_message = "Load balancer ${each.key} references frontend subnet role ${each.value.subnets}, which has no subnets."
+    }
+    precondition {
+      condition     = anytrue([for subnet in values(local.subnet_definitions) : subnet.role == coalesce(each.value.backend_subnets, each.value.subnets)])
+      error_message = "Load balancer ${each.key} references a backend subnet role which has no subnets."
+    }
+    precondition {
+      condition     = anytrue([for subnet in values(local.subnet_definitions) : subnet.role == coalesce(each.value.proxy_subnets, each.value.subnets)])
+      error_message = "Load balancer ${each.key} references a proxy subnet role which has no subnets."
+    }
+    precondition {
+      condition = alltrue([
+        for listener in each.value.listeners :
+        coalesce(listener.target_port, listener.port) == listener.port &&
+        coalesce(listener.proxy_port, listener.target_port, listener.port) == listener.port
+      ])
+      error_message = "Google Cloud passthrough load balancers require listener, target, and proxy ports to match."
+    }
+  }
 }
 
 # ============================================================================
-# Health Checks (one per LB + port combination)
+# Zonal Network Endpoint Groups
+# ============================================================================
+
+resource "google_compute_network_endpoint_group" "nstance" {
+  for_each = local.lb_network_endpoint_groups
+
+  name                  = "${local.name_prefix}-${each.value.lb_key}-neg-${replace(each.value.zone, "/", "-")}-${substr(md5(each.value.subnet_key), 0, 6)}"
+  project               = local.project_id
+  zone                  = each.value.zone
+  network               = local.vpc_id
+  subnetwork            = each.value.subnet_name
+  network_endpoint_type = "GCE_VM_IP"
+}
+
+# ============================================================================
+# Frontend Addresses
+# ============================================================================
+
+resource "google_compute_address" "lb_external" {
+  for_each = { for key, lb in var.load_balancers : key => lb if lb.public }
+
+  name         = "${local.name_prefix}-${each.key}-ip"
+  project      = local.project_id
+  region       = local.region
+  address_type = "EXTERNAL"
+  network_tier = "PREMIUM"
+}
+
+resource "google_compute_address" "lb_internal" {
+  for_each = { for key, lb in var.load_balancers : key => lb if !lb.public }
+
+  name         = "${local.name_prefix}-${each.key}-ip"
+  project      = local.project_id
+  region       = local.region
+  address_type = "INTERNAL"
+  subnetwork   = local.all_subnet_names[[for key, subnet in local.subnet_definitions : key if subnet.role == each.value.subnets][0]]
+  purpose      = "SHARED_LOADBALANCER_VIP"
+}
+
+# ============================================================================
+# Health Checks and Regional Passthrough Backend Services
 # ============================================================================
 
 resource "google_compute_region_health_check" "nstance" {
   for_each = local.lb_ports
 
-  name   = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-health"
-  region = local.region
+  name    = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-health"
+  project = local.project_id
+  region  = local.region
 
   tcp_health_check {
     port = each.value.target_port
@@ -68,62 +135,41 @@ resource "google_compute_region_health_check" "nstance" {
   unhealthy_threshold = 3
 }
 
-# ============================================================================
-# Unmanaged Instance Groups (one per LB per zone)
-# Instances are added/removed by nstance-server
-# ============================================================================
-
-resource "google_compute_instance_group" "nstance" {
-  for_each = local.lb_instance_groups
-
-  name    = "${local.name_prefix}-${each.value.lb_key}-ig-${each.value.zone}"
-  zone    = each.value.zone
-  network = local.vpc_id
-
-  # Name ports by listener while directing them to the corresponding VM target port.
-  dynamic "named_port" {
-    for_each = each.value.listeners
-    content {
-      name = "port-${named_port.value.port}"
-      port = coalesce(named_port.value.target_port, named_port.value.port)
-    }
-  }
-}
-
-# ============================================================================
-# Backend Services (one per LB + port combination)
-# ============================================================================
-
 resource "google_compute_region_backend_service" "nstance" {
   for_each = local.lb_ports
 
   name                  = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-backend"
+  project               = local.project_id
   region                = local.region
   protocol              = "TCP"
   load_balancing_scheme = each.value.public ? "EXTERNAL" : "INTERNAL"
   health_checks         = [google_compute_region_health_check.nstance[each.key].id]
 
-  # Add all instance groups for this LB across zones
   dynamic "backend" {
-    for_each = [for ig_key, ig in local.lb_instance_groups : ig_key if ig.lb_key == each.value.lb_key]
+    for_each = { for key, neg in local.lb_network_endpoint_groups : key => neg if neg.lb_key == each.value.lb_key }
     content {
-      group = google_compute_instance_group.nstance[backend.value].self_link
+      group = google_compute_network_endpoint_group.nstance[backend.key].self_link
     }
   }
 }
 
 # ============================================================================
-# Forwarding Rules (one per LB + port combination)
+# Regional Passthrough Forwarding Rules
 # ============================================================================
 
 resource "google_compute_forwarding_rule" "nstance" {
   for_each = local.lb_ports
 
   name                  = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}-fwd"
+  project               = local.project_id
   region                = local.region
   load_balancing_scheme = each.value.public ? "EXTERNAL" : "INTERNAL"
-  port_range            = each.value.listener_port
+  ports                 = [each.value.listener_port]
   ip_protocol           = "TCP"
-  ip_address            = google_compute_address.lb[each.value.lb_key].address
+  ip_address            = each.value.public ? google_compute_address.lb_external[each.value.lb_key].address : google_compute_address.lb_internal[each.value.lb_key].address
   backend_service       = google_compute_region_backend_service.nstance[each.key].id
+  subnetwork            = each.value.public ? null : local.all_subnet_names[[for key, subnet in local.subnet_definitions : key if subnet.role == each.value.subnet_role][0]]
+  network_tier          = each.value.public ? "PREMIUM" : null
+
+  depends_on = [terraform_data.validate_load_balancer_subnets]
 }

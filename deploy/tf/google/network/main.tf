@@ -74,6 +74,17 @@ locals {
   nat_gateway_subnets = { for k, v in local.subnet_definitions : k => v if v.nat_gateway }
   has_nat_gateway     = length(local.nat_gateway_subnets) > 0
 
+  fixed_public_ipv4 = merge([
+    for subnet_key, subnet in local.nat_gateway_subnets : {
+      for index in range(var.fixed_public_ipv4_count) : "${subnet.role}-${subnet.zone}-${index}" => {
+        role       = subnet.role
+        zone       = subnet.zone
+        subnet_key = subnet_key
+        index      = index
+      }
+    } if var.nat_mode == "nstance-managed"
+  ]...)
+
   # For each role that has nat_gateway=true, map zone -> logical subnet ID
   nat_gateway_by_role_zone = {
     for k, v in local.nat_gateway_subnets : "${v.role}/${v.zone}" => k
@@ -153,6 +164,17 @@ resource "terraform_data" "validate_nat_gateway_public" {
   }
 }
 
+resource "terraform_data" "validate_managed_nat" {
+  for_each = var.nat_mode == "nstance-managed" ? local.nat_gateway_subnets : {}
+
+  lifecycle {
+    precondition {
+      condition     = each.value.public
+      error_message = "Subnet ${each.key}: nstance-managed NAT VMs require a public service subnet."
+    }
+  }
+}
+
 # Validation: nat_subnet must reference a role with nat_gateway in same zone
 resource "terraform_data" "validate_nat_subnet_ref" {
   for_each = local.nat_routed_subnets
@@ -208,7 +230,7 @@ resource "google_compute_subnetwork" "managed" {
 
 # Cloud Router (required for Cloud NAT) - created when any subnet has nat_gateway = true
 resource "google_compute_router" "main" {
-  count = local.use_existing_vpc ? 0 : (local.has_nat_gateway ? 1 : 0)
+  count = local.has_nat_gateway && var.nat_mode == "cloud-managed" ? 1 : 0
 
   name    = "${local.name_prefix}-router"
   project = local.project_id
@@ -219,14 +241,22 @@ resource "google_compute_router" "main" {
 # Cloud NAT (provides outbound internet access) - created when any subnet has nat_gateway = true
 # Note: Google Cloud Cloud NAT is regional, unlike AWS which is per-AZ
 resource "google_compute_router_nat" "main" {
-  count = local.use_existing_vpc ? 0 : (local.has_nat_gateway ? 1 : 0)
+  count = local.has_nat_gateway && var.nat_mode == "cloud-managed" ? 1 : 0
 
   name                               = "${local.name_prefix}-nat"
   project                            = local.project_id
   router                             = google_compute_router.main[0].name
   region                             = local.region
   nat_ip_allocate_option             = "AUTO_ONLY"
-  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+
+  dynamic "subnetwork" {
+    for_each = toset(local.nat_routed_subnet_names)
+    content {
+      name                    = subnetwork.value
+      source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+    }
+  }
 
   log_config {
     enable = true
@@ -234,6 +264,16 @@ resource "google_compute_router_nat" "main" {
   }
 
   depends_on = [google_compute_subnetwork.managed]
+}
+
+resource "google_compute_address" "nat_external" {
+  for_each = local.fixed_public_ipv4
+
+  name         = "${local.name_prefix}-${each.key}-external"
+  project      = local.project_id
+  region       = local.region
+  address_type = "EXTERNAL"
+  network_tier = "PREMIUM"
 }
 
 # Firewall rule to allow internal traffic within VPC
@@ -263,7 +303,7 @@ resource "google_compute_firewall" "allow_internal" {
 
 # Firewall rule to allow health checks from Google
 resource "google_compute_firewall" "allow_health_checks" {
-  count = local.use_existing_vpc ? 0 : 1
+  count = length(local.lb_ports) > 0 ? 1 : 0
 
   name    = "${local.name_prefix}-allow-health-checks"
   project = local.project_id
@@ -271,8 +311,28 @@ resource "google_compute_firewall" "allow_health_checks" {
 
   allow {
     protocol = "tcp"
+    ports    = [for port in distinct([for listener in values(local.lb_ports) : listener.proxy_port]) : tostring(port)]
   }
 
   # Google health check IP ranges
   source_ranges = ["35.191.0.0/16", "130.211.0.0/22"]
+  target_tags   = length(local.shards) > 0 ? distinct(flatten(values(local.lb_target_tags))) : null
+}
+
+# Passthrough load balancers preserve the client source address. Restrict the
+# opened ports and apply the rule only to Nstance agent and server instances.
+resource "google_compute_firewall" "allow_load_balancers" {
+  for_each = var.load_balancers
+
+  name    = "${local.name_prefix}-${each.key}-allow-lb"
+  project = local.project_id
+  network = local.vpc_id
+
+  allow {
+    protocol = "tcp"
+    ports    = [for listener in each.value.listeners : tostring(coalesce(listener.proxy_port, listener.target_port, listener.port))]
+  }
+
+  source_ranges = each.value.public ? ["0.0.0.0/0"] : [var.vpc_cidr_ipv4]
+  target_tags   = length(local.shards) > 0 ? local.lb_target_tags[each.key] : null
 }

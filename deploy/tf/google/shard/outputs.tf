@@ -28,10 +28,11 @@ output "config_key" {
 }
 
 output "load_balancers" {
-  description = "Map of load balancer IPs"
+  description = "Map of load balancer network endpoint groups and frontends"
   value = {
     for lb_key, lb in var.network.load_balancers : lb_key => {
-      ip_address = lb.ip_address
+      network_endpoint_groups = try(lb.network_endpoint_groups[var.zone], [])
+      frontends               = lb.frontends
     }
   }
 }

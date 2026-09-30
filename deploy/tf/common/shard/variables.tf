@@ -87,18 +87,28 @@ variable "network" {
     enable_ipv6             = optional(bool, false)     # Known at plan time, use for count/for_each
     public_subnet_ids       = optional(map(string), {}) # zone -> subnet ID for NLB placement
     public_route_table_id   = optional(string, null)    # AWS only
-    private_route_table_ids = optional(map(string), {}) # zone -> route table ID (AWS only)
+    private_route_table_ids = optional(map(string), {}) # subnet key -> route table ID (AWS only)
     nat_gateway_ids         = optional(map(string), {}) # zone -> NAT gateway ID
-    subnets                 = optional(any, {})         # role -> zone -> [{id, shards, public}]
+    nat_mode                = optional(string, "cloud-managed")
+    subnets                 = optional(any, {}) # role -> zone -> [{id, shards, public}]
     load_balancers = optional(map(object({
       dns_name          = optional(string, "")
       arn               = optional(string, "")
       zone_id           = optional(string, "")
       security_group_id = optional(string, "")
       target_ports      = optional(list(number), [])
-      target_group_arns = optional(map(string), {})
-      ip_address        = optional(string, "")
-      instance_groups   = optional(map(string), {})
+      target_groups = optional(list(object({
+        arn           = string
+        listener_port = number
+        target_port   = number
+        proxy_port    = number
+      })), [])
+      ip_address              = optional(string, "")
+      network_endpoint_groups = optional(map(list(string)), {})
+      frontends = optional(list(object({
+        ip   = string
+        port = number
+      })), [])
     })), {})
   })
 }
@@ -152,6 +162,12 @@ variable "server_arch" {
   }
 }
 
+variable "server_userdata" {
+  description = "Complete server userdata; when null, the module installs nstance-server with its built-in userdata"
+  type        = string
+  default     = null
+}
+
 variable "dynamic_subnet_pools" {
   description = "List of subnet pools allowed for dynamic groups (empty = all allowed)"
   type        = list(string)
@@ -159,17 +175,23 @@ variable "dynamic_subnet_pools" {
 }
 
 variable "groups" {
-  description = "Map of group configurations by tenant. load_balancers maps each load balancer name to the listener ports this group serves; an empty list selects all listeners."
+  description = "Map of group configurations by tenant. load_balancers names logical load balancers whose listeners share this group's membership."
   type = map(map(object({
-    size           = number
+    size           = optional(number)
     subnet_pool    = string # References a subnet pool ID from server config
     instance_type  = optional(string, "t4g.nano")
     machine_type   = optional(string, "e2-micro")
     template       = optional(string, "default")
-    load_balancers = optional(map(list(number)), {})
+    load_balancers = optional(set(string), [])
     vars           = optional(map(string), {})
     drain_timeout  = optional(string, null)
   })))
+}
+
+variable "nat" {
+  description = "Tenant-keyed managed NAT configuration written to nstance-server"
+  type        = any
+  default     = {}
 }
 
 ################################################################################

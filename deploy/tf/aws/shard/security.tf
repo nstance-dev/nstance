@@ -84,9 +84,18 @@ resource "aws_security_group" "agent" {
 locals {
   load_balancer_target_ports = merge([
     for lb_key, lb in var.network.load_balancers : {
-      for target_port in lb.target_ports : "${lb_key}:${target_port}" => {
+      for target_group in lb.target_groups : "${lb_key}:${target_group.listener_port}" => {
         security_group_id = lb.security_group_id
-        target_port       = target_port
+        target_port       = target_group.target_port
+      }
+    }
+  ]...)
+
+  load_balancer_proxy_ports = merge([
+    for lb_key, lb in var.network.load_balancers : {
+      for target_group in lb.target_groups : "${lb_key}:${target_group.listener_port}" => {
+        security_group_id = lb.security_group_id
+        proxy_port        = target_group.proxy_port
       }
     }
   ]...)
@@ -100,6 +109,17 @@ resource "aws_vpc_security_group_ingress_rule" "agent_load_balancer" {
   description                  = "Load balancer traffic on target port ${each.value.target_port}"
   from_port                    = each.value.target_port
   to_port                      = each.value.target_port
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = each.value.security_group_id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "server_load_balancer_proxy" {
+  for_each = local.load_balancer_proxy_ports
+
+  security_group_id            = aws_security_group.server.id
+  description                  = "Load balancer proxy traffic on port ${each.value.proxy_port}"
+  from_port                    = each.value.proxy_port
+  to_port                      = each.value.proxy_port
   ip_protocol                  = "tcp"
   referenced_security_group_id = each.value.security_group_id
 }

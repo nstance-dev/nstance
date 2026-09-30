@@ -61,13 +61,32 @@ data "aws_iam_policy_document" "server" {
       "ec2:TerminateInstances",
       "ec2:DescribeInstances",
       "ec2:DescribeNetworkInterfaces",
+      "ec2:ModifyNetworkInterfaceAttribute",
       "ec2:AttachNetworkInterface",
       "ec2:DetachNetworkInterface",
+      "ec2:AssociateAddress",
+      "ec2:DescribeRouteTables",
       "ec2:DescribeSubnets",
       "ec2:DescribeImages",
       "ec2:CreateTags"
     ]
     resources = ["*"]
+  }
+
+  statement {
+    sid = "ManagedNATRoutes"
+    actions = [
+      "ec2:CreateRoute",
+      "ec2:ReplaceRoute",
+      "ec2:DeleteRoute"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:ec2:${local.region}:${local.account_id}:route-table/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/nstance:cluster-id"
+      values   = [var.cluster.id]
+    }
   }
 
   # S3 Bucket Access
@@ -144,7 +163,7 @@ data "aws_iam_policy_document" "server" {
       "elasticloadbalancing:DescribeTargetGroupAttributes",
       "elasticloadbalancing:ModifyTargetGroupAttributes"
     ]
-    resources = ["*"]
+    resources = ["arn:${data.aws_partition.current.partition}:elasticloadbalancing:${local.region}:${local.account_id}:targetgroup/${local.name_prefix}-*/*"]
   }
 
   # IAM PassRole for agent instances

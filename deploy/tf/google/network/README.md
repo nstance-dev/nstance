@@ -2,6 +2,12 @@
 
 Creates VPC network infrastructure including subnets, Cloud NAT, Cloud Router, firewall rules, and optional regional load balancers.
 
+Cloud NAT remains the default. Set `nat_mode = "nstance-managed"` to disable
+Cloud NAT and use dedicated NAT VMs. Set `fixed_public_ipv4_count` when stable
+IPv4 egress is required and pass the appropriate `public_addresses` output
+directly into each tenant's NAT configuration. Switching modes preserves the
+subnets; nstance-server owns the live tagged routes in Nstance-managed mode.
+
 ## Usage
 
 ```hcl

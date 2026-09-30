@@ -168,11 +168,13 @@ resource "google_storage_bucket_object" "shard_config" {
       templates    = local.templates
       load_balancers = {
         for lb_key, lb in var.network.load_balancers : lb_key => {
-          provider            = "google"
-          instance_group_name = try(lb.instance_groups[var.zone], "")
+          provider                = "google"
+          network_endpoint_groups = try(lb.network_endpoint_groups[var.zone], [])
+          frontends               = lb.frontends
         }
-        if try(lb.instance_groups[var.zone], "") != ""
+        if length(try(lb.network_endpoint_groups[var.zone], [])) > 0
       }
+      nat = var.network.nat_mode == "nstance-managed" ? var.nat : {}
       groups = {
         # Groups are nested by tenant: { tenant -> { group_name -> GroupConfig } }
         for tenant, tenant_groups in var.groups : tenant => {
@@ -182,10 +184,16 @@ resource "google_storage_bucket_object" "shard_config" {
               size           = group.size
               instance_type  = group.machine_type
               subnet_pool    = group.subnet_pool
-              load_balancers = keys(group.load_balancers)
+              load_balancers = group.load_balancers
               args = {
                 ServiceAccount = var.account.agent_iam_role_arn
-                NetworkTags    = ["nstance-agent-${var.shard}"]
+                NetworkTags = concat(
+                  ["nstance-agent-${var.shard}"],
+                  [
+                    for lb_key in group.load_balancers :
+                    "nstance-lb-${substr(md5(lb_key), 0, 12)}-${substr(md5(var.shard), 0, 12)}-agent"
+                  ]
+                )
               }
             },
             length(group.vars) > 0 ? { vars = group.vars } : {},

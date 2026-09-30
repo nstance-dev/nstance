@@ -4,8 +4,9 @@
 
 # Server Leader ENI (Stable IP for shard leader)
 resource "aws_network_interface" "server_leader" {
-  subnet_id       = local.server_subnet_id
-  security_groups = [aws_security_group.server.id]
+  subnet_id         = local.server_subnet_id
+  security_groups   = [aws_security_group.server.id]
+  source_dest_check = var.network.nat_mode != "nstance-managed"
 
   description = "Stable ENI for Nstance Server shard leader (${var.shard})"
 
@@ -62,7 +63,7 @@ locals {
   server_ami_id = local.server_arch == "arm64" ? data.aws_ami.debian_arm64.id : data.aws_ami.debian_amd64.id
 
   # Server userdata - rendered from template with Terraform variables
-  server_userdata = templatefile("${path.module}/templates/server-userdata.sh.tpl", {
+  default_server_userdata = templatefile("${path.module}/templates/server-userdata.sh.tpl", {
     nstance_version = local.nstance_version
     github_repo     = local.github_repo
     binary_url      = var.nstance_server_binary_url
@@ -74,6 +75,7 @@ locals {
     shard           = var.shard
     enable_ssm      = var.enable_ssm
   })
+  server_userdata = coalesce(var.server_userdata, local.default_server_userdata)
 }
 
 # Server Launch Template
@@ -87,7 +89,7 @@ resource "aws_launch_template" "server" {
   }
 
   network_interfaces {
-    associate_public_ip_address = false
+    associate_public_ip_address = local.server_subnet_public
     security_groups             = [aws_security_group.server.id]
     ipv6_address_count          = var.network.enable_ipv6 ? 1 : 0
   }

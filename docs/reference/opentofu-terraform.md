@@ -111,7 +111,9 @@ deploy/tf/
 
 ## Security
 
-- All instances run in private subnets by default, with public/NAT egress options available.
+- Instances run in private subnets by default. Nstance-managed NAT places
+  nstance-server and NAT identities on explicitly public service paths while
+  keeping every server API private.
 - Automatic VPC endpoints eliminate need for internet access to cloud services.
 - Instance metadata service configuration uses secure defaults (i.e. IMDSv2 on AWS).
 - Instance volumes are encrypted by default.
@@ -365,9 +367,9 @@ module "shard_1a" {
 
   groups = {
     "default" = {
-      "control-plane" = { size = 3, subnets = "control-plane" }
-      "ingress"       = { size = 2, subnets = "ingress", load_balancers = { "www" = [] } }
-      "workers"       = { size = 10, subnets = "workers" }
+      "control-plane" = { size = 3, subnet_pool = "control-plane" }
+      "ingress"       = { size = 2, subnet_pool = "ingress", load_balancers = ["www"] }
+      "workers"       = { size = 10, subnet_pool = "workers" }
     }
   }
 }
@@ -385,9 +387,9 @@ module "shard_1b" {
 
   groups = {
     "default" = {
-      "control-plane" = { size = 3, subnets = "control-plane" }
-      "ingress"       = { size = 2, subnets = "ingress", load_balancers = { "www" = [] } }
-      "workers"       = { size = 10, subnets = "workers" }
+      "control-plane" = { size = 3, subnet_pool = "control-plane" }
+      "ingress"       = { size = 2, subnet_pool = "ingress", load_balancers = ["www"] }
+      "workers"       = { size = 10, subnet_pool = "workers" }
     }
   }
 }
@@ -405,9 +407,9 @@ module "shard_1c" {
 
   groups = {
     "default" = {
-      "control-plane" = { size = 3, subnets = "control-plane" }
-      "ingress"       = { size = 2, subnets = "ingress", load_balancers = { "www" = [] } }
-      "workers"       = { size = 10, subnets = "workers" }
+      "control-plane" = { size = 3, subnet_pool = "control-plane" }
+      "ingress"       = { size = 2, subnet_pool = "ingress", load_balancers = ["www"] }
+      "workers"       = { size = 10, subnet_pool = "workers" }
     }
   }
 }
@@ -554,6 +556,7 @@ Creates VPC/network infrastructure:
 - VPC with specified CIDR
 - Internet Gateway
 - NAT Gateway / Cloud NAT
+- Optional fixed public IPv4 attachments for Nstance-managed NAT
 - Route tables
 - VPC Endpoints (S3, SSM) on AWS
 - Group subnets (optional, via `subnets` variable)
@@ -566,6 +569,8 @@ Creates VPC/network infrastructure:
 | `vpc_cidr_ipv4` | VPC IPv4 CIDR block (required when creating new VPC, must be empty when using existing) | `""` |
 | `enable_ipv6` | Enable IPv6 dual-stack support | `true` |
 | `enable_ssm` | Create SSM VPC endpoints (AWS) | `true` |
+| `nat_mode` | IPv4 egress: `cloud-managed` or `nstance-managed` | `"cloud-managed"` |
+| `fixed_public_ipv4_count` | Optional fixed public IPv4 addresses per NAT service subnet | `0` |
 | `subnets` | Subnet definitions by role key and zone (see below) | `{}` |
 | `load_balancers` | Load balancer definitions (see below) | `{}` |
 
@@ -582,14 +587,14 @@ Each subnet definition supports the following attributes:
 | `ipv6_cidr` | Explicit IPv6 CIDR block (alternative to `ipv6_netnum`) |
 | `existing` | Reference an existing subnet by ID (mutually exclusive with `ipv4_cidr`) |
 | `public` | (bool) Route via Internet Gateway, assign public IPs |
-| `nat_gateway` | (bool) Place a NAT gateway in this subnet |
-| `nat_subnet` | (string) Route outbound traffic via NAT gateway in this role (same AZ) |
+| `nat_gateway` | (bool) Use this public subnet for the selected NAT mode |
+| `nat_subnet` | (string) Route IPv4 egress through the selected NAT mode in this role (same zone) |
 | `shards` | (list) Restrict subnet to specific shard IDs |
 
 **Routing Behavior:**
 
 - `public = true` → Routes via Internet Gateway, instances get public IPs
-- `nat_subnet = "X"` → Routes via NAT gateway placed in role X's subnet (same AZ)
+- `nat_subnet = "X"` → Routes through the selected NAT mode in role X's subnet (same zone)
 - Neither → Isolated subnet with user-managed routing
 
 Routing fields (`public`, `nat_subnet`) work on both new AND existing subnets.
@@ -642,7 +647,9 @@ Each load balancer definition supports the following attributes:
 | Attribute | Description |
 |-----------|-------------|
 | `listeners` | (list of objects) External `port` and optional `target_port`, which defaults to `port` |
-| `subnets` | (string) Subnet role key from the `subnets` variable |
+| `subnets` | (string) Frontend subnet role key from the `subnets` variable |
+| `backend_subnets` | (string, Google Cloud only) Production NEG subnet role; defaults to `subnets` |
+| `proxy_subnets` | (string, Google Cloud only) nstance-server NEG subnet role; defaults to `subnets` |
 | `public` | (bool, required) Whether the LB is internet-facing (`true`) or internal (`false`) |
 
 On AWS, public load balancers require public subnets (with IGW routes). The module validates this at plan time.
@@ -664,16 +671,17 @@ load_balancers = {
 }
 ```
 
-Instances are registered with load-balancer listeners through the shard module's group `load_balancers` map. Keys select named load balancers; values select listener ports, and an empty list selects all listeners.
-
-For example, `{ "www" = [] }` selects every `www` listener, while `{ "www" = [443] }` selects only its port 443 listener.
+Instances are registered through the shard group's `load_balancers` set. Each
+name selects the complete logical load balancer because all of its listeners
+share membership. For example, `["www"]` selects every `www` listener.
 
 **Provider Differences:**
 
 | Feature | AWS | Google Cloud |
 |---------|-----|-----|
-| NAT Gateway | Per-AZ (one NAT gateway per AZ for HA) | Regional (Cloud NAT covers all subnets) |
-| Route Tables | Per-AZ private route tables | Not applicable (Cloud Router handles) |
+| Cloud-managed NAT | Per-AZ NAT gateway | Regional Cloud NAT restricted to selected subnets |
+| Nstance-managed NAT | Active VM primary ENI, with an optional reassociated Elastic IP | Active VM, with an optional reserved external IPv4 |
+| Route ownership | One route table per private subnet | Nstance-tagged default routes |
 | Public Subnets | Route via IGW, public IPs assigned | Marked for reference (load balancer placement) |
 
 **Outputs:**
@@ -684,10 +692,17 @@ For example, `{ "www" = [] }` selects every `www` listener, while `{ "www" = [44
 | `vpc_cidr_ipv6` | VPC IPv6 CIDR block (null if disabled) |
 | `public_subnet_ids` | Map of AZ/zone → subnet ID/name for public subnets |
 | `nat_gateway_ids` | Map of AZ → NAT gateway ID (AWS) or `{"regional": name}` (Google Cloud) |
-| `private_route_table_ids` | Map of AZ → route table ID (AWS only, empty for Google Cloud) |
+| `private_route_table_ids` | Map of subnet key → route table ID (AWS only) |
+| `public_addresses` | Optional Nstance-managed NAT fixed IPv4 attachments keyed by service role and zone |
+| `nat_mode` | Selected IPv4 egress mode |
 | `subnet_ids` | Map of all managed subnet IDs by key (role key/zone/index) |
 | `subnets` | Subnet metadata by role/zone with {id, shards, public} for each subnet |
-| `load_balancers` | Map of LB name → {dns_name, arn, target_group_arns} (AWS) or {ip_address, instance_groups} (Google Cloud) |
+| `load_balancers` | AWS target-group metadata or Google Cloud NEG/frontend metadata |
+
+Changing `nat_mode` preserves subnet resources. Cloud-managed to
+Nstance-managed temporarily interrupts general IPv4 egress while
+nstance-server establishes healthy next hops. Nstance-managed to cloud-managed
+creates the provider NAT path before nstance-server retires its NAT VMs.
 
 ### Shard Module
 

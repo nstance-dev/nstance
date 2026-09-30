@@ -24,6 +24,12 @@ variable "cluster_id" {
   type        = string
 }
 
+variable "nat_mode" {
+  description = "IPv4 egress mode"
+  type        = string
+  default     = "cloud-managed"
+}
+
 provider "aws" {
   profile = var.profile
   region  = var.region
@@ -47,6 +53,7 @@ module "network" {
 
   cluster       = module.cluster
   vpc_cidr_ipv4 = "172.18.0.0/16"
+  nat_mode      = var.nat_mode
 
   # Define subnets by role and zone
   # ipv6_netnum (0-255) auto-computes /64 from VPC's AWS-assigned /56
@@ -86,16 +93,35 @@ module "shard" {
   account = module.account
   network = module.network
 
-  shard = "us-west-2a"
-  zone  = "us-west-2a"
-  # server_subnet defaults to "nstance" - uses first subnet from that role in zone
+  shard         = "us-west-2a"
+  zone          = "us-west-2a"
+  server_subnet = var.nat_mode == "nstance-managed" ? "public" : "nstance"
+
+  nat = var.nat_mode == "nstance-managed" ? {
+    default = {
+      group                = "nat"
+      public_addresses     = try(module.network.public_addresses["public-us-west-2a"], [])
+      instance_type_ladder = ["t4g.nano"]
+    }
+  } : {}
+
+  templates = {
+    default = { kind = "dft", arch = "arm64" }
+    nat     = { kind = "nat", arch = "arm64" }
+  }
 
   groups = {
-    "default" = {
+    "default" = merge({
       "workers" = {
         size        = 1
         subnet_pool = "workers" # References key from subnets map
       }
-    }
+      }, var.nat_mode == "nstance-managed" ? {
+      nat = {
+        subnet_pool   = "public"
+        template      = "nat"
+        instance_type = "t4g.nano"
+      }
+    } : {})
   }
 }

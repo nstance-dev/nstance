@@ -49,6 +49,10 @@ locals {
 
   # Resolve server subnet ID from the server_subnet role
   server_subnet_id = try(local.filtered_subnets[var.server_subnet][0], "")
+  server_subnet_public = try([
+    for entry in var.network.subnets[var.server_subnet][var.zone] : entry.public
+    if length(try(entry.shards, [])) == 0 || contains(try(entry.shards, []), var.shard)
+  ][0], false)
 
   # Common tags applied to all resources
   common_tags = merge(
@@ -93,6 +97,10 @@ resource "terraform_data" "validate_server_subnet" {
     precondition {
       condition     = length(try(local.filtered_subnets[var.server_subnet], [])) > 0
       error_message = "No subnets found for server role '${var.server_subnet}' in zone '${var.zone}'."
+    }
+    precondition {
+      condition     = var.network.nat_mode != "nstance-managed" || local.server_subnet_public
+      error_message = "nstance-managed NAT requires server_subnet to reference a public service subnet."
     }
   }
 }
