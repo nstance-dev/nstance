@@ -1,6 +1,6 @@
 # Nstance Network Module (AWS)
 
-Creates VPC infrastructure including subnets, NAT gateways, route tables, provider-aware VPC endpoints, and optional Network Load Balancers. The SSM API endpoint is enabled whenever Parameter Store is used, independently of Session Manager; messaging and Secrets Manager endpoints remain conditional.
+Creates VPC infrastructure including subnets, NAT gateways, route tables, provider-aware VPC endpoints, and optional Network Load Balancers. The SSM API endpoint is enabled whenever Parameter Store is used, independently of Session Manager; messaging and Secrets Manager endpoints remain conditional. New VPCs using Nstance-managed NAT also receive a private EC2 API endpoint before cloud-managed egress is removed, so route, ENI, and Elastic IP operations remain available during NAT cutover.
 
 Cloud-managed NAT gateways remain the default. Set
 `nat_mode = "nstance-managed"` to replace them with dedicated NAT VMs.

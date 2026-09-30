@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,11 +33,24 @@ import (
 
 type sleepOperatorServer struct {
 	proto.UnimplementedOperatorServiceServer
-	sleep func() (*proto.SleepTenantResponse, error)
+	sleep  func() (*proto.SleepTenantResponse, error)
+	status proto.TenantSleepStatus
+	wakes  int
 }
 
 func (s *sleepOperatorServer) SleepTenant(context.Context, *proto.SleepTenantRequest) (*proto.SleepTenantResponse, error) {
 	return s.sleep()
+}
+
+// GetTenantStatus returns the configured shard status.
+func (s *sleepOperatorServer) GetTenantStatus(context.Context, *proto.GetTenantStatusRequest) (*proto.GetTenantStatusResponse, error) {
+	return &proto.GetTenantStatusResponse{Status: s.status}, nil
+}
+
+// WakeTenant records a wake and reports the shard awake.
+func (s *sleepOperatorServer) WakeTenant(context.Context, *proto.WakeTenantRequest) (*proto.WakeTenantResponse, error) {
+	s.wakes++
+	return &proto.WakeTenantResponse{Status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE}, nil
 }
 
 func newSleepConnection(t *testing.T, service proto.OperatorServiceServer) *grpc.ClientConn {
@@ -202,6 +216,70 @@ func TestReconcileCheckpointsBeforeFinalShard(t *testing.T) {
 	}
 	if progress.Phase != sleepPhaseFinalizing || cluster.Annotations[SleepRequestAnnotation] != request {
 		t.Fatalf("annotations = %#v, want retained finalizing transaction", cluster.Annotations)
+	}
+}
+
+// TestRestoreAfterWakeWaitsForConfiguredShard verifies a restarted operator
+// cannot infer all-shard state from only its currently connected shards.
+func TestRestoreAfterWakeWaitsForConfiguredShard(t *testing.T) {
+	connected := &sleepOperatorServer{status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_ASLEEP}
+	provider := connection.NewProvider()
+	provider.Set(map[string]*grpc.ClientConn{"a": newSleepConnection(t, connected)})
+	reconciler := &SleepReconciler{
+		ConnProvider: provider,
+		Config: &config.OperatorConfig{Tenant: "red", Shards: map[string]config.ShardEndpoints{
+			"a": {}, "b": {},
+		}},
+	}
+	progress := sleepProgress{Request: "force:x", Phase: sleepPhaseFinalizing, Accepted: []string{"a"}, FinalShard: "b"}
+	result, err := reconciler.restoreAfterWake(context.Background(), &clusterv1.Cluster{}, progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RequeueAfter != time.Second || connected.wakes != 0 {
+		t.Fatalf("result=%#v wakes=%d, want retry without clearing state", result, connected.wakes)
+	}
+}
+
+// TestRestoreAfterWakeRetainsDisconnectedConfiguredShard verifies compensation
+// durably includes the complete configured shard set before wake calls begin.
+func TestRestoreAfterWakeRetainsDisconnectedConfiguredShard(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	request := "force:" + time.Now().UTC().Format(time.RFC3339Nano)
+	cluster := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "nstance-system", Name: "cluster--red",
+		Annotations: map[string]string{SleepRequestAnnotation: request},
+	}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	awake := &sleepOperatorServer{status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE}
+	provider := connection.NewProvider()
+	provider.Set(map[string]*grpc.ClientConn{"a": newSleepConnection(t, awake)})
+	reconciler := &SleepReconciler{
+		Client: kube, ConnProvider: provider, Recorder: record.NewFakeRecorder(1),
+		Config: &config.OperatorConfig{Tenant: "red", Shards: map[string]config.ShardEndpoints{
+			"a": {}, "b": {},
+		}},
+	}
+	progress := sleepProgress{Request: request, Phase: sleepPhaseFinalizing, Accepted: []string{"a"}, FinalShard: "b"}
+	if err := reconciler.storeProgress(context.Background(), cluster, progress); err != nil {
+		t.Fatal(err)
+	}
+	_, err := reconciler.restoreAfterWake(context.Background(), cluster, progress)
+	if err == nil || !strings.Contains(err.Error(), "shard b has no connection") {
+		t.Fatalf("error = %v, want disconnected shard compensation failure", err)
+	}
+	if err := kube.Get(context.Background(), client.ObjectKeyFromObject(cluster), cluster); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := decodeProgress(cluster.Annotations[SleepProgressAnnotation], request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Phase != sleepPhaseCompensating || len(stored.Accepted) != 1 || stored.Accepted[0] != "b" {
+		t.Fatalf("progress=%#v, want disconnected configured shard retained for compensation", stored)
 	}
 }
 

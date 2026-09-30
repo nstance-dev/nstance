@@ -460,7 +460,13 @@ func (r *SleepReconciler) restoreAfterWake(ctx context.Context, cluster *cluster
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 	allAsleep := true
-	for shard, connection := range connections {
+	missing := false
+	for shard := range r.Config.Shards {
+		connection, ok := connections[shard]
+		if !ok {
+			missing = true
+			continue
+		}
 		response, err := proto.NewOperatorServiceClient(connection).GetTenantStatus(ctx, &proto.GetTenantStatusRequest{Tenant: r.Config.Tenant})
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("read shard %s sleep status: %w", shard, err)
@@ -468,12 +474,15 @@ func (r *SleepReconciler) restoreAfterWake(ctx context.Context, cluster *cluster
 		allAsleep = allAsleep && response.GetStatus() == proto.TenantSleepStatus_TENANT_SLEEP_STATUS_ASLEEP
 	}
 	if allAsleep {
+		if missing {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		return ctrl.Result{RequeueAfter: r.Config.Sleep.ReconcilePeriod.Duration}, nil
 	}
 	progress.Phase = sleepPhaseCompensating
 	progress.Accepted = progress.Accepted[:0]
 	progress.Reason = ""
-	for shard := range connections {
+	for shard := range r.Config.Shards {
 		progress.Accepted = append(progress.Accepted, shard)
 	}
 	sort.Strings(progress.Accepted)

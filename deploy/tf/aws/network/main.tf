@@ -396,6 +396,8 @@ resource "aws_route_table" "private" {
     Name                 = "${local.name_prefix}-private-rt-${replace(each.key, "/", "-")}"
     "nstance:cluster-id" = var.cluster.id
   })
+
+  depends_on = [aws_vpc_endpoint.ec2]
 }
 
 # Route table association for public subnets
@@ -514,6 +516,25 @@ resource "aws_vpc_endpoint" "ssm" {
 
   tags = merge(var.tags, {
     Name = "${local.name_prefix}-ssm-endpoint"
+  })
+
+  depends_on = [aws_subnet.managed]
+}
+
+# Nstance-managed NAT needs EC2 route, ENI, and address APIs while ordinary
+# IPv4 egress is temporarily unavailable during a mode cutover.
+resource "aws_vpc_endpoint" "ec2" {
+  count = local.use_existing_vpc ? 0 : (var.nat_mode == "nstance-managed" && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+
+  vpc_id              = local.vpc_id
+  service_name        = "com.amazonaws.${local.region}.ec2"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.interface_endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.vpc_endpoints[0].id]
+  private_dns_enabled = true
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-ec2-endpoint"
   })
 
   depends_on = [aws_subnet.managed]
