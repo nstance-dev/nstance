@@ -14,6 +14,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/filegen"
+	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
@@ -30,6 +31,7 @@ type Service struct {
 	secretsStore         secrets.Store
 	fileGenerator        *filegen.Generator
 	imageGetter          filegen.ImageGetter
+	listenerActivity     *listeneractivity.Tracker
 	logger               *slog.Logger
 	onHealthReport       func(context.Context, string) error
 	onSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
@@ -58,6 +60,7 @@ type Options struct {
 	CAKeyPEM             []byte
 	Shard                string
 	ImageGetter          filegen.ImageGetter
+	ListenerActivity     *listeneractivity.Tracker
 	Logger               *slog.Logger
 	OnHealthReport       func(context.Context, string) error
 	OnSpotTermination    func(instanceID string, notice *proto.TerminationNotice) error
@@ -88,6 +91,9 @@ func New(opts Options) (*Service, error) {
 	if opts.Shard == "" {
 		return nil, fmt.Errorf("shard is required")
 	}
+	if opts.ListenerActivity == nil {
+		return nil, fmt.Errorf("listener activity tracker is required")
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
@@ -98,6 +104,7 @@ func New(opts Options) (*Service, error) {
 		localDB:                  opts.LocalDB,
 		secretsStore:             opts.SecretsStore,
 		imageGetter:              opts.ImageGetter,
+		listenerActivity:         opts.ListenerActivity,
 		logger:                   opts.Logger,
 		onHealthReport:           opts.OnHealthReport,
 		onSpotTermination:        opts.OnSpotTermination,

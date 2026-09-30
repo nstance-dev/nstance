@@ -20,6 +20,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
@@ -52,6 +53,7 @@ type Service struct {
 	configLoader      *config.Loader
 	tenantState       TenantState
 	sleepReady        bool
+	listenerActivity  *listeneractivity.Tracker
 	localDB           *localdb.DB
 	instanceManager   InstanceManager
 	onGroupChanged    func(tenant, groupKey string)
@@ -88,6 +90,7 @@ type TenantState interface {
 	Sleep(ctx context.Context, tenant string, wakeAt *time.Time, guarded bool, check func(context.Context) error) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error)
 	Wake(ctx context.Context, tenant string) (alreadyAwake bool, err error)
 	CreateOnDemand(ctx context.Context, tenant string, create func(context.Context) error) error
+	Status(tenant string) (asleep bool, wakeAt *time.Time)
 }
 
 // ptrToString converts a string pointer to string (empty if nil)
@@ -114,6 +117,7 @@ type Options struct {
 	ConfigLoader      *config.Loader
 	TenantState       TenantState
 	SleepReady        bool
+	ListenerActivity  *listeneractivity.Tracker
 	LocalDB           *localdb.DB
 	InstanceManager   InstanceManager
 	OnGroupChanged    func(tenant, groupKey string)
@@ -145,6 +149,9 @@ func New(opts Options) (*Service, error) {
 	if opts.OnDrainAcked == nil {
 		return nil, fmt.Errorf("onDrainAcked callback is required")
 	}
+	if opts.ListenerActivity == nil {
+		return nil, fmt.Errorf("listener activity tracker is required")
+	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
@@ -153,6 +160,7 @@ func New(opts Options) (*Service, error) {
 		configLoader:      opts.ConfigLoader,
 		tenantState:       opts.TenantState,
 		sleepReady:        opts.SleepReady,
+		listenerActivity:  opts.ListenerActivity,
 		localDB:           opts.LocalDB,
 		instanceManager:   opts.InstanceManager,
 		onGroupChanged:    opts.OnGroupChanged,

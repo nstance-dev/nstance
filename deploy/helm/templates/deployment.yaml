@@ -56,6 +56,10 @@ spec:
         env:
         - name: NSTANCE_NAMESPACE
           value: {{ .Release.Namespace }}
+        - name: NSTANCE_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         - name: NSTANCE_CA_CONFIGMAP
           value: {{ .Values.clusterCA.name }}
         - name: NSTANCE_NONCE_SECRET

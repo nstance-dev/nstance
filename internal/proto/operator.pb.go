@@ -1618,6 +1618,170 @@ func (x *WakeTenantResponse) GetUpstream() string {
 	return ""
 }
 
+type GetTenantStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tenant        string                 `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTenantStatusRequest) Reset() {
+	*x = GetTenantStatusRequest{}
+	mi := &file_proto_operator_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTenantStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTenantStatusRequest) ProtoMessage() {}
+
+func (x *GetTenantStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_operator_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTenantStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetTenantStatusRequest) Descriptor() ([]byte, []int) {
+	return file_proto_operator_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *GetTenantStatusRequest) GetTenant() string {
+	if x != nil {
+		return x.Tenant
+	}
+	return ""
+}
+
+type ListenerActivity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Listener      string                 `protobuf:"bytes,1,opt,name=listener,proto3" json:"listener,omitempty"`
+	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	IdleSince     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=idle_since,json=idleSince,proto3,oneof" json:"idle_since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListenerActivity) Reset() {
+	*x = ListenerActivity{}
+	mi := &file_proto_operator_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListenerActivity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListenerActivity) ProtoMessage() {}
+
+func (x *ListenerActivity) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_operator_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListenerActivity.ProtoReflect.Descriptor instead.
+func (*ListenerActivity) Descriptor() ([]byte, []int) {
+	return file_proto_operator_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ListenerActivity) GetListener() string {
+	if x != nil {
+		return x.Listener
+	}
+	return ""
+}
+
+func (x *ListenerActivity) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *ListenerActivity) GetIdleSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.IdleSince
+	}
+	return nil
+}
+
+type GetTenantStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        TenantSleepStatus      `protobuf:"varint,1,opt,name=status,proto3,enum=nstance.v1.TenantSleepStatus" json:"status,omitempty"`
+	WakeAt        *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=wake_at,json=wakeAt,proto3,oneof" json:"wake_at,omitempty"`
+	Listeners     []*ListenerActivity    `protobuf:"bytes,3,rep,name=listeners,proto3" json:"listeners,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTenantStatusResponse) Reset() {
+	*x = GetTenantStatusResponse{}
+	mi := &file_proto_operator_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTenantStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTenantStatusResponse) ProtoMessage() {}
+
+func (x *GetTenantStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_operator_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTenantStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetTenantStatusResponse) Descriptor() ([]byte, []int) {
+	return file_proto_operator_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetTenantStatusResponse) GetStatus() TenantSleepStatus {
+	if x != nil {
+		return x.Status
+	}
+	return TenantSleepStatus_TENANT_SLEEP_STATUS_UNSPECIFIED
+}
+
+func (x *GetTenantStatusResponse) GetWakeAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.WakeAt
+	}
+	return nil
+}
+
+func (x *GetTenantStatusResponse) GetListeners() []*ListenerActivity {
+	if x != nil {
+		return x.Listeners
+	}
+	return nil
+}
+
 // Error event for provider errors, config validation failures, etc.
 type ErrorEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1631,7 +1795,7 @@ type ErrorEvent struct {
 
 func (x *ErrorEvent) Reset() {
 	*x = ErrorEvent{}
-	mi := &file_proto_operator_proto_msgTypes[23]
+	mi := &file_proto_operator_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1643,7 +1807,7 @@ func (x *ErrorEvent) String() string {
 func (*ErrorEvent) ProtoMessage() {}
 
 func (x *ErrorEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_operator_proto_msgTypes[23]
+	mi := &file_proto_operator_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1656,7 +1820,7 @@ func (x *ErrorEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorEvent.ProtoReflect.Descriptor instead.
 func (*ErrorEvent) Descriptor() ([]byte, []int) {
-	return file_proto_operator_proto_rawDescGZIP(), []int{23}
+	return file_proto_operator_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ErrorEvent) GetGroup() string {
@@ -1831,7 +1995,21 @@ const file_proto_operator_proto_rawDesc = "" +
 	"\x12RESULT_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vRESULT_WOKE\x10\x01\x12\x18\n" +
 	"\x14RESULT_ALREADY_AWAKE\x10\x02B\v\n" +
-	"\t_upstream\"\x93\x01\n" +
+	"\t_upstream\"0\n" +
+	"\x16GetTenantStatusRequest\x12\x16\n" +
+	"\x06tenant\x18\x01 \x01(\tR\x06tenant\"\x9b\x01\n" +
+	"\x10ListenerActivity\x12\x1a\n" +
+	"\blistener\x18\x01 \x01(\tR\blistener\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\x12>\n" +
+	"\n" +
+	"idle_since\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\tidleSince\x88\x01\x01B\r\n" +
+	"\v_idle_since\"\xd2\x01\n" +
+	"\x17GetTenantStatusResponse\x125\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x1d.nstance.v1.TenantSleepStatusR\x06status\x128\n" +
+	"\awake_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\x06wakeAt\x88\x01\x01\x12:\n" +
+	"\tlisteners\x18\x03 \x03(\v2\x1c.nstance.v1.ListenerActivityR\tlistenersB\n" +
+	"\n" +
+	"\b_wake_at\"\x93\x01\n" +
 	"\n" +
 	"ErrorEvent\x12\x14\n" +
 	"\x05group\x18\x01 \x01(\tR\x05group\x12\x1f\n" +
@@ -1842,7 +2020,7 @@ const file_proto_operator_proto_rawDesc = "" +
 	"\x11TenantSleepStatus\x12#\n" +
 	"\x1fTENANT_SLEEP_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19TENANT_SLEEP_STATUS_AWAKE\x10\x01\x12\x1e\n" +
-	"\x1aTENANT_SLEEP_STATUS_ASLEEP\x10\x022\xa0\t\n" +
+	"\x1aTENANT_SLEEP_STATUS_ASLEEP\x10\x022\xfc\t\n" +
 	"\x0fOperatorService\x12]\n" +
 	"\x10RenewCertificate\x12#.nstance.v1.RenewCertificateRequest\x1a$.nstance.v1.RenewCertificateResponse\x12K\n" +
 	"\x0fGetConfigStatus\x12\x16.google.protobuf.Empty\x1a .nstance.v1.ConfigStatusResponse\x12J\n" +
@@ -1857,7 +2035,8 @@ const file_proto_operator_proto_rawDesc = "" +
 	"\x12AcknowledgeDrained\x12\x1b.nstance.v1.DrainAckRequest\x1a\x16.google.protobuf.Empty\x12N\n" +
 	"\vSleepTenant\x12\x1e.nstance.v1.SleepTenantRequest\x1a\x1f.nstance.v1.SleepTenantResponse\x12K\n" +
 	"\n" +
-	"WakeTenant\x12\x1d.nstance.v1.WakeTenantRequest\x1a\x1e.nstance.v1.WakeTenantResponse\x12?\n" +
+	"WakeTenant\x12\x1d.nstance.v1.WakeTenantRequest\x1a\x1e.nstance.v1.WakeTenantResponse\x12Z\n" +
+	"\x0fGetTenantStatus\x12\".nstance.v1.GetTenantStatusRequest\x1a#.nstance.v1.GetTenantStatusResponse\x12?\n" +
 	"\vWatchGroups\x12\x16.google.protobuf.Empty\x1a\x16.nstance.v1.GroupEvent0\x01\x12E\n" +
 	"\x0eWatchInstances\x12\x16.google.protobuf.Empty\x1a\x19.nstance.v1.InstanceEvent0\x01\x12?\n" +
 	"\vWatchErrors\x12\x16.google.protobuf.Empty\x1a\x16.nstance.v1.ErrorEvent0\x01B/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
@@ -1875,7 +2054,7 @@ func file_proto_operator_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_operator_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_proto_operator_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_proto_operator_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_proto_operator_proto_goTypes = []any{
 	(TenantSleepStatus)(0),           // 0: nstance.v1.TenantSleepStatus
 	(GroupEvent_Type)(0),             // 1: nstance.v1.GroupEvent.Type
@@ -1904,72 +2083,81 @@ var file_proto_operator_proto_goTypes = []any{
 	(*SleepTenantResponse)(nil),      // 24: nstance.v1.SleepTenantResponse
 	(*WakeTenantRequest)(nil),        // 25: nstance.v1.WakeTenantRequest
 	(*WakeTenantResponse)(nil),       // 26: nstance.v1.WakeTenantResponse
-	(*ErrorEvent)(nil),               // 27: nstance.v1.ErrorEvent
-	nil,                              // 28: nstance.v1.GroupConfig.VarsEntry
-	nil,                              // 29: nstance.v1.GroupConfig.ArgsEntry
-	nil,                              // 30: nstance.v1.GroupStatus.VarsEntry
-	nil,                              // 31: nstance.v1.InstanceConfig.VarsEntry
-	(*timestamppb.Timestamp)(nil),    // 32: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),            // 33: google.protobuf.Empty
+	(*GetTenantStatusRequest)(nil),   // 27: nstance.v1.GetTenantStatusRequest
+	(*ListenerActivity)(nil),         // 28: nstance.v1.ListenerActivity
+	(*GetTenantStatusResponse)(nil),  // 29: nstance.v1.GetTenantStatusResponse
+	(*ErrorEvent)(nil),               // 30: nstance.v1.ErrorEvent
+	nil,                              // 31: nstance.v1.GroupConfig.VarsEntry
+	nil,                              // 32: nstance.v1.GroupConfig.ArgsEntry
+	nil,                              // 33: nstance.v1.GroupStatus.VarsEntry
+	nil,                              // 34: nstance.v1.InstanceConfig.VarsEntry
+	(*timestamppb.Timestamp)(nil),    // 35: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),            // 36: google.protobuf.Empty
 }
 var file_proto_operator_proto_depIdxs = []int32{
-	32, // 0: nstance.v1.RenewCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
-	32, // 1: nstance.v1.ConfigStatusResponse.last_modified:type_name -> google.protobuf.Timestamp
+	35, // 0: nstance.v1.RenewCertificateResponse.expires_at:type_name -> google.protobuf.Timestamp
+	35, // 1: nstance.v1.ConfigStatusResponse.last_modified:type_name -> google.protobuf.Timestamp
 	9,  // 2: nstance.v1.UpsertGroupRequest.config:type_name -> nstance.v1.GroupConfig
-	28, // 3: nstance.v1.GroupConfig.vars:type_name -> nstance.v1.GroupConfig.VarsEntry
-	29, // 4: nstance.v1.GroupConfig.args:type_name -> nstance.v1.GroupConfig.ArgsEntry
+	31, // 3: nstance.v1.GroupConfig.vars:type_name -> nstance.v1.GroupConfig.VarsEntry
+	32, // 4: nstance.v1.GroupConfig.args:type_name -> nstance.v1.GroupConfig.ArgsEntry
 	12, // 5: nstance.v1.ListGroupsResponse.groups:type_name -> nstance.v1.GroupStatus
-	30, // 6: nstance.v1.GroupStatus.vars:type_name -> nstance.v1.GroupStatus.VarsEntry
+	33, // 6: nstance.v1.GroupStatus.vars:type_name -> nstance.v1.GroupStatus.VarsEntry
 	14, // 7: nstance.v1.CreateInstanceRequest.config:type_name -> nstance.v1.InstanceConfig
-	31, // 8: nstance.v1.InstanceConfig.vars:type_name -> nstance.v1.InstanceConfig.VarsEntry
-	32, // 9: nstance.v1.InstanceStatusResponse.created_at:type_name -> google.protobuf.Timestamp
-	32, // 10: nstance.v1.InstanceStatusResponse.last_seen:type_name -> google.protobuf.Timestamp
+	34, // 8: nstance.v1.InstanceConfig.vars:type_name -> nstance.v1.InstanceConfig.VarsEntry
+	35, // 9: nstance.v1.InstanceStatusResponse.created_at:type_name -> google.protobuf.Timestamp
+	35, // 10: nstance.v1.InstanceStatusResponse.last_seen:type_name -> google.protobuf.Timestamp
 	1,  // 11: nstance.v1.GroupEvent.type:type_name -> nstance.v1.GroupEvent.Type
 	12, // 12: nstance.v1.GroupEvent.group:type_name -> nstance.v1.GroupStatus
-	32, // 13: nstance.v1.InstanceEvent.unhealthy_at:type_name -> google.protobuf.Timestamp
-	32, // 14: nstance.v1.InstanceEvent.delete_at:type_name -> google.protobuf.Timestamp
-	32, // 15: nstance.v1.SleepTenantRequest.wake_at:type_name -> google.protobuf.Timestamp
+	35, // 13: nstance.v1.InstanceEvent.unhealthy_at:type_name -> google.protobuf.Timestamp
+	35, // 14: nstance.v1.InstanceEvent.delete_at:type_name -> google.protobuf.Timestamp
+	35, // 15: nstance.v1.SleepTenantRequest.wake_at:type_name -> google.protobuf.Timestamp
 	2,  // 16: nstance.v1.SleepTenantResponse.result:type_name -> nstance.v1.SleepTenantResponse.Result
 	0,  // 17: nstance.v1.SleepTenantResponse.status:type_name -> nstance.v1.TenantSleepStatus
-	32, // 18: nstance.v1.SleepTenantResponse.wake_at:type_name -> google.protobuf.Timestamp
+	35, // 18: nstance.v1.SleepTenantResponse.wake_at:type_name -> google.protobuf.Timestamp
 	3,  // 19: nstance.v1.WakeTenantResponse.result:type_name -> nstance.v1.WakeTenantResponse.Result
 	0,  // 20: nstance.v1.WakeTenantResponse.status:type_name -> nstance.v1.TenantSleepStatus
-	32, // 21: nstance.v1.ErrorEvent.timestamp:type_name -> google.protobuf.Timestamp
-	4,  // 22: nstance.v1.OperatorService.RenewCertificate:input_type -> nstance.v1.RenewCertificateRequest
-	33, // 23: nstance.v1.OperatorService.GetConfigStatus:input_type -> google.protobuf.Empty
-	33, // 24: nstance.v1.OperatorService.RefreshConfig:input_type -> google.protobuf.Empty
-	33, // 25: nstance.v1.OperatorService.ListGroups:input_type -> google.protobuf.Empty
-	8,  // 26: nstance.v1.OperatorService.UpsertGroup:input_type -> nstance.v1.UpsertGroupRequest
-	10, // 27: nstance.v1.OperatorService.DeleteGroup:input_type -> nstance.v1.DeleteGroupRequest
-	13, // 28: nstance.v1.OperatorService.CreateInstance:input_type -> nstance.v1.CreateInstanceRequest
-	16, // 29: nstance.v1.OperatorService.DeleteInstance:input_type -> nstance.v1.DeleteInstanceRequest
-	18, // 30: nstance.v1.OperatorService.GetInstanceStatus:input_type -> nstance.v1.GetInstanceStatusRequest
-	22, // 31: nstance.v1.OperatorService.AcknowledgeDrained:input_type -> nstance.v1.DrainAckRequest
-	23, // 32: nstance.v1.OperatorService.SleepTenant:input_type -> nstance.v1.SleepTenantRequest
-	25, // 33: nstance.v1.OperatorService.WakeTenant:input_type -> nstance.v1.WakeTenantRequest
-	33, // 34: nstance.v1.OperatorService.WatchGroups:input_type -> google.protobuf.Empty
-	33, // 35: nstance.v1.OperatorService.WatchInstances:input_type -> google.protobuf.Empty
-	33, // 36: nstance.v1.OperatorService.WatchErrors:input_type -> google.protobuf.Empty
-	5,  // 37: nstance.v1.OperatorService.RenewCertificate:output_type -> nstance.v1.RenewCertificateResponse
-	6,  // 38: nstance.v1.OperatorService.GetConfigStatus:output_type -> nstance.v1.ConfigStatusResponse
-	7,  // 39: nstance.v1.OperatorService.RefreshConfig:output_type -> nstance.v1.RefreshConfigResponse
-	11, // 40: nstance.v1.OperatorService.ListGroups:output_type -> nstance.v1.ListGroupsResponse
-	12, // 41: nstance.v1.OperatorService.UpsertGroup:output_type -> nstance.v1.GroupStatus
-	33, // 42: nstance.v1.OperatorService.DeleteGroup:output_type -> google.protobuf.Empty
-	15, // 43: nstance.v1.OperatorService.CreateInstance:output_type -> nstance.v1.CreateInstanceResponse
-	17, // 44: nstance.v1.OperatorService.DeleteInstance:output_type -> nstance.v1.DeleteInstanceResponse
-	19, // 45: nstance.v1.OperatorService.GetInstanceStatus:output_type -> nstance.v1.InstanceStatusResponse
-	33, // 46: nstance.v1.OperatorService.AcknowledgeDrained:output_type -> google.protobuf.Empty
-	24, // 47: nstance.v1.OperatorService.SleepTenant:output_type -> nstance.v1.SleepTenantResponse
-	26, // 48: nstance.v1.OperatorService.WakeTenant:output_type -> nstance.v1.WakeTenantResponse
-	20, // 49: nstance.v1.OperatorService.WatchGroups:output_type -> nstance.v1.GroupEvent
-	21, // 50: nstance.v1.OperatorService.WatchInstances:output_type -> nstance.v1.InstanceEvent
-	27, // 51: nstance.v1.OperatorService.WatchErrors:output_type -> nstance.v1.ErrorEvent
-	37, // [37:52] is the sub-list for method output_type
-	22, // [22:37] is the sub-list for method input_type
-	22, // [22:22] is the sub-list for extension type_name
-	22, // [22:22] is the sub-list for extension extendee
-	0,  // [0:22] is the sub-list for field type_name
+	35, // 21: nstance.v1.ListenerActivity.idle_since:type_name -> google.protobuf.Timestamp
+	0,  // 22: nstance.v1.GetTenantStatusResponse.status:type_name -> nstance.v1.TenantSleepStatus
+	35, // 23: nstance.v1.GetTenantStatusResponse.wake_at:type_name -> google.protobuf.Timestamp
+	28, // 24: nstance.v1.GetTenantStatusResponse.listeners:type_name -> nstance.v1.ListenerActivity
+	35, // 25: nstance.v1.ErrorEvent.timestamp:type_name -> google.protobuf.Timestamp
+	4,  // 26: nstance.v1.OperatorService.RenewCertificate:input_type -> nstance.v1.RenewCertificateRequest
+	36, // 27: nstance.v1.OperatorService.GetConfigStatus:input_type -> google.protobuf.Empty
+	36, // 28: nstance.v1.OperatorService.RefreshConfig:input_type -> google.protobuf.Empty
+	36, // 29: nstance.v1.OperatorService.ListGroups:input_type -> google.protobuf.Empty
+	8,  // 30: nstance.v1.OperatorService.UpsertGroup:input_type -> nstance.v1.UpsertGroupRequest
+	10, // 31: nstance.v1.OperatorService.DeleteGroup:input_type -> nstance.v1.DeleteGroupRequest
+	13, // 32: nstance.v1.OperatorService.CreateInstance:input_type -> nstance.v1.CreateInstanceRequest
+	16, // 33: nstance.v1.OperatorService.DeleteInstance:input_type -> nstance.v1.DeleteInstanceRequest
+	18, // 34: nstance.v1.OperatorService.GetInstanceStatus:input_type -> nstance.v1.GetInstanceStatusRequest
+	22, // 35: nstance.v1.OperatorService.AcknowledgeDrained:input_type -> nstance.v1.DrainAckRequest
+	23, // 36: nstance.v1.OperatorService.SleepTenant:input_type -> nstance.v1.SleepTenantRequest
+	25, // 37: nstance.v1.OperatorService.WakeTenant:input_type -> nstance.v1.WakeTenantRequest
+	27, // 38: nstance.v1.OperatorService.GetTenantStatus:input_type -> nstance.v1.GetTenantStatusRequest
+	36, // 39: nstance.v1.OperatorService.WatchGroups:input_type -> google.protobuf.Empty
+	36, // 40: nstance.v1.OperatorService.WatchInstances:input_type -> google.protobuf.Empty
+	36, // 41: nstance.v1.OperatorService.WatchErrors:input_type -> google.protobuf.Empty
+	5,  // 42: nstance.v1.OperatorService.RenewCertificate:output_type -> nstance.v1.RenewCertificateResponse
+	6,  // 43: nstance.v1.OperatorService.GetConfigStatus:output_type -> nstance.v1.ConfigStatusResponse
+	7,  // 44: nstance.v1.OperatorService.RefreshConfig:output_type -> nstance.v1.RefreshConfigResponse
+	11, // 45: nstance.v1.OperatorService.ListGroups:output_type -> nstance.v1.ListGroupsResponse
+	12, // 46: nstance.v1.OperatorService.UpsertGroup:output_type -> nstance.v1.GroupStatus
+	36, // 47: nstance.v1.OperatorService.DeleteGroup:output_type -> google.protobuf.Empty
+	15, // 48: nstance.v1.OperatorService.CreateInstance:output_type -> nstance.v1.CreateInstanceResponse
+	17, // 49: nstance.v1.OperatorService.DeleteInstance:output_type -> nstance.v1.DeleteInstanceResponse
+	19, // 50: nstance.v1.OperatorService.GetInstanceStatus:output_type -> nstance.v1.InstanceStatusResponse
+	36, // 51: nstance.v1.OperatorService.AcknowledgeDrained:output_type -> google.protobuf.Empty
+	24, // 52: nstance.v1.OperatorService.SleepTenant:output_type -> nstance.v1.SleepTenantResponse
+	26, // 53: nstance.v1.OperatorService.WakeTenant:output_type -> nstance.v1.WakeTenantResponse
+	29, // 54: nstance.v1.OperatorService.GetTenantStatus:output_type -> nstance.v1.GetTenantStatusResponse
+	20, // 55: nstance.v1.OperatorService.WatchGroups:output_type -> nstance.v1.GroupEvent
+	21, // 56: nstance.v1.OperatorService.WatchInstances:output_type -> nstance.v1.InstanceEvent
+	30, // 57: nstance.v1.OperatorService.WatchErrors:output_type -> nstance.v1.ErrorEvent
+	42, // [42:58] is the sub-list for method output_type
+	26, // [26:42] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_proto_operator_proto_init() }
@@ -1981,13 +2169,15 @@ func file_proto_operator_proto_init() {
 	file_proto_operator_proto_msgTypes[20].OneofWrappers = []any{}
 	file_proto_operator_proto_msgTypes[21].OneofWrappers = []any{}
 	file_proto_operator_proto_msgTypes[22].OneofWrappers = []any{}
+	file_proto_operator_proto_msgTypes[24].OneofWrappers = []any{}
+	file_proto_operator_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_operator_proto_rawDesc), len(file_proto_operator_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   28,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

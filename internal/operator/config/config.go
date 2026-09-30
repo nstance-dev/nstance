@@ -10,9 +10,11 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -58,11 +60,61 @@ type ShardEndpoints struct {
 	OperatorAddr     string `json:"operator_addr" yaml:"operator_addr"`
 }
 
+// Duration is a configuration duration encoded as a Go duration string.
+type Duration struct {
+	time.Duration
+}
+
+// UnmarshalJSON parses a quoted Go duration.
+func (d *Duration) UnmarshalJSON(value []byte) error {
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return fmt.Errorf("duration must be a string: %w", err)
+	}
+	parsed, err := time.ParseDuration(text)
+	if err != nil {
+		return err
+	}
+	d.Duration = parsed
+	return nil
+}
+
+// SleepPolicy configures the operator-owned Kubernetes sleep policy.
+type SleepPolicy struct {
+	Enabled         bool                `json:"enabled" yaml:"enabled"`
+	RemainingNodes  int                 `json:"remaining_nodes" yaml:"remaining_nodes"`
+	Inactivity      Duration            `json:"inactivity" yaml:"inactivity"`
+	ActivityWindows map[string]Duration `json:"activity_windows,omitempty" yaml:"activity_windows,omitempty"`
+	CronLookAhead   Duration            `json:"cron_look_ahead" yaml:"cron_look_ahead"`
+	WakeLead        Duration            `json:"wake_lead" yaml:"wake_lead"`
+	ReconcilePeriod Duration            `json:"reconcile_period" yaml:"reconcile_period"`
+}
+
+// setDefaults applies the scale-to-zero defaults without enabling the policy.
+func (p *SleepPolicy) setDefaults() {
+	if p.RemainingNodes == 0 {
+		p.RemainingNodes = 1
+	}
+	if p.Inactivity.Duration == 0 {
+		p.Inactivity.Duration = 30 * time.Minute
+	}
+	if p.CronLookAhead.Duration == 0 {
+		p.CronLookAhead.Duration = 10 * time.Minute
+	}
+	if p.WakeLead.Duration == 0 {
+		p.WakeLead.Duration = 2 * time.Minute
+	}
+	if p.ReconcilePeriod.Duration == 0 {
+		p.ReconcilePeriod.Duration = time.Minute
+	}
+}
+
 // OperatorConfig represents the structure of the configuration file
 type OperatorConfig struct {
 	ClusterID string                    `json:"cluster_id" yaml:"cluster_id"`
 	Tenant    string                    `json:"tenant" yaml:"tenant"`
 	Shards    map[string]ShardEndpoints `json:"shards" yaml:"shards"`
+	Sleep     SleepPolicy               `json:"sleep" yaml:"sleep"`
 }
 
 // CAPIClusterName returns the CAPI Cluster resource name for this operator,
@@ -81,6 +133,15 @@ func LoadConfigFromFile(path string) (*OperatorConfig, error) {
 	var config OperatorConfig
 	if err := yaml.Unmarshal(configData, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse operator configuration: %w", err)
+	}
+	config.Sleep.setDefaults()
+	if config.Sleep.RemainingNodes < 1 || config.Sleep.Inactivity.Duration < 0 || config.Sleep.CronLookAhead.Duration < 0 || config.Sleep.WakeLead.Duration < 0 || config.Sleep.ReconcilePeriod.Duration <= 0 {
+		return nil, fmt.Errorf("sleep durations must be non-negative, reconcile_period must be positive, and remaining_nodes must be positive")
+	}
+	for listener, window := range config.Sleep.ActivityWindows {
+		if listener == "" || window.Duration < 0 {
+			return nil, fmt.Errorf("sleep activity windows require a listener and non-negative duration")
+		}
 	}
 
 	if len(config.Shards) == 0 {

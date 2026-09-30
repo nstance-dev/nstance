@@ -36,6 +36,7 @@ const (
 	OperatorService_AcknowledgeDrained_FullMethodName = "/nstance.v1.OperatorService/AcknowledgeDrained"
 	OperatorService_SleepTenant_FullMethodName        = "/nstance.v1.OperatorService/SleepTenant"
 	OperatorService_WakeTenant_FullMethodName         = "/nstance.v1.OperatorService/WakeTenant"
+	OperatorService_GetTenantStatus_FullMethodName    = "/nstance.v1.OperatorService/GetTenantStatus"
 	OperatorService_WatchGroups_FullMethodName        = "/nstance.v1.OperatorService/WatchGroups"
 	OperatorService_WatchInstances_FullMethodName     = "/nstance.v1.OperatorService/WatchInstances"
 	OperatorService_WatchErrors_FullMethodName        = "/nstance.v1.OperatorService/WatchErrors"
@@ -65,6 +66,7 @@ type OperatorServiceClient interface {
 	// Idempotent shard-local tenant sleep operations.
 	SleepTenant(ctx context.Context, in *SleepTenantRequest, opts ...grpc.CallOption) (*SleepTenantResponse, error)
 	WakeTenant(ctx context.Context, in *WakeTenantRequest, opts ...grpc.CallOption) (*WakeTenantResponse, error)
+	GetTenantStatus(ctx context.Context, in *GetTenantStatusRequest, opts ...grpc.CallOption) (*GetTenantStatusResponse, error)
 	// Watch streams for operator sync
 	WatchGroups(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GroupEvent], error)
 	WatchInstances(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InstanceEvent], error)
@@ -199,6 +201,16 @@ func (c *operatorServiceClient) WakeTenant(ctx context.Context, in *WakeTenantRe
 	return out, nil
 }
 
+func (c *operatorServiceClient) GetTenantStatus(ctx context.Context, in *GetTenantStatusRequest, opts ...grpc.CallOption) (*GetTenantStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetTenantStatusResponse)
+	err := c.cc.Invoke(ctx, OperatorService_GetTenantStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *operatorServiceClient) WatchGroups(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GroupEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &OperatorService_ServiceDesc.Streams[0], OperatorService_WatchGroups_FullMethodName, cOpts...)
@@ -280,6 +292,7 @@ type OperatorServiceServer interface {
 	// Idempotent shard-local tenant sleep operations.
 	SleepTenant(context.Context, *SleepTenantRequest) (*SleepTenantResponse, error)
 	WakeTenant(context.Context, *WakeTenantRequest) (*WakeTenantResponse, error)
+	GetTenantStatus(context.Context, *GetTenantStatusRequest) (*GetTenantStatusResponse, error)
 	// Watch streams for operator sync
 	WatchGroups(*emptypb.Empty, grpc.ServerStreamingServer[GroupEvent]) error
 	WatchInstances(*emptypb.Empty, grpc.ServerStreamingServer[InstanceEvent]) error
@@ -329,6 +342,9 @@ func (UnimplementedOperatorServiceServer) SleepTenant(context.Context, *SleepTen
 }
 func (UnimplementedOperatorServiceServer) WakeTenant(context.Context, *WakeTenantRequest) (*WakeTenantResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method WakeTenant not implemented")
+}
+func (UnimplementedOperatorServiceServer) GetTenantStatus(context.Context, *GetTenantStatusRequest) (*GetTenantStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTenantStatus not implemented")
 }
 func (UnimplementedOperatorServiceServer) WatchGroups(*emptypb.Empty, grpc.ServerStreamingServer[GroupEvent]) error {
 	return status.Error(codes.Unimplemented, "method WatchGroups not implemented")
@@ -576,6 +592,24 @@ func _OperatorService_WakeTenant_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_GetTenantStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTenantStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).GetTenantStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_GetTenantStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).GetTenantStatus(ctx, req.(*GetTenantStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OperatorService_WatchGroups_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(emptypb.Empty)
 	if err := stream.RecvMsg(m); err != nil {
@@ -663,6 +697,10 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "WakeTenant",
 			Handler:    _OperatorService_WakeTenant_Handler,
+		},
+		{
+			MethodName: "GetTenantStatus",
+			Handler:    _OperatorService_GetTenantStatus_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

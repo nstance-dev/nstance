@@ -14,6 +14,14 @@ data:
   config.yaml: |
     cluster_id: {{ required "config.clusterID is required" .Values.config.clusterID | quote }}
     tenant: {{ required "config.tenant is required" .Values.config.tenant | quote }}
+    sleep:
+      enabled: {{ .Values.config.sleep.enabled }}
+      remaining_nodes: {{ .Values.config.sleep.remainingNodes }}
+      inactivity: {{ .Values.config.sleep.inactivity | quote }}
+      activity_windows: {{ .Values.config.sleep.activityWindows | toJson }}
+      cron_look_ahead: {{ .Values.config.sleep.cronLookAhead | quote }}
+      wake_lead: {{ .Values.config.sleep.wakeLead | quote }}
+      reconcile_period: {{ .Values.config.sleep.reconcilePeriod | quote }}
     {{- if not .Values.config.shards }}
     {{- fail "at least one config.shards entry is required" }}
     {{- end }}

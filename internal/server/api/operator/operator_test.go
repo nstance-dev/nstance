@@ -21,6 +21,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
@@ -206,12 +207,13 @@ func TestService(t *testing.T) {
 
 	// Create operator service
 	operatorService, err := New(Options{
-		ConfigLoader:    configLoader,
-		LocalDB:         mockDB,
-		InstanceManager: mockInstanceManager,
-		OnGroupChanged:  onGroupChanged,
-		OnDrainAcked:    onDrainAcked,
-		Logger:          slog.Default(),
+		ConfigLoader:     configLoader,
+		ListenerActivity: listeneractivity.New(),
+		LocalDB:          mockDB,
+		InstanceManager:  mockInstanceManager,
+		OnGroupChanged:   onGroupChanged,
+		OnDrainAcked:     onDrainAcked,
+		Logger:           slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create operator service: %v", err)

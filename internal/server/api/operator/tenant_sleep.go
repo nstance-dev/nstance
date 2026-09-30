@@ -106,6 +106,7 @@ func (s *Service) WakeTenant(ctx context.Context, req *proto.WakeTenantRequest) 
 		}
 		return nil, status.Errorf(codes.Internal, "failed to persist tenant wake state: %v", err)
 	}
+	s.listenerActivity.Reset(tenant)
 	result := proto.WakeTenantResponse_RESULT_WOKE
 	if alreadyAwake {
 		result = proto.WakeTenantResponse_RESULT_ALREADY_AWAKE

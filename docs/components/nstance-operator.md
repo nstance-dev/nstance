@@ -29,6 +29,7 @@ Standard zap logging flags are also available (e.g. `--zap-log-level`, `--zap-en
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NSTANCE_NAMESPACE` | *(pod namespace)* | Namespace for Nstance CRDs, CAPI resources (Cluster, MachinePool, Machine), Secrets, and ConfigMaps managed by the operator |
+| `NSTANCE_NODE_NAME` | *(operator Pod node)* | Node name supplied by the Kubernetes Downward API and used to process the operator's shard last during sleep |
 | `NSTANCE_CA_CONFIGMAP` | `nstance-cluster-ca` | ConfigMap name to load the Nstance cluster CA certificate from (`ca.crt` key) |
 | `NSTANCE_CERT_SECRET` | `nstance-operator-cert` | Secret name for operator client certificate (`tls.crt`, `tls.key` keys) |
 | `NSTANCE_KEY_SECRET` | `nstance-operator-key` | Secret name for operator keypair (`private.key`, `public.key` keys) |
@@ -36,6 +37,14 @@ Standard zap logging flags are also available (e.g. `--zap-log-level`, `--zap-en
 | `NSTANCE_CAPI_ENDPOINT` | *(empty)* | External workload cluster API server endpoint. When set, the operator skips kubeconfig auto-management and the admin must provide the `<cluster>-kubeconfig` secret. See [Deployment Scenarios](../reference/cluster-api.md#deployment-scenarios) |
 | `NSTANCE_CAPI_SERVICEACCOUNT` | `nstance-capi-workload` | ServiceAccount used to generate short-lived tokens for the auto-managed CAPI kubeconfig secret. Only used when `NSTANCE_CAPI_ENDPOINT` is not set |
 | `NSTANCE_K8S_JSON` | *(empty)* | Set to `true` to use JSON content type for K8s API calls |
+
+## Placement for self-managed clusters
+
+When the operator manages the cluster it runs in, it must run on a control-plane node. The Helm chart selects and tolerates standard `node-role.kubernetes.io/control-plane` nodes by default. The operator processes that node's shard last so it can persist sleep progress while the Kubernetes API remains available.
+
+Any in-cluster etcd, Netsy, or other datastore quorum required by the Kubernetes API must either run entirely in that final shard or remain external to the sleeping cluster. Sleeping another shard must not make the API unavailable before the operator reaches its own shard.
+
+An operator running in an external management cluster does not share this lifecycle. Set `nodeSelector: null` and configure any management-cluster placement requirements explicitly.
 
 ## Configuration File
 

@@ -55,7 +55,7 @@ type Manager struct {
 	drainCoord    *drain.Coordinator
 	namespace     string
 	clusterName   string
-	configPath    string
+	config        *config.OperatorConfig
 
 	// Certificate renewal state
 	currentCert *x509.Certificate
@@ -64,11 +64,11 @@ type Manager struct {
 }
 
 // New creates a new runtime manager
-func New(c client.Client, mgr ctrl.Manager, configPath string, connProvider *connection.Provider, onSyncReady func(*sync.Manager), onClusterName func(string)) *Manager {
+func New(c client.Client, mgr ctrl.Manager, operatorConfig *config.OperatorConfig, connProvider *connection.Provider, onSyncReady func(*sync.Manager), onClusterName func(string)) *Manager {
 	return &Manager{
 		client:        c,
 		mgr:           mgr,
-		configPath:    configPath,
+		config:        operatorConfig,
 		connProvider:  connProvider,
 		onSyncReady:   onSyncReady,
 		onClusterName: onClusterName,
@@ -85,17 +85,8 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	loader := config.NewLoader(m.client, m.namespace)
 
-	// Step 1: Load configuration from file
-	logger.Info("loading operator configuration", "path", m.configPath)
-
-	opConfig, err := config.LoadConfigFromFile(m.configPath)
-	if err != nil {
-		logger.Error(err, "FATAL: failed to load operator configuration")
-		return fmt.Errorf("failed to load operator configuration: %w", err)
-	}
-
-	shardConfigs := opConfig.Shards
-	m.clusterName = opConfig.CAPIClusterName()
+	shardConfigs := m.config.Shards
+	m.clusterName = m.config.CAPIClusterName()
 	if m.onClusterName != nil {
 		m.onClusterName(m.clusterName)
 	}

@@ -22,6 +22,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
+	"github.com/nstance-dev/nstance/internal/operator/config"
 	"github.com/nstance-dev/nstance/internal/operator/connection"
 	"github.com/nstance-dev/nstance/internal/operator/controller"
 	"github.com/nstance-dev/nstance/internal/operator/leader"
@@ -63,6 +64,12 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	opConfig, err := config.LoadConfigFromFile(configPath)
+	if err != nil {
+		setupLog.Error(err, "unable to load operator configuration")
+		os.Exit(1)
+	}
 
 	restConfig := ctrl.GetConfigOrDie()
 	if os.Getenv("NSTANCE_K8S_JSON") == "true" {
@@ -142,6 +149,19 @@ func main() {
 	// Create connection provider - will be populated by leader manager after registration
 	connProvider := connection.NewProvider()
 
+	// Register the controller that evaluates sleep policy and coordinates tenant sleep across shards.
+	if err := (&controller.SleepReconciler{
+		Client:       mgr.GetClient(),
+		ConnProvider: connProvider,
+		Recorder:     mgr.GetEventRecorderFor("sleep-controller"),
+		Config:       opConfig,
+		Namespace:    config.GetEnv("NSTANCE_NAMESPACE", "default"),
+		NodeName:     os.Getenv("NSTANCE_NODE_NAME"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Sleep")
+		os.Exit(1)
+	}
+
 	// Set up controllers BEFORE mgr.Start() so informers are properly registered
 	machinePoolReconciler := &controller.NstanceMachinePoolReconciler{
 		Client:       mgr.GetClient(),
@@ -201,7 +221,7 @@ func main() {
 
 	// Add leader manager - handles registration and populates connections
 	// This runs AFTER leader election, ensuring only one operator performs registration
-	if err := mgr.Add(leader.New(mgr.GetClient(), mgr, configPath, connProvider, machinePoolReconciler.SetSyncManager, machinePoolReconciler.SetClusterName)); err != nil {
+	if err := mgr.Add(leader.New(mgr.GetClient(), mgr, opConfig, connProvider, machinePoolReconciler.SetSyncManager, machinePoolReconciler.SetClusterName)); err != nil {
 		setupLog.Error(err, "unable to add leader manager")
 		os.Exit(1)
 	}

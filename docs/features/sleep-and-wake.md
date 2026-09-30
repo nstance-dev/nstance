@@ -14,6 +14,8 @@ Any existing on-demand instance blocks sleep. Forced sleep may bypass the networ
 
 Nstance owns routing cutover to a "wake sleep" proxy and managing the instance lifecycle from sleep (scale-to-zero) to wake (scale-up from zero).
 
+For a self-managed Kubernetes cluster, nstance-operator must run on a control-plane node and its shard must be the last shard slept. Any in-cluster datastore quorum needed by the Kubernetes API must be wholly contained in that shard; alternatively, the datastore may run externally and remain awake. This guarantees that the operator can persist progress until the final sleep call. The Helm chart applies standard control-plane placement by default. Operators running in an external management cluster may disable that placement.
+
 ## Sleeping
 
 For guarded sleep, Nstance:

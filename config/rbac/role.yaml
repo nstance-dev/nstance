@@ -9,6 +9,15 @@ metadata:
   name: nstance-operator-role
 rules:
 - apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - events
@@ -53,6 +62,15 @@ rules:
   - serviceaccounts/token
   verbs:
   - create
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:

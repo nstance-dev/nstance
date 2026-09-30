@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -118,6 +119,23 @@ func (s *Service) processHealthReport(req *proto.HealthReportRequest) error {
 	cfg, groupConfig, err := config.GetConfigAndGroup(s.configLoader, instance.Tenant, instance.Group)
 	if err != nil {
 		return fmt.Errorf("failed to get config and group: %w", err)
+	}
+	proxyConfig, err := cfg.ProxyConfig()
+	if err != nil {
+		return fmt.Errorf("failed to derive proxy listeners: %w", err)
+	}
+	observedAt := time.Now().UTC()
+	for listenerName, listener := range proxyConfig.Listeners {
+		if listener.Tenant != instance.Tenant || !slices.Contains(listener.Groups, instance.Group) {
+			continue
+		}
+		available := req.Metrics != nil && req.Metrics.EbpfError == nil
+		count, reported := uint64(0), false
+		if available {
+			count, reported = req.Metrics.EbpfCounters[uint32(listener.TargetPort)]
+			available = reported
+		}
+		s.listenerActivity.Update(instance.Tenant, listenerName, instance.ID, count > 0, available, observedAt)
 	}
 	templateName := groupConfig.Template
 

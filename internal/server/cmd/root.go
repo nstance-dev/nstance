@@ -39,6 +39,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra"
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/localfiles"
 	"github.com/nstance-dev/nstance/internal/server/pki"
@@ -692,18 +693,21 @@ func NewRootCmd() *cobra.Command {
 		}
 		logger.Info("Election health server ready")
 
+		listenerActivity := listeneractivity.New()
+
 		// create agent gRPC service
 		agentService, err := agent.New(agent.Options{
-			Storage:        shardStorage,
-			ConfigLoader:   configLoader,
-			LocalDB:        localDB,
-			SecretsStore:   secretsStore,
-			CACertPEM:      caCertData,
-			CAKeyPEM:       caKeyData,
-			Shard:          flagShard,
-			ImageGetter:    imageService,
-			Logger:         logger,
-			OnHealthReport: instancesManager.ReconcileLoadBalancers,
+			Storage:          shardStorage,
+			ConfigLoader:     configLoader,
+			LocalDB:          localDB,
+			SecretsStore:     secretsStore,
+			CACertPEM:        caCertData,
+			CAKeyPEM:         caKeyData,
+			Shard:            flagShard,
+			ImageGetter:      imageService,
+			ListenerActivity: listenerActivity,
+			Logger:           logger,
+			OnHealthReport:   instancesManager.ReconcileLoadBalancers,
 			OnSpotTermination: func(instanceID string, notice *proto.TerminationNotice) error {
 				logger.Info("Enqueuing spot termination event", "instance_id", instanceID, "action", notice.Action)
 				rec.Enqueue(reconciler.ReconcileEvent{
@@ -771,11 +775,12 @@ func NewRootCmd() *cobra.Command {
 
 		// create operator gRPC service (assign to variable declared above)
 		operatorService, err = operator.New(operator.Options{
-			ConfigLoader:    configLoader,
-			TenantState:     tenantState,
-			SleepReady:      providerCutover != nil,
-			LocalDB:         localDB,
-			InstanceManager: instancesManager,
+			ConfigLoader:     configLoader,
+			TenantState:      tenantState,
+			SleepReady:       providerCutover != nil,
+			ListenerActivity: listenerActivity,
+			LocalDB:          localDB,
+			InstanceManager:  instancesManager,
 			OnGroupChanged: func(tenant, groupKey string) {
 				rec.Enqueue(reconciler.ReconcileEvent{
 					Type:      reconciler.EventGroupChanged,

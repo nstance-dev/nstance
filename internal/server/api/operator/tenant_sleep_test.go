@@ -44,6 +44,11 @@ func (s *sleepTestTenantState) CreateOnDemand(ctx context.Context, _ string, cre
 	return create(ctx)
 }
 
+// Status returns the fixed test sleep state.
+func (s *sleepTestTenantState) Status(string) (bool, *time.Time) {
+	return s.asleep, nil
+}
+
 // TestSleepTenantBlockedByOnDemandInstance verifies all sleeps preserve on-demand instances.
 func TestSleepTenantBlockedByOnDemandInstance(t *testing.T) {
 	db, err := localdb.Open(filepath.Join(t.TempDir(), "test.db"))

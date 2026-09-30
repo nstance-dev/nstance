@@ -50,6 +50,11 @@ helm install nstance-operator ./deploy/helm \
   --values operator-values.yaml
 ```
 
+The chart places the operator on a control-plane node by default. This is
+required when the operator manages the cluster it runs in so its shard can be
+slept last. For an external management cluster, disable that placement with
+`nodeSelector: null` and configure any required placement explicitly.
+
 The chart can manage the bootstrap resources instead, although putting secret
 material in a Helm values file may be inappropriate for some environments:
 
@@ -177,6 +182,8 @@ the kubeconfig stored under the `value` key.
 | `capi.endpoint` | External workload API endpoint | `""` |
 | `kubernetesJSON` | Use JSON for Kubernetes API calls | `false` |
 | `resources` | Resource requests and limits | See `values.yaml` |
+| `nodeSelector` | Pin self-managed operators to a control-plane node | `node-role.kubernetes.io/control-plane: ""` |
+| `tolerations` | Tolerate the standard control-plane taint | See `values.yaml` |
 
 See `values.yaml` for image, resources, scheduling, security, and naming values.
 

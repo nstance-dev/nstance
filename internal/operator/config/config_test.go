@@ -6,7 +6,10 @@ package config
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +18,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// TestSleepPolicyDefaultsAndDurations verifies safe disabled defaults and string durations.
+func TestSleepPolicyDefaultsAndDurations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("cluster_id: cluster\ntenant: tenant\nshards:\n  shard:\n    registration_addr: r\n    operator_addr: o\nsleep:\n  wake_lead: 3m\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := LoadConfigFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Sleep.Enabled || config.Sleep.RemainingNodes != 1 || config.Sleep.Inactivity.Duration != 30*time.Minute || config.Sleep.CronLookAhead.Duration != 10*time.Minute || config.Sleep.WakeLead.Duration != 3*time.Minute {
+		t.Fatalf("unexpected sleep defaults: %#v", config.Sleep)
+	}
+}
 
 // TestBootstrapResourcesAndSelectiveNonceDeletion verifies bootstrap resource ownership.
 func TestBootstrapResourcesAndSelectiveNonceDeletion(t *testing.T) {

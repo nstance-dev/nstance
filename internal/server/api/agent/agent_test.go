@@ -25,6 +25,7 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/config"
 	"github.com/nstance-dev/nstance/internal/server/keys"
+	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
 	"github.com/nstance-dev/nstance/internal/server/pki"
 	"github.com/nstance-dev/nstance/internal/server/secrets"
@@ -197,14 +198,15 @@ func TestService(t *testing.T) {
 
 	// Create agent service
 	agentService, err := New(Options{
-		Storage:      mainStorage,
-		ConfigLoader: configLoader,
-		LocalDB:      localDB,
-		SecretsStore: secretsStore,
-		CACertPEM:    caCertPEM,
-		CAKeyPEM:     caKeyPEM,
-		Shard:        "test-shard",
-		Logger:       slog.Default(),
+		Storage:          mainStorage,
+		ConfigLoader:     configLoader,
+		LocalDB:          localDB,
+		SecretsStore:     secretsStore,
+		CACertPEM:        caCertPEM,
+		CAKeyPEM:         caKeyPEM,
+		Shard:            "test-shard",
+		ListenerActivity: listeneractivity.New(),
+		Logger:           slog.Default(),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create agent service: %v", err)

@@ -36,6 +36,7 @@ service OperatorService {
   // Idempotent shard-local tenant sleep operations.
   rpc SleepTenant(SleepTenantRequest) returns (SleepTenantResponse);
   rpc WakeTenant(WakeTenantRequest) returns (WakeTenantResponse);
+  rpc GetTenantStatus(GetTenantStatusRequest) returns (GetTenantStatusResponse);
   
   // Watch streams for operator sync
   rpc WatchGroups(google.protobuf.Empty) returns (stream GroupEvent);
@@ -227,6 +228,28 @@ message WakeTenantResponse {
   Result result = 1;
   TenantSleepStatus status = 2;
   optional string upstream = 3;
+}
+
+// Tenant status request
+
+message GetTenantStatusRequest {
+  string tenant = 1;
+}
+
+// Listener activity observed from agent health reports
+
+message ListenerActivity {
+  string listener = 1;
+  bool available = 2;
+  optional google.protobuf.Timestamp idle_since = 3;
+}
+
+// Tenant status response
+
+message GetTenantStatusResponse {
+  TenantSleepStatus status = 1;
+  optional google.protobuf.Timestamp wake_at = 2;
+  repeated ListenerActivity listeners = 3;
 }
 
 // Error event for provider errors, config validation failures, etc.

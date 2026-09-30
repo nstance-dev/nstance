@@ -46,6 +46,15 @@ config:
   clusterID: ""
   tenant: ""
   shards: {}
+  # Automatic sleep is opt-in until every supported provider and topology passes integration testing.
+  sleep:
+    enabled: false
+    remainingNodes: 1
+    inactivity: 30m
+    activityWindows: {}
+    cronLookAhead: 10m
+    wakeLead: 2m
+    reconcilePeriod: 1m
   # Example:
   #   us-east-1a:
   #     registration_addr: "172.16.0.100:8992"
@@ -116,11 +125,16 @@ resources:
     cpu: 100m
     memory: 128Mi
 
-# Node selector
-nodeSelector: {}
+# Keep the operator on the control-plane shard that must be slept last.
+# Set this to null when the operator runs in an external management cluster.
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
 
-# Tolerations
-tolerations: []
+# Tolerate the standard control-plane taint.
+tolerations:
+- key: node-role.kubernetes.io/control-plane
+  operator: Exists
+  effect: NoSchedule
 
 # Affinity rules
 affinity: {}
