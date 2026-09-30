@@ -8,12 +8,12 @@ package nstance.v1;
 
 option go_package = "github.com/nstance-dev/nstance/internal/proto";
 
-// TunnelService controls nstance-server leader-owned local wake tunnels.
+// TunnelService lets the local tunnel supervisor follow shard-leader intent.
 service TunnelService {
-  rpc Manage(stream TunnelDesiredState) returns (stream TunnelStatus);
+  rpc Manage(stream TunnelStatus) returns (stream TunnelDesiredState);
 }
 
-// TunnelDesiredState requests a revisioned lifecycle state for one tunnel.
+// TunnelDesiredState requests a leased lifecycle state for one tunnel.
 message TunnelDesiredState {
   // State is the requested tunnel lifecycle state.
   enum State {
@@ -25,6 +25,7 @@ message TunnelDesiredState {
   string tunnel_name = 1;
   uint64 revision = 2;
   State state = 3;
+  uint32 lease_seconds = 4;
 }
 
 // TunnelStatus reports a revisioned tunnel lifecycle observation.

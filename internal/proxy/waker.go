@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // Waker wakes the tenant mapped to a listener and returns its ready upstream.
@@ -36,7 +35,7 @@ func NewUnixWaker(socketPath string) (*UnixWaker, error) {
 }
 
 // WatchConfig watches complete replacement snapshots until the connection fails.
-func (w *UnixWaker) WatchConfig(ctx context.Context, apply func(proxy.Config) error) error {
+func (w *UnixWaker) WatchConfig(ctx context.Context, apply func(Config) error) error {
 	stream, err := w.client.WatchConfig(ctx, &proto.WatchProxyConfigRequest{})
 	if err != nil {
 		return err
@@ -50,7 +49,7 @@ type configSnapshotReceiver interface {
 }
 
 // watchConfigSnapshots validates snapshot ordering and applies each replacement.
-func watchConfigSnapshots(stream configSnapshotReceiver, apply func(proxy.Config) error) error {
+func watchConfigSnapshots(stream configSnapshotReceiver, apply func(Config) error) error {
 	var previous uint64
 	received := false
 	for {
@@ -65,9 +64,9 @@ func watchConfigSnapshots(stream configSnapshotReceiver, apply func(proxy.Config
 		if received && generation <= previous {
 			return fmt.Errorf("proxy config generation %d is not greater than %d", generation, previous)
 		}
-		cfg := proxy.Config{Listeners: make(map[string]proxy.Listener, len(snapshot.Listeners))}
+		cfg := Config{Listeners: make(map[string]Listener, len(snapshot.Listeners))}
 		for key, item := range snapshot.Listeners {
-			cfg.Listeners[key] = proxy.Listener{Tenant: item.Tenant, Groups: append([]string(nil), item.Groups...), TargetPort: int(item.TargetPort), ProxyPort: int(item.ProxyPort), DestinationIP: item.GetDestinationIp()}
+			cfg.Listeners[key] = Listener{Tenant: item.Tenant, Groups: append([]string(nil), item.Groups...), TargetPort: int(item.TargetPort), ProxyPort: int(item.ProxyPort), FrontendIP: item.GetFrontendIp()}
 		}
 		if err := apply(cfg); err != nil {
 			return err

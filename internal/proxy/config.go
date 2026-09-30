@@ -11,9 +11,9 @@ type Config struct {
 
 // Listener identifies one wake-capable listener and its upstream groups.
 type Listener struct {
-	Tenant        string   `json:"tenant"`
-	Groups        []string `json:"groups"`
-	TargetPort    int      `json:"target_port"`
-	ProxyPort     int      `json:"proxy_port"`
-	DestinationIP string   `json:"destination_ip,omitempty"`
+	Tenant     string   `json:"tenant"`
+	Groups     []string `json:"groups"`
+	TargetPort int      `json:"target_port"`
+	ProxyPort  int      `json:"proxy_port"`
+	FrontendIP string   `json:"frontend_ip,omitempty"`
 }

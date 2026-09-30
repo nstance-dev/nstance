@@ -65,10 +65,10 @@ func (s *Server) handleConnection(serverCtx context.Context, client net.Conn, li
 		if !ok {
 			return
 		}
-		destination := tcpAddress.IP.String()
-		route = routes.byIP[destination]
+		frontendIP := tcpAddress.IP.String()
+		route = routes.byFrontendIP[frontendIP]
 		if route == nil {
-			s.logger.Warn("No proxy listener for destination", "destination", destination)
+			s.logger.Warn("No proxy listener for frontend", "frontend_ip", frontendIP)
 			return
 		}
 	}

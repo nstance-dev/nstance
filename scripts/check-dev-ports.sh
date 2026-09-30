@@ -42,7 +42,7 @@ done
 
 # Check for existing dev processes
 STALE_PROCS=""
-for PROC in "dev-k8s" "dev-s3" "nstance-operator" "nstance-proxy" "nstance-tunnel"; do
+for PROC in "dev-k8s" "dev-s3" "nstance-operator" "nstance-server.*proxy" "nstance-server.*tunnel"; do
     if pgrep -f "${PROC}" >/dev/null 2>&1; then
         STALE_PROCS="${STALE_PROCS} ${PROC}"
     fi

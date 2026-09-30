@@ -34,12 +34,12 @@ func TestProxyConfigDerivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "arn") || strings.Contains(string(data), "provider") || strings.Contains(string(data), "destination_ip") {
-		t.Fatalf("static config leaked provider data or optional destination: %s", data)
+	if strings.Contains(string(data), "arn") || strings.Contains(string(data), "provider") || strings.Contains(string(data), "frontend_ip") {
+		t.Fatalf("static config leaked provider data or optional frontend: %s", data)
 	}
 }
 
-// TestProxyConfigDistinguishesGoogleFrontends verifies destination IPs identify
+// TestProxyConfigDistinguishesGoogleFrontends verifies frontend IPs identify
 // listeners that share a port.
 func TestProxyConfigDistinguishesGoogleFrontends(t *testing.T) {
 	cfg := newTestConfig()
@@ -65,7 +65,7 @@ func TestProxyConfigDistinguishesGoogleFrontends(t *testing.T) {
 	}
 	for _, ip := range []string{"34.0.0.1", "34.0.0.2"} {
 		key := "api/" + ip + ":16443"
-		if got.Listeners[key].DestinationIP != ip {
+		if got.Listeners[key].FrontendIP != ip {
 			t.Fatalf("listener %q = %#v", key, got.Listeners[key])
 		}
 	}

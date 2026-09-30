@@ -61,6 +61,7 @@ LEADER_PORT=$((${BASE_LEADER_PORT:-8991} + OFFSET))
 REGISTRATION_PORT=$((${BASE_REGISTRATION_PORT:-8992} + OFFSET))
 OPERATOR_PORT=$((${BASE_OPERATOR_PORT:-8993} + OFFSET))
 AGENT_PORT=$((${BASE_AGENT_PORT:-8994} + OFFSET))
+TUNNEL_READINESS_PORT=$((${BASE_TUNNEL_READINESS_PORT:-28080} + PROC_NUM))
 
 # Per-instance shard name
 SHARD_NAME="dev-${PROC_NUM}"
@@ -112,6 +113,7 @@ grep -v '^\s*//' "$BASE_CONFIG" | jq \
     --arg advertise_registration_addr "127.0.0.1:${REGISTRATION_PORT}" \
     --arg advertise_operator_addr "127.0.0.1:${OPERATOR_PORT}" \
     --arg advertise_agent_addr "127.0.0.1:${AGENT_PORT}" \
+    --arg tunnel_readiness_url "http://127.0.0.1:${TUNNEL_READINESS_PORT}/" \
     '.shard.id = $shard |
      .shard.bind.health_addr = $bind_health_addr |
      .shard.bind.election_addr = $bind_election_addr |
@@ -123,6 +125,7 @@ grep -v '^\s*//' "$BASE_CONFIG" | jq \
      .shard.advertise.registration_addr = $advertise_registration_addr |
      .shard.advertise.operator_addr = $advertise_operator_addr |
      .shard.advertise.agent_addr = $advertise_agent_addr |
+     .tunnels["dev-api"].readiness_url = $tunnel_readiness_url |
      (if .load_balancers["dev-api"] then .load_balancers["dev-api"].listeners[0].proxy_port = (env.BASE_PROXY_PORT | tonumber) + ((($shard | split("-") | last | tonumber) - 1) * (env.PORT_STEP | tonumber)) else . end)' \
     > "$INSTANCE_CONFIG"
 

@@ -112,7 +112,7 @@ func (l *Loader) LoadConfigAndGroups(ctx context.Context, forceRefresh bool) (*C
 		l.logger.Info("Loading configuration")
 		if exists, _ := l.cacheStorage.Exists(ctx, configKey); exists {
 			if data, tag, err := l.cacheStorage.Get(ctx, configKey); err == nil {
-				if _, err := l.parseAndValidate(data); err == nil {
+				if _, err := Parse(data); err == nil {
 					configData, etag = data, tag
 					l.logger.Info("Loaded configuration from disk cache")
 				} else {
@@ -138,7 +138,7 @@ func (l *Loader) LoadConfigAndGroups(ctx context.Context, forceRefresh bool) (*C
 	}
 
 	// Parse and validate configuration
-	config, err := l.parseAndValidate(configData)
+	config, err := Parse(configData)
 	if err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
@@ -214,8 +214,8 @@ func (l *Loader) SetConfig(config *Config) {
 	l.config = config
 }
 
-// parseAndValidate parses and validates configuration data
-func (l *Loader) parseAndValidate(data []byte) (*Config, error) {
+// Parse parses, defaults, and validates Nstance server configuration data.
+func Parse(data []byte) (*Config, error) {
 	// Convert JSONC to standard JSON
 	jsonData, err := hujson.Standardize(data)
 	if err != nil {
@@ -232,7 +232,7 @@ func (l *Loader) parseAndValidate(data []byte) (*Config, error) {
 
 	// Validate
 	if err := config.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validation errors: %w", err)
 	}
 
 	return &config, nil

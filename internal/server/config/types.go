@@ -48,6 +48,7 @@ type Config struct {
 	Images        map[string]ImageConfig            `json:"images"`
 	Certificates  map[string]CertConfig             `json:"certificates"`
 	Server        ServerRuntimeConfig               `json:"server,omitempty"`
+	Tunnels       map[string]TunnelPodConfig        `json:"tunnels,omitempty"`
 	Defaults      DefaultsConfig                    `json:"defaults"`
 	Templates     map[string]TemplateConfig         `json:"templates" validate:"required"`
 	Groups        map[string]map[string]GroupConfig `json:"groups"`        // tenant -> group key -> config
@@ -57,6 +58,15 @@ type Config struct {
 // ServerRuntimeConfig defines files consumed by services local to nstance-server.
 type ServerRuntimeConfig struct {
 	Files map[string]FileConfig `json:"files,omitempty"`
+}
+
+// TunnelPodConfig defines one hardened static-Pod runtime.
+type TunnelPodConfig struct {
+	Image            string                `json:"image"`
+	Args             []string              `json:"args,omitempty"`
+	Files            map[string]FileConfig `json:"files,omitempty"`
+	ReadinessURL     string                `json:"readiness_url"`
+	ReadinessTimeout Duration              `json:"readiness_timeout,omitempty"`
 }
 
 // ClusterConfig defines cluster-scoped configuration shared across all shards.
@@ -575,6 +585,9 @@ func (c *Config) Validate() error {
 				}
 			}
 		}
+	}
+	if err := c.validateTunnels(); err != nil {
+		return err
 	}
 	if _, err := c.ProxyConfig(); err != nil {
 		return err

@@ -18,7 +18,6 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/proto"
 	"github.com/nstance-dev/nstance/internal/proxy"
-	proxyconfig "github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // testHandler records local wake requests.
@@ -32,14 +31,14 @@ func TestWatchConfigInitialSnapshotAndCoalescing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.Publish(proxyconfig.Config{Listeners: map[string]proxyconfig.Listener{"first": {Tenant: "red", ProxyPort: 1001}}})
+	server.Publish(proxy.Config{Listeners: map[string]proxy.Listener{"first": {Tenant: "red", ProxyPort: 1001}}})
 	subscriber, initial := server.subscribe()
 	defer server.unsubscribe(subscriber)
 	if initial.Generation != 1 || initial.Listeners["first"].Tenant != "red" {
 		t.Fatalf("initial snapshot = %#v", initial)
 	}
-	server.Publish(proxyconfig.Config{Listeners: map[string]proxyconfig.Listener{"second": {Tenant: "blue", ProxyPort: 1002}}})
-	server.Publish(proxyconfig.Config{Listeners: map[string]proxyconfig.Listener{"latest": {Tenant: "green", ProxyPort: 1003}}})
+	server.Publish(proxy.Config{Listeners: map[string]proxy.Listener{"second": {Tenant: "blue", ProxyPort: 1002}}})
+	server.Publish(proxy.Config{Listeners: map[string]proxy.Listener{"latest": {Tenant: "green", ProxyPort: 1003}}})
 	select {
 	case got := <-subscriber:
 		if got.Generation != 3 || got.Listeners["latest"] == nil || len(got.Listeners) != 1 {

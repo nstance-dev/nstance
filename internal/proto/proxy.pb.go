@@ -167,7 +167,7 @@ type ProxyListener struct {
 	Groups        []string               `protobuf:"bytes,2,rep,name=groups,proto3" json:"groups,omitempty"`
 	TargetPort    uint32                 `protobuf:"varint,3,opt,name=target_port,json=targetPort,proto3" json:"target_port,omitempty"`
 	ProxyPort     uint32                 `protobuf:"varint,4,opt,name=proxy_port,json=proxyPort,proto3" json:"proxy_port,omitempty"`
-	DestinationIp *string                `protobuf:"bytes,5,opt,name=destination_ip,json=destinationIp,proto3,oneof" json:"destination_ip,omitempty"`
+	FrontendIp    *string                `protobuf:"bytes,5,opt,name=frontend_ip,json=frontendIp,proto3,oneof" json:"frontend_ip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -230,9 +230,9 @@ func (x *ProxyListener) GetProxyPort() uint32 {
 	return 0
 }
 
-func (x *ProxyListener) GetDestinationIp() string {
-	if x != nil && x.DestinationIp != nil {
-		return *x.DestinationIp
+func (x *ProxyListener) GetFrontendIp() string {
+	if x != nil && x.FrontendIp != nil {
+		return *x.FrontendIp
 	}
 	return ""
 }
@@ -253,16 +253,17 @@ const file_proto_proxy_proto_rawDesc = "" +
 	"\tlisteners\x18\x02 \x03(\v2..nstance.v1.ProxyConfigSnapshot.ListenersEntryR\tlisteners\x1aW\n" +
 	"\x0eListenersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12/\n" +
-	"\x05value\x18\x02 \x01(\v2\x19.nstance.v1.ProxyListenerR\x05value:\x028\x01\"\xbe\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x19.nstance.v1.ProxyListenerR\x05value:\x028\x01\"\xb5\x01\n" +
 	"\rProxyListener\x12\x16\n" +
 	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x12\x16\n" +
 	"\x06groups\x18\x02 \x03(\tR\x06groups\x12\x1f\n" +
 	"\vtarget_port\x18\x03 \x01(\rR\n" +
 	"targetPort\x12\x1d\n" +
 	"\n" +
-	"proxy_port\x18\x04 \x01(\rR\tproxyPort\x12*\n" +
-	"\x0edestination_ip\x18\x05 \x01(\tH\x00R\rdestinationIp\x88\x01\x01B\x11\n" +
-	"\x0f_destination_ip2\xb1\x01\n" +
+	"proxy_port\x18\x04 \x01(\rR\tproxyPort\x12$\n" +
+	"\vfrontend_ip\x18\x05 \x01(\tH\x00R\n" +
+	"frontendIp\x88\x01\x01B\x0e\n" +
+	"\f_frontend_ip2\xb1\x01\n" +
 	"\fProxyService\x12U\n" +
 	"\vWatchConfig\x12#.nstance.v1.WatchProxyConfigRequest\x1a\x1f.nstance.v1.ProxyConfigSnapshot0\x01\x12J\n" +
 	"\n" +

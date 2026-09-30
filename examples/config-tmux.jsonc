@@ -87,6 +87,13 @@
       "listeners": [{"target_port": 6443, "proxy_port": 16443}]
     }
   },
+  "tunnels": {
+    "dev-api": {
+      "image": "example.invalid/nstance-dev-tunnel@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "readiness_url": "http://127.0.0.1:28081/",
+      "readiness_timeout": "5s"
+    }
+  },
   "groups": {
     "default": {
       "test": {

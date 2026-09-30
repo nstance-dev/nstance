@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // testWaker delegates wake requests to a test callback.
@@ -27,7 +25,7 @@ func TestReconcileRetainsAddsAndRemovesPorts(t *testing.T) {
 	firstPort := unusedPort(t)
 	secondPort := unusedPort(t)
 	waker := testWaker{wake: func(context.Context, string) (string, error) { return "", nil }}
-	server, err := New(Options{Config: proxy.Config{Listeners: map[string]proxy.Listener{"old": {Tenant: "red", ProxyPort: firstPort}}}, Waker: waker, HoldTimeout: time.Second, BindHost: "127.0.0.1"})
+	server, err := New(Options{Config: Config{Listeners: map[string]Listener{"old": {Tenant: "red", ProxyPort: firstPort}}}, Waker: waker, HoldTimeout: time.Second, BindHost: "127.0.0.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,14 +36,14 @@ func TestReconcileRetainsAddsAndRemovesPorts(t *testing.T) {
 	}
 	defer func() { _ = server.Close() }()
 	retained := server.ports[firstPort].listener
-	err = server.Reconcile(proxy.Config{Listeners: map[string]proxy.Listener{"new": {Tenant: "blue", ProxyPort: firstPort}, "added": {Tenant: "green", ProxyPort: secondPort}}})
+	err = server.Reconcile(Config{Listeners: map[string]Listener{"new": {Tenant: "blue", ProxyPort: firstPort}, "added": {Tenant: "green", ProxyPort: secondPort}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if server.ports[firstPort].listener != retained || server.config.Listeners["new"].Tenant != "blue" || server.ports[secondPort] == nil {
 		t.Fatal("listeners were not reconciled in place")
 	}
-	if err := server.Reconcile(proxy.Config{Listeners: map[string]proxy.Listener{"added": {Tenant: "green", ProxyPort: secondPort}}}); err != nil {
+	if err := server.Reconcile(Config{Listeners: map[string]Listener{"added": {Tenant: "green", ProxyPort: secondPort}}}); err != nil {
 		t.Fatal(err)
 	}
 	if server.ports[firstPort] != nil {
@@ -60,7 +58,7 @@ func TestReconcileDoesNotMixSelectedRouteGenerations(t *testing.T) {
 	resume := make(chan struct{})
 	woken := make(chan string, 1)
 	server, err := New(Options{
-		Config: proxy.Config{Listeners: map[string]proxy.Listener{
+		Config: Config{Listeners: map[string]Listener{
 			"old": {Tenant: "red", ProxyPort: port},
 		}},
 		Waker: testWaker{wake: func(_ context.Context, listener string) (string, error) {
@@ -90,7 +88,7 @@ func TestReconcileDoesNotMixSelectedRouteGenerations(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-selected
-	if err := server.Reconcile(proxy.Config{Listeners: map[string]proxy.Listener{
+	if err := server.Reconcile(Config{Listeners: map[string]Listener{
 		"new": {Tenant: "blue", ProxyPort: port},
 	}}); err != nil {
 		t.Fatal(err)
@@ -113,7 +111,7 @@ func TestServerHealthCheckDoesNotWakeAndPayloadForwards(t *testing.T) {
 	port := unusedPort(t)
 	var wakes atomic.Int32
 	server, err := New(Options{
-		Config: proxy.Config{Listeners: map[string]proxy.Listener{
+		Config: Config{Listeners: map[string]Listener{
 			"api:proxy": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
 		Waker: testWaker{wake: func(_ context.Context, listener string) (string, error) {
@@ -163,17 +161,17 @@ func TestServerHealthCheckDoesNotWakeAndPayloadForwards(t *testing.T) {
 	}
 }
 
-// TestServerDispatchesSharedPortByDestinationIP verifies destination-based listener dispatch.
-func TestServerDispatchesSharedPortByDestinationIP(t *testing.T) {
+// TestServerDispatchesSharedPortByFrontendIP verifies frontend-based listener dispatch.
+func TestServerDispatchesSharedPortByFrontendIP(t *testing.T) {
 	upstream, closeUpstream := startEchoServer(t)
 	defer closeUpstream()
 	port := unusedPort(t)
 	var mu sync.Mutex
 	var identities []string
 	server, err := New(Options{
-		Config: proxy.Config{Listeners: map[string]proxy.Listener{
-			"one": {Tenant: "red", ProxyPort: port, TargetPort: port, DestinationIP: "127.0.0.1"},
-			"two": {Tenant: "red", ProxyPort: port, TargetPort: port, DestinationIP: "127.0.0.2"},
+		Config: Config{Listeners: map[string]Listener{
+			"one": {Tenant: "red", ProxyPort: port, TargetPort: port, FrontendIP: "127.0.0.1"},
+			"two": {Tenant: "red", ProxyPort: port, TargetPort: port, FrontendIP: "127.0.0.2"},
 		}},
 		Waker: testWaker{wake: func(_ context.Context, listener string) (string, error) {
 			mu.Lock()
@@ -216,7 +214,7 @@ func TestServerDispatchesSharedPortByDestinationIP(t *testing.T) {
 func TestServerBoundsConnectionHoldTimeout(t *testing.T) {
 	port := unusedPort(t)
 	server, err := New(Options{
-		Config: proxy.Config{Listeners: map[string]proxy.Listener{
+		Config: Config{Listeners: map[string]Listener{
 			"api": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
 		Waker: testWaker{wake: func(ctx context.Context, _ string) (string, error) {
@@ -258,7 +256,7 @@ func TestServerBoundsConnectionHoldTimeout(t *testing.T) {
 func TestServerForcesIdleConnectionsClosedAtShutdownDeadline(t *testing.T) {
 	port := unusedPort(t)
 	server, err := New(Options{
-		Config: proxy.Config{Listeners: map[string]proxy.Listener{
+		Config: Config{Listeners: map[string]Listener{
 			"api": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
 		Waker:           testWaker{wake: func(context.Context, string) (string, error) { return "", nil }},
@@ -302,7 +300,7 @@ func TestServerCloseIsBoundedWhenWakerIgnoresContext(t *testing.T) {
 	port := unusedPort(t)
 	blocked := make(chan struct{})
 	server, err := New(Options{
-		Config: proxy.Config{Listeners: map[string]proxy.Listener{
+		Config: Config{Listeners: map[string]Listener{
 			"api": {Tenant: "red", ProxyPort: port, TargetPort: 6443},
 		}},
 		Waker: testWaker{wake: func(context.Context, string) (string, error) {

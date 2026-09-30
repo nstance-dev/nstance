@@ -131,12 +131,13 @@ func (TunnelStatus_State) EnumDescriptor() ([]byte, []int) {
 	return file_proto_tunnel_proto_rawDescGZIP(), []int{1, 0}
 }
 
-// TunnelDesiredState requests a revisioned lifecycle state for one tunnel.
+// TunnelDesiredState requests a leased lifecycle state for one tunnel.
 type TunnelDesiredState struct {
 	state         protoimpl.MessageState   `protogen:"open.v1"`
 	TunnelName    string                   `protobuf:"bytes,1,opt,name=tunnel_name,json=tunnelName,proto3" json:"tunnel_name,omitempty"`
 	Revision      uint64                   `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	State         TunnelDesiredState_State `protobuf:"varint,3,opt,name=state,proto3,enum=nstance.v1.TunnelDesiredState_State" json:"state,omitempty"`
+	LeaseSeconds  uint32                   `protobuf:"varint,4,opt,name=lease_seconds,json=leaseSeconds,proto3" json:"lease_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -190,6 +191,13 @@ func (x *TunnelDesiredState) GetState() TunnelDesiredState_State {
 		return x.State
 	}
 	return TunnelDesiredState_TUNNEL_DESIRED_STATE_UNSPECIFIED
+}
+
+func (x *TunnelDesiredState) GetLeaseSeconds() uint32 {
+	if x != nil {
+		return x.LeaseSeconds
+	}
+	return 0
 }
 
 // TunnelStatus reports a revisioned tunnel lifecycle observation.
@@ -266,12 +274,13 @@ var File_proto_tunnel_proto protoreflect.FileDescriptor
 const file_proto_tunnel_proto_rawDesc = "" +
 	"\n" +
 	"\x12proto/tunnel.proto\x12\n" +
-	"nstance.v1\"\x80\x02\n" +
+	"nstance.v1\"\xa5\x02\n" +
 	"\x12TunnelDesiredState\x12\x1f\n" +
 	"\vtunnel_name\x18\x01 \x01(\tR\n" +
 	"tunnelName\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x12:\n" +
-	"\x05state\x18\x03 \x01(\x0e2$.nstance.v1.TunnelDesiredState.StateR\x05state\"q\n" +
+	"\x05state\x18\x03 \x01(\x0e2$.nstance.v1.TunnelDesiredState.StateR\x05state\x12#\n" +
+	"\rlease_seconds\x18\x04 \x01(\rR\fleaseSeconds\"q\n" +
 	"\x05State\x12$\n" +
 	" TUNNEL_DESIRED_STATE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cTUNNEL_DESIRED_STATE_RUNNING\x10\x01\x12 \n" +
@@ -290,7 +299,7 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x1bTUNNEL_STATUS_STATE_STOPPED\x10\x04B\b\n" +
 	"\x06_error2W\n" +
 	"\rTunnelService\x12F\n" +
-	"\x06Manage\x12\x1e.nstance.v1.TunnelDesiredState\x1a\x18.nstance.v1.TunnelStatus(\x010\x01B/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
+	"\x06Manage\x12\x18.nstance.v1.TunnelStatus\x1a\x1e.nstance.v1.TunnelDesiredState(\x010\x01B/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
 
 var (
 	file_proto_tunnel_proto_rawDescOnce sync.Once
@@ -315,8 +324,8 @@ var file_proto_tunnel_proto_goTypes = []any{
 var file_proto_tunnel_proto_depIdxs = []int32{
 	0, // 0: nstance.v1.TunnelDesiredState.state:type_name -> nstance.v1.TunnelDesiredState.State
 	1, // 1: nstance.v1.TunnelStatus.state:type_name -> nstance.v1.TunnelStatus.State
-	2, // 2: nstance.v1.TunnelService.Manage:input_type -> nstance.v1.TunnelDesiredState
-	3, // 3: nstance.v1.TunnelService.Manage:output_type -> nstance.v1.TunnelStatus
+	3, // 2: nstance.v1.TunnelService.Manage:input_type -> nstance.v1.TunnelStatus
+	2, // 3: nstance.v1.TunnelService.Manage:output_type -> nstance.v1.TunnelDesiredState
 	3, // [3:4] is the sub-list for method output_type
 	2, // [2:3] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name

@@ -466,6 +466,9 @@ func TestLoadBalancerValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config := newTestConfig()
 			config.LoadBalancers = tt.loadBalancers
+			if _, ok := tt.loadBalancers["tunnel"]; ok {
+				config.Tunnels = map[string]TunnelPodConfig{"tunnel": {Image: "example.invalid/tunnel@sha256:" + strings.Repeat("a", 64), ReadinessURL: "http://127.0.0.1:2000/ready"}}
+			}
 			var references []string
 			for key := range tt.loadBalancers {
 				references = append(references, key)

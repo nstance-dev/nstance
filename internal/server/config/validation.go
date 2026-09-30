@@ -5,7 +5,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -16,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/tailscale/hujson"
 )
 
 // ValidateFile validates a local configuration file
@@ -25,32 +23,7 @@ func ValidateFile(filePath string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file '%s': %w", filePath, err)
 	}
-	return ParseBytes(data)
-}
-
-// ParseBytes parses and validates configuration from bytes
-func ParseBytes(data []byte) (*Config, error) {
-	// Convert JSONC to standard JSON
-	jsonData, err := hujson.Standardize(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse configuration JSONC: %w", err)
-	}
-
-	// Parse into Config struct
-	var config Config
-	if err := json.Unmarshal(jsonData, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse configuration JSONC: %w", err)
-	}
-
-	// Set defaults
-	config.SetDefaults()
-
-	// Validate
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("validation errors: %w", err)
-	}
-
-	return &config, nil
+	return Parse(data)
 }
 
 // RegisterCustomValidators registers custom validation functions

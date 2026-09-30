@@ -13,8 +13,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/nstance-dev/nstance/internal/proxy"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // handlerState records test wake operations.

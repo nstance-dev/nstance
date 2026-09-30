@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/internal/proxy"
 	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 const defaultUpstreamPollInterval = 200 * time.Millisecond

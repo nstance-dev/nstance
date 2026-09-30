@@ -10,89 +10,110 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/nstance-dev/nstance/internal/proto"
 )
 
-// ErrUnavailable indicates that a requested result was lost with its Manage
-// session. Callers may set the desired state again to obtain a new revision.
+const (
+	heartbeatInterval = 5 * time.Second
+	leaseDuration     = 30 * time.Second
+)
+
+// ErrUnavailable indicates that no shard-leader tunnel service is available.
 var ErrUnavailable = errors.New("tunnel supervisor unavailable")
 
-// result is a terminal status or session error for one logical revision.
+// result is a terminal status for one desired-state revision.
 type result struct {
 	status *proto.TunnelStatus
 	err    error
 }
 
-// desired records a tunnel's requested state and logical revision.
+// desired records a tunnel's requested state and revision.
 type desired struct {
 	state    proto.TunnelDesiredState_State
 	revision uint64
 }
 
-// key identifies one logical tunnel revision.
+// key identifies one tunnel revision.
 type key struct {
 	tunnelName string
 	revision   uint64
 }
 
-// Controller maintains one reconnecting TunnelService Manage session.
-type Controller struct {
-	socket string
-	logger *slog.Logger
-
-	mu      sync.Mutex
-	desired map[string]desired
-	next    uint64
-	results map[key]result
-	waiters map[key][]chan struct{}
+// session is the one supervisor connection accepted during a leadership term.
+type session struct {
 	updates chan struct{}
-	started bool
-	stopped bool
 	cancel  context.CancelFunc
-	done    chan struct{}
-	conn    *grpc.ClientConn
 }
 
-// New creates a controller for a Unix socket.
+// Controller serves leased tunnel intent while this server is shard leader.
+type Controller struct {
+	proto.UnimplementedTunnelServiceServer
+
+	socket    string
+	heartbeat time.Duration
+	lease     time.Duration
+	logger    *slog.Logger
+
+	mu       sync.Mutex
+	desired  map[string]desired
+	next     uint64
+	results  map[key]result
+	waiters  map[key][]chan struct{}
+	active   bool
+	session  *session
+	listener net.Listener
+	server   *grpc.Server
+}
+
+// New creates a leader-scoped tunnel controller.
 func New(socket string, logger *slog.Logger) (*Controller, error) {
 	if socket == "" {
-		return nil, fmt.Errorf("tunnel supervisor socket is required")
+		return nil, fmt.Errorf("tunnel control socket is required")
 	}
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
 	return &Controller{
-		socket: socket, logger: logger, desired: make(map[string]desired),
-		results: make(map[key]result), waiters: make(map[key][]chan struct{}),
-		updates: make(chan struct{}, 1), done: make(chan struct{}),
+		socket: socket, heartbeat: heartbeatInterval, lease: leaseDuration, logger: logger,
+		desired: make(map[string]desired), results: make(map[key]result), waiters: make(map[key][]chan struct{}),
 	}, nil
 }
 
-// Start starts the reconnect loop. It may only be called once.
-func (c *Controller) Start(ctx context.Context) error {
+// Start binds the tunnel control socket for one leadership term.
+func (c *Controller) Start() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.started {
+	if c.active {
 		return fmt.Errorf("tunnel controller already started")
 	}
-	if err := ctx.Err(); err != nil {
+	listener, err := listen(c.socket)
+	if err != nil {
 		return err
 	}
-	c.started = true
-	runCtx, cancel := context.WithCancel(ctx)
-	c.cancel = cancel
-	go c.run(runCtx)
+	server := grpc.NewServer()
+	proto.RegisterTunnelServiceServer(server, c)
+	c.active = true
+	c.listener = listener
+	c.server = server
+	go func() {
+		if err := server.Serve(listener); err != nil {
+			c.logger.Warn("tunnel control server stopped", "error", err)
+		}
+	}()
 	return nil
 }
 
-// SetDesired changes a tunnel's desired state and returns its logical
-// revision. Repeating the current state returns the existing revision.
+// SetDesired changes a tunnel's desired state and returns its revision.
 func (c *Controller) SetDesired(tunnelName string, state proto.TunnelDesiredState_State) (uint64, error) {
 	if tunnelName == "" {
 		return 0, fmt.Errorf("tunnel name is required")
@@ -101,31 +122,23 @@ func (c *Controller) SetDesired(tunnelName string, state proto.TunnelDesiredStat
 		return 0, fmt.Errorf("desired state must be RUNNING or STOPPED")
 	}
 	c.mu.Lock()
-	if c.stopped {
-		c.mu.Unlock()
+	defer c.mu.Unlock()
+	if !c.active {
 		return 0, ErrUnavailable
 	}
 	if current, ok := c.desired[tunnelName]; ok && current.state == state {
 		previous, completed := c.results[key{tunnelName: tunnelName, revision: current.revision}]
-		if !completed || previous.err == nil {
-			c.mu.Unlock()
+		if !completed || (previous.err == nil && previous.status.GetState() != proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED) {
 			return current.revision, nil
 		}
 	}
-	c.next++
-	if c.next == 0 {
-		c.next++
-	}
-	revision := c.next
+	revision := c.nextRevisionLocked()
 	c.desired[tunnelName] = desired{state: state, revision: revision}
-	c.mu.Unlock()
-	c.signalUpdate()
+	c.signalLocked()
 	return revision, nil
 }
 
-// Wait waits for the exact logical revision to become READY, FAILED, or
-// STOPPED. A session loss fails pending waits rather than silently moving them
-// to a different supervisor session.
+// Wait waits for a revision to become ready, failed, or stopped.
 func (c *Controller) Wait(ctx context.Context, tunnelName string, revision uint64) (*proto.TunnelStatus, error) {
 	k := key{tunnelName: tunnelName, revision: revision}
 	c.mu.Lock()
@@ -133,7 +146,7 @@ func (c *Controller) Wait(ctx context.Context, tunnelName string, revision uint6
 		c.mu.Unlock()
 		return r.status, r.err
 	}
-	if c.stopped {
+	if !c.active {
 		c.mu.Unlock()
 		return nil, ErrUnavailable
 	}
@@ -142,20 +155,7 @@ func (c *Controller) Wait(ctx context.Context, tunnelName string, revision uint6
 	c.mu.Unlock()
 	select {
 	case <-ctx.Done():
-		c.mu.Lock()
-		waiters := c.waiters[k]
-		for i, waiter := range waiters {
-			if waiter == ch {
-				waiters = append(waiters[:i], waiters[i+1:]...)
-				break
-			}
-		}
-		if len(waiters) == 0 {
-			delete(c.waiters, k)
-		} else {
-			c.waiters[k] = waiters
-		}
-		c.mu.Unlock()
+		c.removeWaiter(k, ch)
 		return nil, ctx.Err()
 	case <-ch:
 		c.mu.Lock()
@@ -165,167 +165,165 @@ func (c *Controller) Wait(ctx context.Context, tunnelName string, revision uint6
 	}
 }
 
-// Stop closes the active session and connection and waits for the reconnect
-// goroutine to exit. It is safe to call more than once.
+// Stop revokes running tunnels and closes the leadership-term service.
 func (c *Controller) Stop() {
 	c.mu.Lock()
-	if !c.started {
-		c.stopped = true
-		c.failPendingLocked(ErrUnavailable)
+	if !c.active {
 		c.mu.Unlock()
 		return
 	}
-	cancel, done := c.cancel, c.done
+	stops := make([]key, 0, len(c.desired))
+	for tunnelName, current := range c.desired {
+		if current.state != proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
+			continue
+		}
+		revision := c.nextRevisionLocked()
+		c.desired[tunnelName] = desired{state: proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED, revision: revision}
+		stops = append(stops, key{tunnelName: tunnelName, revision: revision})
+	}
+	c.signalLocked()
 	c.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*c.heartbeat)
+	for _, stop := range stops {
+		_, _ = c.Wait(ctx, stop.tunnelName, stop.revision)
+	}
 	cancel()
-	<-done
+
+	c.mu.Lock()
+	c.active = false
+	if c.session != nil {
+		c.session.cancel()
+		c.session = nil
+	}
+	server, listener := c.server, c.listener
+	c.server = nil
+	c.listener = nil
+	c.failPendingLocked(ErrUnavailable)
+	c.mu.Unlock()
+	if server != nil {
+		server.Stop()
+	}
+	if listener != nil {
+		_ = listener.Close()
+	}
+	_ = os.Remove(c.socket)
 }
 
-// run reconnects control sessions until ctx is canceled.
-func (c *Controller) run(ctx context.Context) {
-	defer close(c.done)
-	defer func() {
-		c.mu.Lock()
-		c.stopped = true
-		c.failPendingLocked(ErrUnavailable)
-		c.mu.Unlock()
-	}()
-	backoff := 20 * time.Millisecond
-	for ctx.Err() == nil {
-		err := c.session(ctx)
-		if ctx.Err() != nil {
-			break
-		}
-		c.logger.Warn("tunnel supervisor session lost", "error", err, "backoff", backoff)
-		c.mu.Lock()
-		c.failPendingLocked(fmt.Errorf("%w: %v", ErrUnavailable, err))
-		c.mu.Unlock()
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-		case <-timer.C:
-		}
-		backoff = min(backoff*2, time.Second)
-	}
+// Manage streams leader intent to the locally connecting tunnel supervisor.
+func (c *Controller) Manage(stream grpc.BidiStreamingServer[proto.TunnelStatus, proto.TunnelDesiredState]) error {
+	ctx, cancel := context.WithCancel(stream.Context())
+	sess := &session{updates: make(chan struct{}, 1), cancel: cancel}
 	c.mu.Lock()
-	if c.conn != nil {
-		_ = c.conn.Close()
-		c.conn = nil
+	if !c.active {
+		c.mu.Unlock()
+		cancel()
+		return status.Error(codes.FailedPrecondition, "server is not shard leader")
 	}
-	c.mu.Unlock()
-}
-
-// session exchanges desired states and statuses over one connection.
-func (c *Controller) session(ctx context.Context) (sessionErr error) {
-	conn, err := grpc.NewClient("unix://"+c.socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return err
+	if c.session != nil {
+		c.mu.Unlock()
+		cancel()
+		return status.Error(codes.AlreadyExists, "tunnel supervisor already connected")
 	}
-	c.mu.Lock()
-	c.conn = conn
+	c.session = sess
 	c.mu.Unlock()
 	defer func() {
-		_ = conn.Close()
+		cancel()
 		c.mu.Lock()
-		if c.conn == conn {
-			c.conn = nil
+		if c.session == sess {
+			c.session = nil
 		}
 		c.mu.Unlock()
 	}()
-	stream, err := proto.NewTunnelServiceClient(conn).Manage(ctx)
-	if err != nil {
-		return err
-	}
 
-	// Wire revisions are deliberately local to this session. The map translates
-	// terminal statuses back to the stable logical revisions exposed to callers.
-	wire := uint64(0)
-	sent := make(map[string]desired)
-	logical := make(map[key]uint64)
-	defer func() {
-		if sessionErr == nil || ctx.Err() != nil {
-			return
-		}
-		availabilityErr := fmt.Errorf("%w: %v", ErrUnavailable, sessionErr)
-		for wireKey, logicalRevision := range logical {
-			c.complete(key{tunnelName: wireKey.tunnelName, revision: logicalRevision}, result{err: availabilityErr})
-		}
-	}()
-	sendCurrent := func() error {
-		c.mu.Lock()
-		copyDesired := make(map[string]desired, len(c.desired))
-		for tunnelName, d := range c.desired {
-			copyDesired[tunnelName] = d
-		}
-		c.mu.Unlock()
-		for tunnelName, d := range copyDesired {
-			if old, ok := sent[tunnelName]; ok && old == d {
-				continue
-			}
-			wire++
-			if err := stream.Send(&proto.TunnelDesiredState{TunnelName: tunnelName, Revision: wire, State: d.state}); err != nil {
-				return err
-			}
-			sent[tunnelName] = d
-			logical[key{tunnelName: tunnelName, revision: wire}] = d.revision
-		}
-		return nil
-	}
-	if err := sendCurrent(); err != nil {
-		return err
-	}
-	recv := make(chan result, 1)
+	received := make(chan result, 1)
 	go func() {
-		message, recvErr := stream.Recv()
-		recv <- result{status: message, err: recvErr}
+		for {
+			message, err := stream.Recv()
+			select {
+			case received <- result{status: message, err: err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
 	}()
+	ticker := time.NewTicker(c.heartbeat)
+	defer ticker.Stop()
+	if err := c.sendDesired(stream, true); err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():
-			_ = stream.CloseSend()
 			return ctx.Err()
-		case <-c.updates:
-			if err := sendCurrent(); err != nil {
+		case <-sess.updates:
+			if err := c.sendDesired(stream, true); err != nil {
 				return err
 			}
-		case received := <-recv:
-			if received.err != nil {
-				if errors.Is(received.err, io.EOF) {
-					return io.EOF
-				}
-				return received.err
+		case <-ticker.C:
+			if err := c.sendDesired(stream, false); err != nil {
+				return err
 			}
-			message := received.status
-			logicalRevision, ok := logical[key{tunnelName: message.TunnelName, revision: message.Revision}]
-			switch message.State {
-			case proto.TunnelStatus_TUNNEL_STATUS_STATE_READY,
-				proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED,
-				proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED:
-				if !ok {
-					break
+		case item := <-received:
+			if item.err != nil {
+				if errors.Is(item.err, io.EOF) {
+					return nil
 				}
-				copyStatus := &proto.TunnelStatus{
-					TunnelName: message.TunnelName,
-					Revision:   logicalRevision,
-					State:      message.State,
-					Error:      message.Error,
-				}
-				c.complete(key{tunnelName: message.TunnelName, revision: logicalRevision}, result{status: copyStatus})
+				return item.err
 			}
-			go func() {
-				message, recvErr := stream.Recv()
-				recv <- result{status: message, err: recvErr}
-			}()
+			c.recordStatus(item.status)
 		}
 	}
 }
 
-// signalUpdate notifies the active session without blocking the caller.
-func (c *Controller) signalUpdate() {
-	select {
-	case c.updates <- struct{}{}:
-	default:
+// sendDesired sends every state change or renews every running-state lease.
+func (c *Controller) sendDesired(stream grpc.BidiStreamingServer[proto.TunnelStatus, proto.TunnelDesiredState], includeStopped bool) error {
+	c.mu.Lock()
+	items := make(map[string]desired, len(c.desired))
+	for name, item := range c.desired {
+		if includeStopped || item.state == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
+			items[name] = item
+		}
+	}
+	c.mu.Unlock()
+	leaseSeconds := uint32((c.lease + time.Second - 1) / time.Second)
+	for name, item := range items {
+		message := &proto.TunnelDesiredState{TunnelName: name, Revision: item.revision, State: item.state}
+		if item.state == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
+			message.LeaseSeconds = leaseSeconds
+		}
+		if err := stream.Send(message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordStatus stores terminal statuses and wakes their waiters.
+func (c *Controller) recordStatus(message *proto.TunnelStatus) {
+	if message == nil || message.TunnelName == "" || message.Revision == 0 {
+		return
+	}
+	c.mu.Lock()
+	desired, ok := c.desired[message.TunnelName]
+	c.mu.Unlock()
+	if !ok || desired.revision != message.Revision {
+		return
+	}
+	switch message.State {
+	case proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED:
+		c.complete(key{tunnelName: message.TunnelName, revision: message.Revision}, result{status: message})
+	case proto.TunnelStatus_TUNNEL_STATUS_STATE_READY:
+		if desired.state == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
+			c.complete(key{tunnelName: message.TunnelName, revision: message.Revision}, result{status: message})
+		}
+	case proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED:
+		if desired.state == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED {
+			c.complete(key{tunnelName: message.TunnelName, revision: message.Revision}, result{status: message})
+		}
 	}
 }
 
@@ -343,7 +341,45 @@ func (c *Controller) complete(k key, r result) {
 	delete(c.waiters, k)
 }
 
-// failPendingLocked completes all pending waits with err while c.mu is held.
+// removeWaiter removes one canceled waiter.
+func (c *Controller) removeWaiter(k key, ch chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	waiters := c.waiters[k]
+	for i, waiter := range waiters {
+		if waiter == ch {
+			waiters = append(waiters[:i], waiters[i+1:]...)
+			break
+		}
+	}
+	if len(waiters) == 0 {
+		delete(c.waiters, k)
+	} else {
+		c.waiters[k] = waiters
+	}
+}
+
+// nextRevisionLocked returns the next nonzero revision while c.mu is held.
+func (c *Controller) nextRevisionLocked() uint64 {
+	c.next++
+	if c.next == 0 {
+		c.next++
+	}
+	return c.next
+}
+
+// signalLocked wakes the active stream while c.mu is held.
+func (c *Controller) signalLocked() {
+	if c.session == nil {
+		return
+	}
+	select {
+	case c.session.updates <- struct{}{}:
+	default:
+	}
+}
+
+// failPendingLocked completes every pending wait while c.mu is held.
 func (c *Controller) failPendingLocked(err error) {
 	for k, waiters := range c.waiters {
 		if _, complete := c.results[k]; complete {
@@ -355,4 +391,31 @@ func (c *Controller) failPendingLocked(err error) {
 		}
 		delete(c.waiters, k)
 	}
+}
+
+// listen binds a mode-0660 Unix socket in an existing directory.
+func listen(path string) (net.Listener, error) {
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("tunnel socket parent directory must exist")
+	}
+	if existing, statErr := os.Lstat(path); statErr == nil {
+		if existing.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("refuse to replace non-socket path %s", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return nil, fmt.Errorf("remove stale tunnel socket: %w", err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("inspect tunnel socket: %w", statErr)
+	}
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("listen on tunnel socket: %w", err)
+	}
+	if err := os.Chmod(path, 0660); err != nil {
+		_ = listener.Close()
+		return nil, fmt.Errorf("set tunnel socket permissions: %w", err)
+	}
+	return listener, nil
 }

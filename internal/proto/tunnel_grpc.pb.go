@@ -30,9 +30,9 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// TunnelService controls nstance-server leader-owned local wake tunnels.
+// TunnelService lets the local tunnel supervisor follow shard-leader intent.
 type TunnelServiceClient interface {
-	Manage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelDesiredState, TunnelStatus], error)
+	Manage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelStatus, TunnelDesiredState], error)
 }
 
 type tunnelServiceClient struct {
@@ -43,26 +43,26 @@ func NewTunnelServiceClient(cc grpc.ClientConnInterface) TunnelServiceClient {
 	return &tunnelServiceClient{cc}
 }
 
-func (c *tunnelServiceClient) Manage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelDesiredState, TunnelStatus], error) {
+func (c *tunnelServiceClient) Manage(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[TunnelStatus, TunnelDesiredState], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &TunnelService_ServiceDesc.Streams[0], TunnelService_Manage_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[TunnelDesiredState, TunnelStatus]{ClientStream: stream}
+	x := &grpc.GenericClientStream[TunnelStatus, TunnelDesiredState]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type TunnelService_ManageClient = grpc.BidiStreamingClient[TunnelDesiredState, TunnelStatus]
+type TunnelService_ManageClient = grpc.BidiStreamingClient[TunnelStatus, TunnelDesiredState]
 
 // TunnelServiceServer is the server API for TunnelService service.
 // All implementations must embed UnimplementedTunnelServiceServer
 // for forward compatibility.
 //
-// TunnelService controls nstance-server leader-owned local wake tunnels.
+// TunnelService lets the local tunnel supervisor follow shard-leader intent.
 type TunnelServiceServer interface {
-	Manage(grpc.BidiStreamingServer[TunnelDesiredState, TunnelStatus]) error
+	Manage(grpc.BidiStreamingServer[TunnelStatus, TunnelDesiredState]) error
 	mustEmbedUnimplementedTunnelServiceServer()
 }
 
@@ -73,7 +73,7 @@ type TunnelServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedTunnelServiceServer struct{}
 
-func (UnimplementedTunnelServiceServer) Manage(grpc.BidiStreamingServer[TunnelDesiredState, TunnelStatus]) error {
+func (UnimplementedTunnelServiceServer) Manage(grpc.BidiStreamingServer[TunnelStatus, TunnelDesiredState]) error {
 	return status.Error(codes.Unimplemented, "method Manage not implemented")
 }
 func (UnimplementedTunnelServiceServer) mustEmbedUnimplementedTunnelServiceServer() {}
@@ -98,11 +98,11 @@ func RegisterTunnelServiceServer(s grpc.ServiceRegistrar, srv TunnelServiceServe
 }
 
 func _TunnelService_Manage_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(TunnelServiceServer).Manage(&grpc.GenericServerStream[TunnelDesiredState, TunnelStatus]{ServerStream: stream})
+	return srv.(TunnelServiceServer).Manage(&grpc.GenericServerStream[TunnelStatus, TunnelDesiredState]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type TunnelService_ManageServer = grpc.BidiStreamingServer[TunnelDesiredState, TunnelStatus]
+type TunnelService_ManageServer = grpc.BidiStreamingServer[TunnelStatus, TunnelDesiredState]
 
 // TunnelService_ServiceDesc is the grpc.ServiceDesc for TunnelService service.
 // It's only intended for direct use with grpc.RegisterService,

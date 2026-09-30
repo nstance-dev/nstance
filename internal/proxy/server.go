@@ -12,13 +12,11 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // Options configures a proxy server.
 type Options struct {
-	Config          proxy.Config
+	Config          Config
 	Waker           Waker
 	HoldTimeout     time.Duration
 	DialTimeout     time.Duration
@@ -34,8 +32,8 @@ type listenerRoute struct {
 
 // routingSnapshot is the immutable routing generation for one proxy port.
 type routingSnapshot struct {
-	exclusive *listenerRoute
-	byIP      map[string]*listenerRoute
+	exclusive    *listenerRoute
+	byFrontendIP map[string]*listenerRoute
 }
 
 // portListeners describes routing and the bound socket for one proxy port.
@@ -46,7 +44,7 @@ type portListeners struct {
 }
 
 // Reconcile replaces routing in place while retaining sockets for unchanged ports.
-func (s *Server) Reconcile(config proxy.Config) error {
+func (s *Server) Reconcile(config Config) error {
 	candidate, err := New(Options{Config: config, Waker: s.waker, HoldTimeout: s.holdTimeout, DialTimeout: s.dialTimeout, ShutdownTimeout: s.shutdownTimeout, BindHost: s.bindHost, Logger: s.logger})
 	if err != nil {
 		return err
@@ -94,7 +92,7 @@ func (s *Server) Reconcile(config proxy.Config) error {
 
 // Server accepts health checks without waking and wakes only after payload arrival.
 type Server struct {
-	config          proxy.Config
+	config          Config
 	waker           Waker
 	holdTimeout     time.Duration
 	dialTimeout     time.Duration
@@ -148,30 +146,30 @@ func New(opts Options) (*Server, error) {
 		}
 		port := server.ports[listener.ProxyPort]
 		if port == nil {
-			port = &portListeners{routes: &routingSnapshot{byIP: make(map[string]*listenerRoute)}}
+			port = &portListeners{routes: &routingSnapshot{byFrontendIP: make(map[string]*listenerRoute)}}
 			server.ports[listener.ProxyPort] = port
 		}
 		listener.Groups = append([]string(nil), listener.Groups...)
 		route := &listenerRoute{identity: key}
-		if listener.DestinationIP == "" {
-			if port.routes.exclusive != nil || len(port.routes.byIP) > 0 {
+		if listener.FrontendIP == "" {
+			if port.routes.exclusive != nil || len(port.routes.byFrontendIP) > 0 {
 				return nil, fmt.Errorf("proxy port %d is not exclusively owned by %s", listener.ProxyPort, key)
 			}
 			port.routes.exclusive = route
 			continue
 		}
 		if port.routes.exclusive != nil {
-			return nil, fmt.Errorf("proxy port %d mixes exclusive and destination listeners", listener.ProxyPort)
+			return nil, fmt.Errorf("proxy port %d mixes exclusive and frontend listeners", listener.ProxyPort)
 		}
-		ip := net.ParseIP(listener.DestinationIP)
+		ip := net.ParseIP(listener.FrontendIP)
 		if ip == nil {
-			return nil, fmt.Errorf("listener %s has invalid destination IP %q", key, listener.DestinationIP)
+			return nil, fmt.Errorf("listener %s has invalid frontend IP %q", key, listener.FrontendIP)
 		}
 		normalized := ip.String()
-		if previous := port.routes.byIP[normalized]; previous != nil {
-			return nil, fmt.Errorf("destination %s:%d is used by %s and %s", normalized, listener.ProxyPort, previous.identity, key)
+		if previous := port.routes.byFrontendIP[normalized]; previous != nil {
+			return nil, fmt.Errorf("frontend %s:%d is used by %s and %s", normalized, listener.ProxyPort, previous.identity, key)
 		}
-		port.routes.byIP[normalized] = route
+		port.routes.byFrontendIP[normalized] = route
 	}
 	return server, nil
 }

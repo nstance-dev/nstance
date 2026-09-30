@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/pkg/proxy"
+	"github.com/nstance-dev/nstance/internal/proxy"
 )
 
 // Handler handles the sole operation exposed over the local wake socket.
@@ -114,8 +114,8 @@ func snapshotFromConfig(generation uint64, cfg proxy.Config) *proto.ProxyConfigS
 	result := &proto.ProxyConfigSnapshot{Generation: generation, Listeners: make(map[string]*proto.ProxyListener, len(cfg.Listeners))}
 	for key, item := range cfg.Listeners {
 		listener := &proto.ProxyListener{Tenant: item.Tenant, Groups: append([]string(nil), item.Groups...), TargetPort: uint32(item.TargetPort), ProxyPort: uint32(item.ProxyPort)}
-		if item.DestinationIP != "" {
-			listener.DestinationIp = &item.DestinationIP
+		if item.FrontendIP != "" {
+			listener.FrontendIp = &item.FrontendIP
 		}
 		result.Listeners[key] = listener
 	}

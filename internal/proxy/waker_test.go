@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // snapshotReceiver returns a fixed sequence of snapshots.
@@ -47,7 +46,7 @@ func TestWatchConfigSnapshotsRejectsInvalidGenerationOrder(t *testing.T) {
 				receiver.snapshots = append(receiver.snapshots, &proto.ProxyConfigSnapshot{Generation: generation})
 			}
 			applied := 0
-			err := watchConfigSnapshots(receiver, func(proxy.Config) error {
+			err := watchConfigSnapshots(receiver, func(Config) error {
 				applied++
 				return nil
 			})
@@ -69,7 +68,7 @@ func TestWatchConfigSnapshotsAcceptsInitialZeroAndIncreasingGenerations(t *testi
 		{Generation: 2},
 	}}
 	applied := 0
-	err := watchConfigSnapshots(receiver, func(proxy.Config) error {
+	err := watchConfigSnapshots(receiver, func(Config) error {
 		applied++
 		return nil
 	})

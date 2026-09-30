@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/nstance-dev/nstance/pkg/proxy"
+	"github.com/nstance-dev/nstance/internal/proxy"
 )
 
 // ProxyConfig derives provider-neutral listeners from load balancers and group references.
@@ -90,7 +90,7 @@ func (c *Config) ProxyConfig() (proxy.Config, error) {
 				if use.exclusive != "" {
 					return fmt.Errorf("proxy port %d collision between exclusive listener %s and Google listener %s", listener.ProxyPort, use.exclusive, key)
 				}
-				selector := net.JoinHostPort(listener.DestinationIP, strconv.Itoa(listener.ProxyPort))
+				selector := net.JoinHostPort(listener.FrontendIP, strconv.Itoa(listener.ProxyPort))
 				if previous := googleSelectors[selector]; previous != "" {
 					return fmt.Errorf("google listener selector %s collision between %s and %s", selector, previous, key)
 				}
@@ -123,7 +123,7 @@ func (c *Config) ProxyConfig() (proxy.Config, error) {
 				listener := proxy.Listener{Tenant: tenant, Groups: groups, TargetPort: item.Port, ProxyPort: item.Port}
 				key := fmt.Sprintf("%s:%d", lbName, item.Port)
 				if googlePorts[item.Port] > 1 {
-					listener.DestinationIP = item.IP
+					listener.FrontendIP = item.IP
 					key = lbName + "/" + net.JoinHostPort(item.IP, strconv.Itoa(item.Port))
 				}
 				if err := add(key, listener, false); err != nil {

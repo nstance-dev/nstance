@@ -23,6 +23,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/buildvars"
 	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/internal/proxy"
 	proxycmd "github.com/nstance-dev/nstance/internal/proxy/cmd"
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/api/agent"
@@ -47,8 +48,8 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/tenantstate"
 	"github.com/nstance-dev/nstance/internal/server/tunnelcontrol"
 	"github.com/nstance-dev/nstance/internal/server/wake"
+	tunnelcmd "github.com/nstance-dev/nstance/internal/tunnel/cmd"
 	"github.com/nstance-dev/nstance/pkg/instanceinfo"
-	"github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 var rootCmd = &cobra.Command{
@@ -97,9 +98,10 @@ func init() {
 	lflags.StringVar(&flagCacheDir, "cachedir", "./cache", "Directory for cache and database files")
 	lflags.StringVar(&flagAdvertiseHost, "advertise-host", "", "Override advertise host for health and election addrs (per-instance)")
 	lflags.StringVar(&flagProxySocket, "proxy-socket", "/run/nstance/nstance-server.sock", "Local proxy control socket")
-	lflags.StringVar(&flagTunnelSocket, "tunnel-socket", "/run/nstance/nstance-tunnel.sock", "Local nstance-tunnel control socket")
+	lflags.StringVar(&flagTunnelSocket, "tunnel-socket", "/run/nstance/nstance-tunnel.sock", "Local tunnel supervisor control socket")
 	lflags.StringVar(&flagServerFilesDir, "server-files-dir", "/run/nstance/files", "Directory for server-local files")
 	rootCmd.AddCommand(proxycmd.NewCommand())
+	rootCmd.AddCommand(tunnelcmd.NewCommand())
 }
 
 // NewRootCmd creates the nstance-server root command.
@@ -184,7 +186,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			config, err := config.ParseBytes(data)
+			config, err := config.Parse(data)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "✗ Remote configuration validation failed: %v\n", err)
 				os.Exit(1)
@@ -889,10 +891,10 @@ func NewRootCmd() *cobra.Command {
 				logger.Info("Starting leader services")
 				tunnelControl, err = tunnelcontrol.New(flagTunnelSocket, logger.With("component", "tunnel-control"))
 				if err != nil {
-					return fmt.Errorf("failed to create tunnel control client: %w", err)
+					return fmt.Errorf("failed to create tunnel control service: %w", err)
 				}
-				if err := tunnelControl.Start(ctx); err != nil {
-					return fmt.Errorf("failed to start tunnel control client: %w", err)
+				if err := tunnelControl.Start(); err != nil {
+					return fmt.Errorf("failed to start tunnel control service: %w", err)
 				}
 				if err := tenantState.Start(ctx); err != nil {
 					tunnelControl.Stop()

@@ -18,7 +18,6 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/buildvars"
 	"github.com/nstance-dev/nstance/internal/proxy"
-	proxyconfig "github.com/nstance-dev/nstance/pkg/proxy"
 )
 
 // commandConfig contains the proxy's environment configuration.
@@ -84,9 +83,9 @@ func run(command *cobra.Command, _ []string) error {
 	defer func() { _ = waker.Close() }()
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	configs := make(chan proxyconfig.Config, 1)
+	configs := make(chan proxy.Config, 1)
 	go watchConfig(ctx, logger, waker, configs)
-	var initial proxyconfig.Config
+	var initial proxy.Config
 	select {
 	case initial = <-configs:
 	case <-ctx.Done():
@@ -111,7 +110,7 @@ func run(command *cobra.Command, _ []string) error {
 	go func() {
 		retry := time.NewTicker(100 * time.Millisecond)
 		defer retry.Stop()
-		var pending *proxyconfig.Config
+		var pending *proxy.Config
 		for {
 			select {
 			case next := <-configs:
@@ -135,10 +134,10 @@ func run(command *cobra.Command, _ []string) error {
 }
 
 // watchConfig reconnects the local configuration stream until ctx is canceled.
-func watchConfig(ctx context.Context, logger *slog.Logger, client *proxy.UnixWaker, configs chan proxyconfig.Config) {
+func watchConfig(ctx context.Context, logger *slog.Logger, client *proxy.UnixWaker, configs chan proxy.Config) {
 	backoff := 100 * time.Millisecond
 	for ctx.Err() == nil {
-		err := client.WatchConfig(ctx, func(cfg proxyconfig.Config) error {
+		err := client.WatchConfig(ctx, func(cfg proxy.Config) error {
 			select {
 			case <-configs:
 			default:
