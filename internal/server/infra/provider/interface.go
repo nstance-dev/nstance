@@ -28,5 +28,4 @@ type Provider interface {
 	DeregisterFromLB(ctx context.Context, req DeregisterLBRequest) error
 	GetLBTargetState(ctx context.Context, req RegisterLBRequest) (LBTargetState, error)
 	ListLBInstances(ctx context.Context, req ListLBInstancesRequest) ([]string, error)
-	SetLBCrossZone(ctx context.Context, req SetLBCrossZoneRequest) error
 }

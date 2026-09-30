@@ -173,12 +173,6 @@ type ListLBInstancesRequest struct {
 	Zone     string
 }
 
-// SetLBCrossZoneRequest contains parameters for configuring cross-zone load balancing.
-type SetLBCrossZoneRequest struct {
-	LBConfig LoadBalancerConfig
-	Enabled  bool
-}
-
 // ProviderConfig contains provider-specific configuration
 type ProviderConfig struct {
 	Kind    string                 `json:"kind"`

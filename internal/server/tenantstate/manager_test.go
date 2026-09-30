@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,7 +32,7 @@ func TestManagerSleepUpdateWakeAndCleanup(t *testing.T) {
 	defer manager.Stop()
 
 	firstWake := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
-	already, effective, err := manager.Sleep(ctx, "red", &firstWake, nil)
+	already, effective, err := manager.Sleep(ctx, "red", &firstWake, false, nil)
 	if err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestManagerSleepUpdateWakeAndCleanup(t *testing.T) {
 		t.Fatalf("first sleep = already %v, wake %v", already, effective)
 	}
 	secondWake := firstWake.Add(time.Hour)
-	already, effective, err = manager.Sleep(ctx, "red", &secondWake, nil)
+	already, effective, err = manager.Sleep(ctx, "red", &secondWake, false, nil)
 	if err != nil {
 		t.Fatalf("update Sleep: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestManagerRetriesCASConflictWithoutLosingConcurrentState(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	defer manager.Stop()
-	if _, _, err := manager.Sleep(ctx, "red", nil, nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", nil, false, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	data, _, err := base.Get(ctx, stateKey)
@@ -126,7 +127,7 @@ func TestManagerRestartResumesTimerAndConcurrentWakeConverges(t *testing.T) {
 		t.Fatalf("Start first manager: %v", err)
 	}
 	wakeAt := time.Now().UTC().Add(80 * time.Millisecond)
-	if _, _, err := first.Sleep(ctx, "red", &wakeAt, nil); err != nil {
+	if _, _, err := first.Sleep(ctx, "red", &wakeAt, false, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	first.Stop()
@@ -147,7 +148,7 @@ func TestManagerRestartResumesTimerAndConcurrentWakeConverges(t *testing.T) {
 		t.Fatal("tenant remains asleep after timer")
 	}
 
-	if _, _, err := restarted.Sleep(ctx, "red", nil, nil); err != nil {
+	if _, _, err := restarted.Sleep(ctx, "red", nil, false, nil); err != nil {
 		t.Fatalf("second Sleep: %v", err)
 	}
 	var woke atomic.Int32
@@ -203,7 +204,7 @@ func TestManagerRejectsOperationAfterStop(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	manager.Stop()
-	if _, _, err := manager.Sleep(ctx, "red", nil, nil); !errors.Is(err, ErrInactive) {
+	if _, _, err := manager.Sleep(ctx, "red", nil, false, nil); !errors.Is(err, ErrInactive) {
 		t.Fatalf("Sleep after Stop error = %v, want ErrInactive", err)
 	}
 	if _, err := manager.Wake(ctx, "red"); !errors.Is(err, ErrInactive) {
@@ -239,7 +240,7 @@ func TestManagerTimerRetriesTransientFailure(t *testing.T) {
 	}
 	defer manager.Stop()
 	wakeAt := time.Now().UTC().Add(30 * time.Millisecond)
-	if _, _, err := manager.Sleep(ctx, "red", &wakeAt, nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", &wakeAt, false, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	store.fail.Store(true)
@@ -264,11 +265,11 @@ func TestManagerStaleTimerDoesNotRemoveUpdatedSleep(t *testing.T) {
 	}
 	defer manager.Stop()
 	first := time.Now().UTC().Add(30 * time.Millisecond)
-	if _, _, err := manager.Sleep(ctx, "red", &first, nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", &first, false, nil); err != nil {
 		t.Fatalf("first Sleep: %v", err)
 	}
 	updated := time.Now().UTC().Add(200 * time.Millisecond)
-	if _, _, err := manager.Sleep(ctx, "red", &updated, nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", &updated, false, nil); err != nil {
 		t.Fatalf("updated Sleep: %v", err)
 	}
 	time.Sleep(80 * time.Millisecond)
@@ -290,13 +291,13 @@ func TestManagerGuardsSleepAndOnDemandCreation(t *testing.T) {
 	defer manager.Stop()
 
 	blocked := errors.New("blocked")
-	if _, _, err := manager.Sleep(ctx, "red", nil, func(context.Context) error { return blocked }); !errors.Is(err, blocked) {
+	if _, _, err := manager.Sleep(ctx, "red", nil, false, func(context.Context) error { return blocked }); !errors.Is(err, blocked) {
 		t.Fatalf("Sleep check error = %v, want %v", err, blocked)
 	}
 	if manager.IsAsleep("red") {
 		t.Fatal("failed sleep check persisted sleep state")
 	}
-	if _, _, err := manager.Sleep(ctx, "red", nil, nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", nil, false, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 	created := false
@@ -322,7 +323,7 @@ func TestManagerSerializesTenantOperations(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	defer manager.Stop()
-	if _, _, err := manager.Sleep(ctx, "red", nil, nil); err != nil {
+	if _, _, err := manager.Sleep(ctx, "red", nil, false, nil); err != nil {
 		t.Fatalf("Sleep: %v", err)
 	}
 
@@ -341,7 +342,7 @@ func TestManagerSerializesTenantOperations(t *testing.T) {
 
 	sleepDone := make(chan error, 1)
 	go func() {
-		_, _, err := manager.Sleep(ctx, "red", nil, nil)
+		_, _, err := manager.Sleep(ctx, "red", nil, false, nil)
 		sleepDone <- err
 	}()
 	select {
@@ -352,7 +353,7 @@ func TestManagerSerializesTenantOperations(t *testing.T) {
 
 	otherDone := make(chan error, 1)
 	go func() {
-		_, _, err := manager.Sleep(ctx, "blue", nil, nil)
+		_, _, err := manager.Sleep(ctx, "blue", nil, false, nil)
 		otherDone <- err
 	}()
 	select {
@@ -464,5 +465,211 @@ func TestManagerNewTermWaitsForOldOperation(t *testing.T) {
 	}
 	if err := <-newDone; err != nil {
 		t.Fatalf("new operation: %v", err)
+	}
+}
+
+// recordingCutover records cutover calls and can fail one named operation.
+type recordingCutover struct {
+	mu       sync.Mutex
+	calls    []string
+	failAt   string
+	onCalled func(string)
+}
+
+// call records an operation and returns its configured failure.
+func (c *recordingCutover) call(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, name)
+	if c.onCalled != nil {
+		c.onCalled(name)
+	}
+	if c.failAt == name {
+		return errors.New(name + " failed")
+	}
+	return nil
+}
+
+// InstallWakePath records wake-path installation.
+func (c *recordingCutover) InstallWakePath(context.Context, string) error {
+	return c.call("install")
+}
+
+// WaitWakePathReady records wake-path readiness.
+func (c *recordingCutover) WaitWakePathReady(context.Context, string) error {
+	return c.call("wake-ready")
+}
+
+// BeginTargetWithdrawal records the start of target draining.
+func (c *recordingCutover) BeginTargetWithdrawal(context.Context, string) error {
+	return c.call("drain")
+}
+
+// CheckActivity records the post-withdrawal guard.
+func (c *recordingCutover) CheckActivity(context.Context, string, time.Time) error {
+	return c.call("check")
+}
+
+// FinishTargetWithdrawal records confirmed target removal.
+func (c *recordingCutover) FinishTargetWithdrawal(context.Context, string) error {
+	return c.call("removed")
+}
+
+// RestoreTargets records target restoration.
+func (c *recordingCutover) RestoreTargets(context.Context, string) error {
+	return c.call("restore")
+}
+
+// WaitTargetsReady records target readiness.
+func (c *recordingCutover) WaitTargetsReady(context.Context, string) error {
+	return c.call("targets-ready")
+}
+
+// RemoveWakePath records wake-path removal.
+func (c *recordingCutover) RemoveWakePath(context.Context, string) error {
+	return c.call("remove-wake")
+}
+
+// snapshot returns a stable copy of recorded calls.
+func (c *recordingCutover) snapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.calls...)
+}
+
+// TestManagerOrdersSleepWakeCutovers verifies no-empty-route cutover ordering.
+func TestManagerOrdersSleepWakeCutovers(t *testing.T) {
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutover := &recordingCutover{}
+	blockedBeforeDrain := false
+	cutover.onCalled = func(name string) {
+		if name == "drain" {
+			blockedBeforeDrain = manager.TargetRegistrationBlocked("red")
+		}
+	}
+	manager.SetCutover(cutover)
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	guardCalled := false
+	if _, _, err := manager.Sleep(context.Background(), "red", nil, true, func(context.Context) error {
+		guardCalled = true
+		return nil
+	}); err != nil {
+		t.Fatalf("Sleep: %v", err)
+	}
+	if !guardCalled || !manager.IsAsleep("red") {
+		t.Fatal("sleep did not run its final guard and commit")
+	}
+	if !blockedBeforeDrain || !manager.TargetRegistrationBlocked("red") {
+		t.Fatal("target registration was not durably blocked before withdrawal")
+	}
+	if _, err := manager.Wake(context.Background(), "red"); err != nil {
+		t.Fatalf("Wake: %v", err)
+	}
+	if manager.TargetRegistrationBlocked("red") {
+		t.Fatal("target registration remained blocked after restoration began")
+	}
+	want := []string{"install", "wake-ready", "drain", "check", "removed", "restore", "targets-ready", "remove-wake"}
+	if got := cutover.snapshot(); !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+}
+
+// TestManagerGuardRollbackRestoresTargets verifies the last activity guard
+// restores instance targets and removes the wake path instead of committing sleep.
+func TestManagerGuardRollbackRestoresTargets(t *testing.T) {
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutover := &recordingCutover{}
+	manager.SetCutover(cutover)
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	cutover.failAt = "check"
+	if _, _, err := manager.Sleep(context.Background(), "red", nil, true, func(context.Context) error { return nil }); err == nil {
+		t.Fatalf("Sleep error = %v, want ErrBusy", err)
+	}
+	if manager.IsAsleep("red") {
+		t.Fatal("busy tenant was committed asleep")
+	}
+	want := []string{"install", "wake-ready", "drain", "check", "restore", "targets-ready", "remove-wake"}
+	if got := cutover.snapshot(); !slices.Equal(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+}
+
+// TestManagerFailureSequenceRestorePreservesWakePath verifies a failed wake
+// restoration remains durably resumable and does not remove the wake path.
+func TestManagerFailureSequenceRestorePreservesWakePath(t *testing.T) {
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutover := &recordingCutover{}
+	manager.SetCutover(cutover)
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	if _, _, err := manager.Sleep(context.Background(), "red", nil, false, nil); err != nil {
+		t.Fatalf("Sleep: %v", err)
+	}
+	cutover.failAt = "targets-ready"
+	if _, err := manager.Wake(context.Background(), "red"); err == nil {
+		t.Fatal("Wake unexpectedly succeeded")
+	}
+	if slices.Contains(cutover.snapshot(), "remove-wake") {
+		t.Fatal("failed restore removed the wake path")
+	}
+	if progress := manager.transition("red"); !progress.Restoring {
+		t.Fatal("failed restore did not preserve durable restoration intent")
+	}
+	cutover.failAt = ""
+	if _, err := manager.Wake(context.Background(), "red"); err != nil {
+		t.Fatalf("retry Wake: %v", err)
+	}
+	if manager.IsAsleep("red") || manager.transition("red") != (TransitionProgress{}) {
+		t.Fatal("successful retry did not clear tenant transition")
+	}
+}
+
+// TestManagerReinstallsWakePathAfterLeadershipChange verifies leader-local
+// readiness is never trusted across leadership terms.
+func TestManagerReinstallsWakePathAfterLeadershipChange(t *testing.T) {
+	store := storage.NewMock()
+	manager, err := New(store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutover := &recordingCutover{}
+	manager.SetCutover(cutover)
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := manager.Sleep(context.Background(), "red", nil, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	manager.Stop()
+	cutover.mu.Lock()
+	cutover.calls = nil
+	cutover.mu.Unlock()
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Stop)
+	deadline := time.Now().Add(time.Second)
+	for len(cutover.snapshot()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got, want := cutover.snapshot(), []string{"install", "wake-ready"}; !slices.Equal(got, want) {
+		t.Fatalf("calls after leadership change = %v, want %v", got, want)
 	}
 }

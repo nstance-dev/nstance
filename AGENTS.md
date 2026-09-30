@@ -25,6 +25,11 @@
 - **Code**: Focus on Go best practices and writing straightforward, idiomatic Go code
 - **TODOs**: Try to fully implement things (avoid adding any new TODOs/unimplemented code), and if you do not complete something make sure you add a TODO comment and tell us about it when you do
 
+## Architecture Invariants
+- **Shard isolation**: An nstance-server operates on one shard and must not enumerate, discover, coordinate with, or wait for other shards. Each shard must continue operating independently if every other shard is unavailable.
+- **Cross-shard ownership**: Work that intentionally spans shards belongs in nstance-operator or nstance-admin, not nstance-server. Infrastructure configuration may enumerate shards for deployment, but that list must not become server runtime configuration.
+- **Shard-local decisions**: Sleep, wake, scaling, load-balancer cutovers, and similar server operations must use only the current shard's state and resources. Do not mutate cluster-wide infrastructure settings to implement a shard-local transition.
+
 ## Directory Structure
 - `api/`: Kubernetes custom resource API types
 - `bin/`: Built binaries

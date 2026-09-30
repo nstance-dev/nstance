@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/puidv7/puidv7-go"
 
@@ -24,6 +26,97 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/secrets"
 	"github.com/nstance-dev/nstance/internal/server/storage"
 )
+
+// blockingLBProvider makes a target withdrawal observable while delegating
+// all provider behavior to the embedded provider.
+type blockingLBProvider struct {
+	infra.Provider
+	deregisterEntered chan struct{}
+	deregisterRelease chan struct{}
+	registrations     atomic.Int32
+}
+
+// RegisterWithLB records and delegates a target registration.
+func (p *blockingLBProvider) RegisterWithLB(ctx context.Context, req infra.RegisterLBRequest) error {
+	p.registrations.Add(1)
+	return p.Provider.RegisterWithLB(ctx, req)
+}
+
+// DeregisterFromLB blocks until the test permits the target withdrawal.
+func (p *blockingLBProvider) DeregisterFromLB(ctx context.Context, req infra.DeregisterLBRequest) error {
+	close(p.deregisterEntered)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.deregisterRelease:
+	}
+	return p.Provider.DeregisterFromLB(ctx, req)
+}
+
+// TestReconcileLoadBalancersHonorsWithdrawalBoundary verifies a health report
+// queued behind withdrawal cannot re-add the target until restoration begins.
+func TestReconcileLoadBalancersHonorsWithdrawalBoundary(t *testing.T) {
+	ctx := context.Background()
+	db, err := localdb.Open(filepath.Join(t.TempDir(), "instances.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	providerID := "provider-1"
+	if err := db.CreateInstance(&localdb.Instance{ID: "instance-1", Tenant: "red", Group: "web", ProviderID: &providerID, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	loaderDB, err := localdb.Open(filepath.Join(t.TempDir(), "config.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = loaderDB.Close() })
+	loader, err := config.NewLoader(config.LoaderOptions{Storage: storage.NewMock(), CacheStorage: storage.NewMock(), LocalDB: loaderDB, Logger: slog.Default()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb := config.LoadBalancerConfig{Provider: "aws", TargetGroups: []config.AWSTargetGroupConfig{{ARN: "target-group", TargetPort: 443}}}
+	loader.SetConfig(&config.Config{
+		Shard:         config.ShardConfig{Infra: config.InfraConfig{Zone: "zone-a"}},
+		Groups:        map[string]map[string]config.GroupConfig{"red": {"web": {LoadBalancers: []string{"public"}}}},
+		LoadBalancers: map[string]config.LoadBalancerConfig{"public": lb},
+	})
+	delegate := mock.NewProvider(mock.Options{Config: infra.ProviderConfig{Kind: "mock"}, Logger: slog.Default()})
+	provider := &blockingLBProvider{Provider: delegate, deregisterEntered: make(chan struct{}), deregisterRelease: make(chan struct{})}
+	var blocked atomic.Bool
+	blocked.Store(true)
+	manager := &Manager{configLoader: loader, localDB: db, provider: provider, logger: slog.Default(), targetRegistrationBlocked: func(string) bool { return blocked.Load() }}
+	req := infra.RegisterLBRequest{ProviderInstanceID: providerID, LBConfig: infra.LoadBalancerConfigForProvider(lb), Zone: "zone-a"}
+	if err := delegate.RegisterWithLB(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	withdrawn := make(chan error, 1)
+	go func() { withdrawn <- manager.DeregisterTarget(ctx, infra.DeregisterLBRequest(req)) }()
+	<-provider.deregisterEntered
+	reconciled := make(chan error, 1)
+	go func() { reconciled <- manager.ReconcileLoadBalancers(ctx, "instance-1") }()
+	close(provider.deregisterRelease)
+	if err := <-withdrawn; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-reconciled; err != nil {
+		t.Fatal(err)
+	}
+	if got := provider.registrations.Load(); got != 0 {
+		t.Fatalf("registrations while blocked = %d, want 0", got)
+	}
+	state, err := delegate.GetLBTargetState(ctx, req)
+	if err != nil || state != infra.LBTargetDeregistered {
+		t.Fatalf("target state while blocked = %q, %v", state, err)
+	}
+	blocked.Store(false)
+	if err := manager.ReconcileLoadBalancers(ctx, "instance-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := provider.registrations.Load(); got != 1 {
+		t.Fatalf("registrations after restoration intent = %d, want 1", got)
+	}
+}
 
 func TestInstanceManager(t *testing.T) {
 	ctx := context.Background()

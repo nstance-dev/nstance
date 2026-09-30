@@ -532,15 +532,22 @@ func NewRootCmd() *cobra.Command {
 			}
 		}
 
+		tenantState, err := tenantstate.New(shardStorage, logger)
+		if err != nil {
+			logger.Error("Failed to create tenant state manager", "error", err)
+			os.Exit(1)
+		}
+
 		// create instances manager
 		instancesManagerOptions := instances.ManagerOptions{
-			ConfigLoader: configLoader,
-			SecretsStore: secretsStore,
-			Storage:      shardStorage,
-			LocalDB:      localDB,
-			Provider:     infraProvider,
-			CACert:       caCertData,
-			Logger:       logger,
+			ConfigLoader:              configLoader,
+			SecretsStore:              secretsStore,
+			Storage:                   shardStorage,
+			LocalDB:                   localDB,
+			Provider:                  infraProvider,
+			CACert:                    caCertData,
+			Logger:                    logger,
+			TargetRegistrationBlocked: tenantState.TargetRegistrationBlocked,
 		}
 		if imageService != nil {
 			instancesManagerOptions.ImageGetter = imageService
@@ -554,12 +561,31 @@ func NewRootCmd() *cobra.Command {
 
 		// create operator service first so we can wire drain notifications
 		var operatorService *operator.Service
-		tenantState, err := tenantstate.New(shardStorage, logger)
-		if err != nil {
-			logger.Error("Failed to create tenant state manager", "error", err)
-			os.Exit(1)
+		var tunnelControl *tunnelcontrol.Controller
+		var providerCutover *tenantstate.ProviderCutover
+		if len(cfg.LoadBalancers) > 0 {
+			serverProviderID, err := instanceInfoClient.GetInstanceID(ctx)
+			if err != nil {
+				logger.Error("Failed to resolve nstance-server provider instance ID", "error", err)
+				os.Exit(1)
+			}
+			providerCutover, err = tenantstate.NewProviderCutover(tenantstate.CutoverOptions{
+				Config:           configLoader.GetCurrent,
+				Instances:        localDB,
+				Provider:         infraProvider,
+				Targets:          instancesManager,
+				ServerInstanceID: serverProviderID,
+				Tunnel: func() tenantstate.TunnelController {
+					return tunnelControl
+				},
+				FreshFor: 2 * cfg.Shard.HealthCheckInterval.Duration(),
+			})
+			if err != nil {
+				logger.Error("Failed to create tenant provider cutover", "error", err)
+				os.Exit(1)
+			}
+			tenantState.SetCutover(providerCutover)
 		}
-
 		// create reconciler
 		rec, err := reconciler.New(reconciler.Options{
 			InstanceManager: instancesManager,
@@ -733,7 +759,6 @@ func NewRootCmd() *cobra.Command {
 			os.Exit(1)
 		}
 		defer proxyControl.Stop()
-		var tunnelControl *tunnelcontrol.Controller
 		fileGenerator := filegen.NewGenerator(configLoader, localDB, nil, caCertData, imageService, secretsStore, shardStorage, logger)
 		serverFileWriter := localfiles.Writer{Directory: flagServerFilesDir}
 		publishServerFiles := func(ctx context.Context, cfg *config.Config) error {
@@ -748,6 +773,7 @@ func NewRootCmd() *cobra.Command {
 		operatorService, err = operator.New(operator.Options{
 			ConfigLoader:    configLoader,
 			TenantState:     tenantState,
+			SleepReady:      providerCutover != nil,
 			LocalDB:         localDB,
 			InstanceManager: instancesManager,
 			OnGroupChanged: func(tenant, groupKey string) {

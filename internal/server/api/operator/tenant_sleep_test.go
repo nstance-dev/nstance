@@ -23,7 +23,7 @@ type sleepTestTenantState struct {
 }
 
 // Sleep records a test sleep operation.
-func (s *sleepTestTenantState) Sleep(ctx context.Context, _ string, _ *time.Time, check func(context.Context) error) (bool, *time.Time, error) {
+func (s *sleepTestTenantState) Sleep(ctx context.Context, _ string, _ *time.Time, _ bool, check func(context.Context) error) (bool, *time.Time, error) {
 	if check != nil {
 		if err := check(ctx); err != nil {
 			return false, nil, err

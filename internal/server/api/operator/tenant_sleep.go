@@ -22,9 +22,6 @@ import (
 // errSleepBlocked indicates that an on-demand instance prevents sleep.
 var errSleepBlocked = errors.New("on-demand instance prevents sleep")
 
-// errGuardedSleepUnavailable indicates that activity-aware sleep is not implemented.
-var errGuardedSleepUnavailable = errors.New("guarded sleep is unavailable")
-
 // SleepTenant marks a tenant as asleep.
 func (s *Service) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest) (*proto.SleepTenantResponse, error) {
 	if req == nil {
@@ -48,7 +45,7 @@ func (s *Service) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest
 		value := req.WakeAt.AsTime().UTC()
 		wakeAt = &value
 	}
-	alreadyAsleep, effectiveWakeAt, err := s.tenantState.Sleep(ctx, tenant, wakeAt, func(context.Context) error {
+	alreadyAsleep, effectiveWakeAt, err := s.tenantState.Sleep(ctx, tenant, wakeAt, req.IfNotBusy, func(context.Context) error {
 		hasOnDemand, err := s.localDB.HasOnDemandInstances(tenant)
 		if err != nil {
 			return err
@@ -56,20 +53,14 @@ func (s *Service) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest
 		if hasOnDemand {
 			return errSleepBlocked
 		}
-		if req.IfNotBusy {
-			return errGuardedSleepUnavailable
-		}
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, errSleepBlocked) {
+		if errors.Is(err, errSleepBlocked) || errors.Is(err, tenantstate.ErrBusy) {
 			return &proto.SleepTenantResponse{
 				Result: proto.SleepTenantResponse_RESULT_BUSY,
 				Status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE,
 			}, nil
-		}
-		if errors.Is(err, errGuardedSleepUnavailable) {
-			return nil, status.Error(codes.FailedPrecondition, "guarded sleep is unavailable until provider cutover is configured")
 		}
 		if errors.Is(err, tenantstate.ErrInactive) || errors.Is(err, context.Canceled) {
 			return nil, status.Error(codes.Unavailable, "shard leadership changed")

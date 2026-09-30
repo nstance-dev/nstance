@@ -39,6 +39,9 @@ type ListLBInstancesRequest = provider.ListLBInstancesRequest
 // LoadBalancerConfig contains provider-specific load-balancer settings.
 type LoadBalancerConfig = provider.LoadBalancerConfig
 
+// LBTargetState is the provider-observed lifecycle of a logical target.
+type LBTargetState = provider.LBTargetState
+
 // LeaderNetwork describes network identity assigned to a shard leader.
 type LeaderNetwork = provider.LeaderNetwork
 

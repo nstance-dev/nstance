@@ -432,11 +432,6 @@ func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInsta
 	return []string{}, nil
 }
 
-// SetLBCrossZone is a no-op for the development provider.
-func (p *Provider) SetLBCrossZone(ctx context.Context, req provider.SetLBCrossZoneRequest) error {
-	return nil
-}
-
 // createFakeNode creates a fake Kubernetes Node JSON file in dev-k8s directory
 func (p *Provider) createFakeNode(instanceID, providerInstanceID string) error {
 	if p.devK8sDir == "" {

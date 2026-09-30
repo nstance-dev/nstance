@@ -31,8 +31,6 @@ type elbv2API interface {
 	RegisterTargets(context.Context, *elasticloadbalancingv2.RegisterTargetsInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.RegisterTargetsOutput, error)
 	DeregisterTargets(context.Context, *elasticloadbalancingv2.DeregisterTargetsInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DeregisterTargetsOutput, error)
 	DescribeTargetHealth(context.Context, *elasticloadbalancingv2.DescribeTargetHealthInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetHealthOutput, error)
-	DescribeTargetGroupAttributes(context.Context, *elasticloadbalancingv2.DescribeTargetGroupAttributesInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetGroupAttributesOutput, error)
-	ModifyTargetGroupAttributes(context.Context, *elasticloadbalancingv2.ModifyTargetGroupAttributesInput, ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.ModifyTargetGroupAttributesOutput, error)
 }
 
 // ProviderOptions contains AWS-specific configuration options

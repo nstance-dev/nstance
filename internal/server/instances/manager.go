@@ -35,28 +35,30 @@ type ImageGetter interface {
 
 // Manager handles instance lifecycle management
 type Manager struct {
-	configLoader *config.Loader
-	secretsStore secrets.Store
-	storage      storage.Storage
-	localDB      *localdb.DB
-	provider     infra.Provider
-	jwtSigner    *JWTSigner
-	imageGetter  ImageGetter
-	caCert       []byte
-	logger       *slog.Logger
-	lbMu         sync.Mutex
+	configLoader              *config.Loader
+	secretsStore              secrets.Store
+	storage                   storage.Storage
+	localDB                   *localdb.DB
+	provider                  infra.Provider
+	jwtSigner                 *JWTSigner
+	imageGetter               ImageGetter
+	caCert                    []byte
+	logger                    *slog.Logger
+	lbMu                      sync.Mutex
+	targetRegistrationBlocked func(string) bool
 }
 
 // ManagerOptions contains options for creating an instance manager
 type ManagerOptions struct {
-	ConfigLoader *config.Loader
-	SecretsStore secrets.Store
-	Storage      storage.Storage
-	LocalDB      *localdb.DB
-	Provider     infra.Provider
-	ImageGetter  ImageGetter // Optional: can be nil if no images configured
-	CACert       []byte      // PEM-encoded CA certificate
-	Logger       *slog.Logger
+	ConfigLoader              *config.Loader
+	SecretsStore              secrets.Store
+	Storage                   storage.Storage
+	LocalDB                   *localdb.DB
+	Provider                  infra.Provider
+	ImageGetter               ImageGetter // Optional: can be nil if no images configured
+	CACert                    []byte      // PEM-encoded CA certificate
+	Logger                    *slog.Logger
+	TargetRegistrationBlocked func(string) bool
 }
 
 // NewManager creates a new instance manager
@@ -84,14 +86,15 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 	}
 
 	manager := &Manager{
-		configLoader: opts.ConfigLoader,
-		secretsStore: opts.SecretsStore,
-		storage:      opts.Storage,
-		localDB:      opts.LocalDB,
-		provider:     opts.Provider,
-		imageGetter:  opts.ImageGetter,
-		caCert:       opts.CACert,
-		logger:       opts.Logger,
+		configLoader:              opts.ConfigLoader,
+		secretsStore:              opts.SecretsStore,
+		storage:                   opts.Storage,
+		localDB:                   opts.LocalDB,
+		provider:                  opts.Provider,
+		imageGetter:               opts.ImageGetter,
+		caCert:                    opts.CACert,
+		logger:                    opts.Logger,
+		targetRegistrationBlocked: opts.TargetRegistrationBlocked,
 	}
 
 	// Initialize JWT signer for registration nonces
@@ -100,6 +103,20 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 	}
 
 	return manager, nil
+}
+
+// RegisterTarget registers a load-balancer target while excluding other target mutations.
+func (m *Manager) RegisterTarget(ctx context.Context, req infra.RegisterLBRequest) error {
+	m.lbMu.Lock()
+	defer m.lbMu.Unlock()
+	return m.provider.RegisterWithLB(ctx, req)
+}
+
+// DeregisterTarget deregisters a load-balancer target while excluding other target mutations.
+func (m *Manager) DeregisterTarget(ctx context.Context, req infra.DeregisterLBRequest) error {
+	m.lbMu.Lock()
+	defer m.lbMu.Unlock()
+	return m.provider.DeregisterFromLB(ctx, req)
 }
 
 // initialize loads secrets and sets up JWT signing
@@ -720,22 +737,25 @@ func (m *Manager) ReconcileLoadBalancers(ctx context.Context, instanceID string)
 	if len(cfg.LoadBalancers) == 0 {
 		return nil
 	}
-	group, err := config.GetGroup(ctx, m.configLoader, instance.Tenant, instance.Group)
-	if err != nil {
-		m.logger.Debug("No group configuration for instance",
-			"instance_id", instanceID,
-			"tenant", instance.Tenant,
-			"group", instance.Group)
-		return nil
-	}
-
-	for _, lbKey := range group.LoadBalancers {
-		if err := m.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusPending); err != nil {
-			m.logger.Error("Failed to create pending LB registration", "instance_id", instance.ID, "lb_key", lbKey, "error", err)
-			continue
+	blocked := m.targetRegistrationBlocked != nil && m.targetRegistrationBlocked(instance.Tenant)
+	if !blocked {
+		group, err := config.GetGroup(ctx, m.configLoader, instance.Tenant, instance.Group)
+		if err != nil {
+			m.logger.Debug("No group configuration for instance",
+				"instance_id", instanceID,
+				"tenant", instance.Tenant,
+				"group", instance.Group)
+			return nil
 		}
-		if err := m.reconcileLoadBalancerTarget(ctx, cfg, instance, lbKey); err != nil {
-			m.logger.Error("Failed to register instance with load balancer", "instance_id", instance.ID, "lb_key", lbKey, "error", err)
+
+		for _, lbKey := range group.LoadBalancers {
+			if err := m.localDB.UpsertLBInstance(lbKey, instance.ID, localdb.LBStatusPending); err != nil {
+				m.logger.Error("Failed to create pending LB registration", "instance_id", instance.ID, "lb_key", lbKey, "error", err)
+				continue
+			}
+			if err := m.reconcileLoadBalancerTarget(ctx, cfg, instance, lbKey); err != nil {
+				m.logger.Error("Failed to register instance with load balancer", "instance_id", instance.ID, "lb_key", lbKey, "error", err)
+			}
 		}
 	}
 
@@ -746,6 +766,9 @@ func (m *Manager) ReconcileLoadBalancers(ctx context.Context, instanceID string)
 	for _, target := range pending {
 		instance, err := m.localDB.GetInstance(target.InstanceID)
 		if err != nil || instance == nil || instance.ProviderID == nil || instance.DrainStartedAt != nil {
+			continue
+		}
+		if m.targetRegistrationBlocked != nil && m.targetRegistrationBlocked(instance.Tenant) {
 			continue
 		}
 		if err := m.reconcileLoadBalancerTarget(ctx, cfg, instance, target.LBKey); err != nil {

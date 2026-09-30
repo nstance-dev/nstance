@@ -85,7 +85,7 @@ type InstanceManager interface {
 
 // TenantState coordinates shard-local tenant lifecycle operations.
 type TenantState interface {
-	Sleep(ctx context.Context, tenant string, wakeAt *time.Time, check func(context.Context) error) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error)
+	Sleep(ctx context.Context, tenant string, wakeAt *time.Time, guarded bool, check func(context.Context) error) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error)
 	Wake(ctx context.Context, tenant string) (alreadyAwake bool, err error)
 	CreateOnDemand(ctx context.Context, tenant string, create func(context.Context) error) error
 }

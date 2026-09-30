@@ -11,11 +11,6 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
-// SetLBCrossZone reports that cross-zone load balancing is unsupported.
-func (p *Provider) SetLBCrossZone(ctx context.Context, req provider.SetLBCrossZoneRequest) error {
-	return fmt.Errorf("SetLBCrossZone not implemented for Proxmox")
-}
-
 // RegisterWithLB reports that Proxmox load-balancer registration is unsupported.
 func (p *Provider) RegisterWithLB(ctx context.Context, req provider.RegisterLBRequest) error {
 	return fmt.Errorf("RegisterWithLB not implemented for Proxmox")

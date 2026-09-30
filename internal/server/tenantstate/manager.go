@@ -33,9 +33,34 @@ type SleepState struct {
 	WakeAt *time.Time `json:"wake_at,omitempty"`
 }
 
+// TransitionProgress records completed cutover facts so a replacement leader
+// can safely continue the same transition.
+type TransitionProgress struct {
+	WakeAt       *time.Time `json:"wake_at,omitempty"`
+	WithdrawalAt *time.Time `json:"withdrawal_at,omitempty"`
+	Guarded      bool       `json:"guarded,omitempty"`
+	Restoring    bool       `json:"restoring,omitempty"`
+}
+
 // TenantState contains machine-managed runtime state for one tenant.
 type TenantState struct {
-	Sleep *SleepState `json:"sleep,omitempty"`
+	Sleep                     *SleepState         `json:"sleep,omitempty"`
+	Transition                *TransitionProgress `json:"transition,omitempty"`
+	TargetRegistrationBlocked bool                `json:"target_registration_blocked,omitempty"`
+}
+
+// Cutover performs provider and tunnel operations for a serialized tenant
+// transition. Every method must be idempotent because leadership can change
+// after an external operation succeeds but before its fact is persisted.
+type Cutover interface {
+	InstallWakePath(context.Context, string) error
+	WaitWakePathReady(context.Context, string) error
+	BeginTargetWithdrawal(context.Context, string) error
+	CheckActivity(context.Context, string, time.Time) error
+	FinishTargetWithdrawal(context.Context, string) error
+	RestoreTargets(context.Context, string) error
+	WaitTargetsReady(context.Context, string) error
+	RemoveWakePath(context.Context, string) error
 }
 
 // stateDocument is the complete persisted tenant runtime-state document.
@@ -56,6 +81,7 @@ type Manager struct {
 	state         stateDocument
 	timers        map[string]*time.Timer
 	onChanged     func(string)
+	cutover       Cutover
 	term          *leadershipTerm
 }
 
@@ -101,6 +127,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.stop()
 		return err
 	}
+	m.resumeTransitions()
 	return nil
 }
 
@@ -148,6 +175,25 @@ func (m *Manager) IsAsleep(tenant string) bool {
 	return m.state[tenant].Sleep != nil
 }
 
+// Status returns the tenant's current sleep state and wake deadline.
+func (m *Manager) Status(tenant string) (bool, *time.Time) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	sleep := m.state[tenant].Sleep
+	if sleep == nil {
+		return false, nil
+	}
+	return true, cloneTime(sleep.WakeAt)
+}
+
+// TargetRegistrationBlocked reports whether durable tenant state forbids
+// ordinary instance target registration.
+func (m *Manager) TargetRegistrationBlocked(tenant string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.state[tenant].TargetRegistrationBlocked
+}
+
 // SetOnChanged sets the callback invoked after a tenant's durable sleep state changes.
 // It must be configured before Start.
 func (m *Manager) SetOnChanged(onChanged func(string)) {
@@ -156,10 +202,18 @@ func (m *Manager) SetOnChanged(onChanged func(string)) {
 	m.onChanged = onChanged
 }
 
+// SetCutover configures the provider and tunnel cutover implementation. It
+// must be called before Start.
+func (m *Manager) SetCutover(cutover Cutover) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cutover = cutover
+}
+
 // Sleep atomically adds or updates a tenant sleep entry. alreadyAsleep describes
 // the state observed before this request; wakeAt is the effective stored deadline.
 // check runs while sleep and other tenant operations are excluded.
-func (m *Manager) Sleep(ctx context.Context, tenant string, wakeAt *time.Time, check func(context.Context) error) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error) {
+func (m *Manager) Sleep(ctx context.Context, tenant string, wakeAt *time.Time, guarded bool, check func(context.Context) error) (alreadyAsleep bool, effectiveWakeAt *time.Time, err error) {
 	if wakeAt != nil {
 		value := wakeAt.UTC()
 		wakeAt = &value
@@ -172,6 +226,25 @@ func (m *Manager) Sleep(ctx context.Context, tenant string, wakeAt *time.Time, c
 				return err
 			}
 		}
+		m.mu.RLock()
+		cutover := m.cutover
+		m.mu.RUnlock()
+		if cutover == nil {
+			state, err = m.update(ctx, func(state stateDocument) bool {
+				entry := state[tenant]
+				alreadyAsleep = entry.Sleep != nil
+				if alreadyAsleep && equalTime(entry.Sleep.WakeAt, wakeAt) {
+					effectiveWakeAt = cloneTime(entry.Sleep.WakeAt)
+					return false
+				}
+				entry.Sleep = &SleepState{WakeAt: cloneTime(wakeAt)}
+				state[tenant] = entry
+				effectiveWakeAt = cloneTime(wakeAt)
+				changed = true
+				return true
+			})
+			return err
+		}
 		var updateErr error
 		state, updateErr = m.update(ctx, func(state stateDocument) bool {
 			entry := state[tenant]
@@ -180,9 +253,34 @@ func (m *Manager) Sleep(ctx context.Context, tenant string, wakeAt *time.Time, c
 				effectiveWakeAt = cloneTime(entry.Sleep.WakeAt)
 				return false
 			}
-			entry.Sleep = &SleepState{WakeAt: cloneTime(wakeAt)}
+			if alreadyAsleep {
+				entry.Sleep.WakeAt = cloneTime(wakeAt)
+				state[tenant] = entry
+				effectiveWakeAt = cloneTime(wakeAt)
+				changed = true
+				return true
+			}
+			if entry.Transition == nil {
+				entry.Transition = &TransitionProgress{WakeAt: cloneTime(wakeAt), Guarded: guarded}
+			} else {
+				entry.Transition.WakeAt = cloneTime(wakeAt)
+				entry.Transition.Guarded = entry.Transition.Guarded || guarded
+			}
 			state[tenant] = entry
 			effectiveWakeAt = cloneTime(wakeAt)
+			return true
+		})
+		if updateErr != nil || alreadyAsleep {
+			return updateErr
+		}
+		if err := m.continueSleep(ctx, tenant, cutover); err != nil {
+			return err
+		}
+		state, updateErr = m.update(ctx, func(state stateDocument) bool {
+			entry := state[tenant]
+			entry.Sleep = &SleepState{WakeAt: cloneTime(wakeAt)}
+			entry.Transition = nil
+			state[tenant] = entry
 			changed = true
 			return true
 		})
@@ -237,19 +335,233 @@ func (m *Manager) WakeAndWait(ctx context.Context, tenant string, wait func(cont
 
 // wake removes a tenant's durable sleep entry while its tenant lock is held.
 func (m *Manager) wake(ctx context.Context, tenant string) (alreadyAwake bool, err error) {
+	m.mu.RLock()
+	cutover := m.cutover
+	m.mu.RUnlock()
+	if cutover == nil {
+		_, err = m.update(ctx, func(state stateDocument) bool {
+			entry, exists := state[tenant]
+			alreadyAwake = !exists || entry.Sleep == nil
+			if alreadyAwake {
+				return false
+			}
+			delete(state, tenant)
+			return true
+		})
+		if err == nil && !alreadyAwake {
+			m.notifyChanged(tenant)
+		}
+		return alreadyAwake, err
+	}
 	_, err = m.update(ctx, func(state stateDocument) bool {
 		entry, exists := state[tenant]
-		alreadyAwake = !exists || entry.Sleep == nil
+		alreadyAwake = !exists || (entry.Sleep == nil && entry.Transition == nil)
 		if alreadyAwake {
 			return false
 		}
-		delete(state, tenant)
+		entry.Sleep = nil
+		if entry.Transition == nil {
+			entry.Transition = &TransitionProgress{}
+		}
+		state[tenant] = entry
 		return true
 	})
-	if err == nil && !alreadyAwake {
-		m.notifyChanged(tenant)
+	if err != nil || alreadyAwake {
+		return alreadyAwake, err
 	}
-	return alreadyAwake, err
+	m.notifyChanged(tenant)
+	return false, m.restore(ctx, tenant, cutover)
+}
+
+// restore is the single durable rollback and wake restoration sequence.
+func (m *Manager) restore(ctx context.Context, tenant string, cutover Cutover) error {
+	if err := m.beginRestore(ctx, tenant); err != nil {
+		return err
+	}
+	if err := cutover.RestoreTargets(ctx, tenant); err != nil {
+		return fmt.Errorf("restore targets: %w", err)
+	}
+	if err := cutover.WaitTargetsReady(ctx, tenant); err != nil {
+		return fmt.Errorf("wait for restored targets: %w", err)
+	}
+	if err := cutover.RemoveWakePath(ctx, tenant); err != nil {
+		return fmt.Errorf("remove wake path: %w", err)
+	}
+	if _, err := m.update(ctx, func(state stateDocument) bool { delete(state, tenant); return true }); err != nil {
+		return err
+	}
+	m.notifyChanged(tenant)
+	return nil
+}
+
+// continueSleep resumes the ordered sleep cutover from durable facts.
+func (m *Manager) continueSleep(ctx context.Context, tenant string, cutover Cutover) error {
+	if err := cutover.InstallWakePath(ctx, tenant); err != nil {
+		return err
+	}
+	if err := cutover.WaitWakePathReady(ctx, tenant); err != nil {
+		return err
+	}
+	progress := m.transition(tenant)
+	if progress.WithdrawalAt == nil {
+		if err := m.blockTargetRegistration(ctx, tenant); err != nil {
+			return err
+		}
+		if err := cutover.BeginTargetWithdrawal(ctx, tenant); err != nil {
+			if restoreErr := m.restore(ctx, tenant, cutover); restoreErr != nil {
+				return errors.Join(err, restoreErr)
+			}
+			return err
+		}
+		withdrawalAt := m.now()
+		if err := m.markTransition(ctx, tenant, func(p *TransitionProgress) {
+			p.WithdrawalAt = &withdrawalAt
+		}); err != nil {
+			if restoreErr := m.restore(ctx, tenant, cutover); restoreErr != nil {
+				return errors.Join(err, restoreErr)
+			}
+			return err
+		}
+	}
+	progress = m.transition(tenant)
+	if progress.Guarded {
+		if progress.WithdrawalAt == nil {
+			return fmt.Errorf("guarded transition has no withdrawal timestamp")
+		}
+		if err := cutover.CheckActivity(ctx, tenant, *progress.WithdrawalAt); err != nil {
+			if restoreErr := m.restore(ctx, tenant, cutover); restoreErr != nil {
+				return errors.Join(err, restoreErr)
+			}
+			return err
+		}
+	}
+	if err := cutover.FinishTargetWithdrawal(ctx, tenant); err != nil {
+		if restoreErr := m.restore(ctx, tenant, cutover); restoreErr != nil {
+			return errors.Join(err, restoreErr)
+		}
+		return err
+	}
+	return nil
+}
+
+// beginRestore durably records intent to restore instance targets.
+func (m *Manager) beginRestore(ctx context.Context, tenant string) error {
+	_, err := m.update(ctx, func(state stateDocument) bool {
+		entry := state[tenant]
+		if entry.Transition == nil {
+			entry.Transition = &TransitionProgress{}
+		}
+		entry.Transition.Restoring = true
+		entry.TargetRegistrationBlocked = false
+		state[tenant] = entry
+		return true
+	})
+	return err
+}
+
+// blockTargetRegistration durably prevents ordinary instance target registration.
+func (m *Manager) blockTargetRegistration(ctx context.Context, tenant string) error {
+	_, err := m.update(ctx, func(state stateDocument) bool {
+		entry := state[tenant]
+		if entry.TargetRegistrationBlocked {
+			return false
+		}
+		entry.TargetRegistrationBlocked = true
+		state[tenant] = entry
+		return true
+	})
+	return err
+}
+
+// transition returns a copy of the cached transition facts.
+func (m *Manager) transition(tenant string) TransitionProgress {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if progress := m.state[tenant].Transition; progress != nil {
+		return *progress
+	}
+	return TransitionProgress{}
+}
+
+// markTransition durably records one or more completed transition facts.
+func (m *Manager) markTransition(ctx context.Context, tenant string, mark func(*TransitionProgress)) error {
+	_, err := m.update(ctx, func(state stateDocument) bool {
+		entry := state[tenant]
+		if entry.Transition == nil {
+			entry.Transition = &TransitionProgress{}
+		}
+		mark(entry.Transition)
+		state[tenant] = entry
+		return true
+	})
+	return err
+}
+
+// resumeTransitions continues durable interrupted cutovers in the active term.
+func (m *Manager) resumeTransitions() {
+	m.mu.Lock()
+	term := m.term
+	cutover := m.cutover
+	tenants := make([]string, 0)
+	for tenant, entry := range m.state {
+		if entry.Transition != nil || entry.Sleep != nil {
+			tenants = append(tenants, tenant)
+		}
+	}
+	m.mu.Unlock()
+	if term == nil || cutover == nil {
+		return
+	}
+	for _, tenant := range tenants {
+		tenant := tenant
+		term.wg.Add(1)
+		go func() {
+			defer term.wg.Done()
+			// Retry is term-scoped; each retry delay is bounded.
+			for term.ctx.Err() == nil {
+				if err := m.resumeTenant(term.ctx, tenant, cutover); err == nil {
+					return
+				}
+				timer := time.NewTimer(m.timerRetry)
+				select {
+				case <-term.ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+		}()
+	}
+}
+
+// resumeTenant continues one tenant's interrupted sleep or wake operation.
+func (m *Manager) resumeTenant(ctx context.Context, tenant string, cutover Cutover) error {
+	return m.runForTenant(ctx, tenant, func(ctx context.Context) error {
+		progress := m.transition(tenant)
+		if progress.Restoring {
+			return m.restore(ctx, tenant, cutover)
+		}
+		if m.IsAsleep(tenant) {
+			if err := cutover.InstallWakePath(ctx, tenant); err != nil {
+				return err
+			}
+			return cutover.WaitWakePathReady(ctx, tenant)
+		}
+		if err := m.continueSleep(ctx, tenant, cutover); err != nil {
+			return err
+		}
+		_, err := m.update(ctx, func(state stateDocument) bool {
+			entry := state[tenant]
+			entry.Sleep = &SleepState{WakeAt: cloneTime(entry.Transition.WakeAt)}
+			entry.Transition = nil
+			state[tenant] = entry
+			return true
+		})
+		if err == nil {
+			m.notifyChanged(tenant)
+		}
+		return err
+	})
 }
 
 // update applies a mutation with optimistic concurrency and installs the result.
@@ -344,22 +656,13 @@ func (m *Manager) wakeIfDue(term *leadershipTerm, tenant string, expected time.T
 	if term == nil || term.ctx.Err() != nil {
 		return
 	}
-	changed := false
-	err := m.runForTenant(term.ctx, tenant, func(ctx context.Context) error {
-		_, updateErr := m.update(ctx, func(state stateDocument) bool {
-			entry, exists := state[tenant]
-			if !exists || entry.Sleep == nil || entry.Sleep.WakeAt == nil {
-				return false
-			}
-			if !entry.Sleep.WakeAt.Equal(expected) || entry.Sleep.WakeAt.After(m.now()) {
-				return false
-			}
-			delete(state, tenant)
-			changed = true
-			return true
-		})
-		return updateErr
-	})
+	m.mu.RLock()
+	entry, exists := m.state[tenant]
+	m.mu.RUnlock()
+	if !exists || entry.Sleep == nil || entry.Sleep.WakeAt == nil || !entry.Sleep.WakeAt.Equal(expected) || entry.Sleep.WakeAt.After(m.now()) {
+		return
+	}
+	_, err := m.Wake(term.ctx, tenant)
 	if err != nil {
 		m.logger.Error("Failed timer wake", "tenant", tenant, "error", err)
 		if term.ctx.Err() == nil {
@@ -370,9 +673,6 @@ func (m *Manager) wakeIfDue(term *leadershipTerm, tenant string, expected time.T
 			m.mu.Unlock()
 		}
 		return
-	}
-	if changed {
-		m.notifyChanged(tenant)
 	}
 }
 
@@ -402,6 +702,10 @@ func (m *Manager) runForTenant(ctx context.Context, tenant string, run func(cont
 	}
 	defer func() { lock <- struct{}{} }()
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Re-read authoritative state after waiting for this tenant's lock.
+	if _, err := m.update(ctx, func(stateDocument) bool { return false }); err != nil {
 		return err
 	}
 	err = run(ctx)

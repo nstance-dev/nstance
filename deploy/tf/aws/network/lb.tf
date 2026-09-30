@@ -14,6 +14,7 @@ locals {
         lb_key        = lb_key
         listener_port = listener.port
         target_port   = coalesce(listener.target_port, listener.port)
+        proxy_port    = coalesce(listener.proxy_port, listener.target_port, listener.port)
       }
     }
   ]...)
@@ -81,12 +82,13 @@ resource "terraform_data" "validate_public_lb_subnets" {
 resource "aws_lb" "nstance" {
   for_each = var.load_balancers
 
-  name               = local.lb_names[each.key]
-  internal           = !each.value.public
-  load_balancer_type = "network"
-  ip_address_type    = var.enable_ipv6 && !local.use_existing_vpc ? "dualstack" : "ipv4"
-  subnets            = local.subnets_by_role[each.value.subnets]
-  security_groups    = [aws_security_group.load_balancer[each.key].id]
+  name                             = local.lb_names[each.key]
+  internal                         = !each.value.public
+  load_balancer_type               = "network"
+  ip_address_type                  = var.enable_ipv6 && !local.use_existing_vpc ? "dualstack" : "ipv4"
+  subnets                          = local.subnets_by_role[each.value.subnets]
+  security_groups                  = [aws_security_group.load_balancer[each.key].id]
+  enable_cross_zone_load_balancing = false
 
   tags = merge(var.tags, {
     Name = "${local.name_prefix}-${each.key}"
@@ -154,11 +156,19 @@ resource "aws_vpc_security_group_egress_rule" "load_balancer_ipv6" {
 resource "aws_lb_target_group" "nstance" {
   for_each = local.lb_ports
 
-  name        = local.target_group_names[each.key]
-  port        = each.value.target_port
-  protocol    = "TCP"
-  vpc_id      = local.vpc_id
-  target_type = "instance"
+  name                              = local.target_group_names[each.key]
+  port                              = each.value.target_port
+  protocol                          = "TCP"
+  vpc_id                            = local.vpc_id
+  target_type                       = "instance"
+  deregistration_delay              = 300
+  load_balancing_cross_zone_enabled = "false"
+
+  health_check {
+    enabled  = true
+    protocol = "TCP"
+    port     = "traffic-port"
+  }
 
   tags = merge(var.tags, {
     Name = "${local.name_prefix}-${each.value.lb_key}-${each.value.listener_port}"

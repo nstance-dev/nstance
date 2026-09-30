@@ -6,10 +6,8 @@ package aws
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"testing"
 
 	awsSDK "github.com/aws/aws-sdk-go-v2/aws"
@@ -19,35 +17,11 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
-// fakeELBv2 records load-balancer API calls and returns configured attributes.
+// fakeELBv2 records load-balancer API calls.
 type fakeELBv2 struct {
-	values      map[string][]string
-	describeErr map[string]error
-	modifyCalls []string
-	register    []int32
-	deregister  []int32
-	describe    []int32
-}
-
-// DescribeTargetGroupAttributes returns the next configured attribute value.
-func (f *fakeELBv2) DescribeTargetGroupAttributes(_ context.Context, input *elasticloadbalancingv2.DescribeTargetGroupAttributesInput, _ ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetGroupAttributesOutput, error) {
-	arn := awsSDK.ToString(input.TargetGroupArn)
-	if err := f.describeErr[arn]; err != nil {
-		return nil, err
-	}
-	values := f.values[arn]
-	value := ""
-	if len(values) > 0 {
-		value = values[0]
-		f.values[arn] = values[1:]
-	}
-	return &elasticloadbalancingv2.DescribeTargetGroupAttributesOutput{Attributes: []types.TargetGroupAttribute{{Key: awsSDK.String(crossZoneAttribute), Value: awsSDK.String(value)}}}, nil
-}
-
-// ModifyTargetGroupAttributes records the target group being modified.
-func (f *fakeELBv2) ModifyTargetGroupAttributes(_ context.Context, input *elasticloadbalancingv2.ModifyTargetGroupAttributesInput, _ ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.ModifyTargetGroupAttributesOutput, error) {
-	f.modifyCalls = append(f.modifyCalls, awsSDK.ToString(input.TargetGroupArn))
-	return &elasticloadbalancingv2.ModifyTargetGroupAttributesOutput{}, nil
+	register   []int32
+	deregister []int32
+	describe   []int32
 }
 
 // RegisterTargets records the registered target port.
@@ -68,59 +42,6 @@ func (f *fakeELBv2) DescribeTargetHealth(_ context.Context, input *elasticloadba
 	return &elasticloadbalancingv2.DescribeTargetHealthOutput{TargetHealthDescriptions: []types.TargetHealthDescription{{
 		TargetHealth: &types.TargetHealth{State: types.TargetHealthStateEnumHealthy},
 	}}}, nil
-}
-
-// TestSetLBCrossZone verifies idempotent updates and post-update confirmation.
-func TestSetLBCrossZone(t *testing.T) {
-	tests := []struct {
-		name        string
-		fake        *fakeELBv2
-		targets     []string
-		wantModify  []string
-		wantErrText string
-	}{
-		{
-			name:    "already correct",
-			fake:    &fakeELBv2{values: map[string][]string{"tg-1": {"true", "true"}}, describeErr: map[string]error{}},
-			targets: []string{"tg-1"},
-		},
-		{
-			name:    "mutation and confirmation",
-			fake:    &fakeELBv2{values: map[string][]string{"tg-1": {"false", "true"}}, describeErr: map[string]error{}},
-			targets: []string{"tg-1"}, wantModify: []string{"tg-1"},
-		},
-		{
-			name:    "confirmation failure",
-			fake:    &fakeELBv2{values: map[string][]string{"tg-1": {"false", "false"}}, describeErr: map[string]error{}},
-			targets: []string{"tg-1"}, wantModify: []string{"tg-1"}, wantErrText: "was not confirmed as true",
-		},
-		{
-			name:    "multi target group failure",
-			fake:    &fakeELBv2{values: map[string][]string{"tg-1": {"true", "true"}}, describeErr: map[string]error{"tg-2": errors.New("denied")}},
-			targets: []string{"tg-1", "tg-2"}, wantErrText: "target group tg-2: denied",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := &Provider{elbv2Client: tt.fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-			configs := make([]provider.AWSTargetGroupConfig, 0, len(tt.targets))
-			for _, arn := range tt.targets {
-				configs = append(configs, provider.AWSTargetGroupConfig{ARN: arn})
-			}
-			err := p.SetLBCrossZone(context.Background(), provider.SetLBCrossZoneRequest{
-				LBConfig: provider.LoadBalancerConfig{TargetGroups: configs}, Enabled: true,
-			})
-			if tt.wantErrText == "" && err != nil {
-				t.Fatalf("SetLBCrossZone() error = %v", err)
-			}
-			if tt.wantErrText != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErrText)) {
-				t.Fatalf("SetLBCrossZone() error = %v, want containing %q", err, tt.wantErrText)
-			}
-			if strings.Join(tt.fake.modifyCalls, ",") != strings.Join(tt.wantModify, ",") {
-				t.Fatalf("modify calls = %v, want %v", tt.fake.modifyCalls, tt.wantModify)
-			}
-		})
-	}
 }
 
 // TestWakeProxySelectsPort verifies direct and wake-proxy port selection.

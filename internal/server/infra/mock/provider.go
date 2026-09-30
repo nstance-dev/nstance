@@ -371,11 +371,6 @@ func (p *Provider) ListLBInstances(ctx context.Context, req provider.ListLBInsta
 	return instanceIDs, nil
 }
 
-// SetLBCrossZone is a no-op for the mock provider.
-func (p *Provider) SetLBCrossZone(ctx context.Context, req provider.SetLBCrossZoneRequest) error {
-	return nil
-}
-
 // getLBKey returns the stable mock membership key for a load balancer.
 func (p *Provider) getLBKey(cfg provider.LoadBalancerConfig) string {
 	if len(cfg.TargetGroups) > 0 {
