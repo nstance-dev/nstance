@@ -31,7 +31,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// ProxyService is the complete local API available to nstance-proxy.
+// ProxyService is the complete local API available to the nstance-server proxy command.
 type ProxyServiceClient interface {
 	WatchConfig(ctx context.Context, in *WatchProxyConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ProxyConfigSnapshot], error)
 	WakeTenant(ctx context.Context, in *ProxyWakeRequest, opts ...grpc.CallOption) (*WakeTenantResponse, error)
@@ -78,7 +78,7 @@ func (c *proxyServiceClient) WakeTenant(ctx context.Context, in *ProxyWakeReques
 // All implementations must embed UnimplementedProxyServiceServer
 // for forward compatibility.
 //
-// ProxyService is the complete local API available to nstance-proxy.
+// ProxyService is the complete local API available to the nstance-server proxy command.
 type ProxyServiceServer interface {
 	WatchConfig(*WatchProxyConfigRequest, grpc.ServerStreamingServer[ProxyConfigSnapshot]) error
 	WakeTenant(context.Context, *ProxyWakeRequest) (*WakeTenantResponse, error)

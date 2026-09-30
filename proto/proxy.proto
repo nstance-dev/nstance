@@ -10,7 +10,7 @@ option go_package = "github.com/nstance-dev/nstance/internal/proto";
 
 import "proto/operator.proto";
 
-// ProxyService is the complete local API available to nstance-proxy.
+// ProxyService is the complete local API available to the nstance-server proxy command.
 service ProxyService {
   rpc WatchConfig(WatchProxyConfigRequest) returns (stream ProxyConfigSnapshot);
   rpc WakeTenant(ProxyWakeRequest) returns (WakeTenantResponse);

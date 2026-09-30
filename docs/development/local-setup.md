@@ -8,7 +8,7 @@ description: "Setting up and running the full Nstance development environment lo
 
 This document describes the local development environment for Nstance, which simulates the full production architecture without requiring cloud infrastructure or real object storage servers / Kubernetes clusters.
 
-The full profile runs the real `nstance-operator`, `nstance-proxy`, and `nstance-tunnel` binaries. A minimal allowlisted loopback process stands in for the external tunnel implementation, while all lifecycle control still crosses the production Unix gRPC interfaces.
+The full profile runs the real `nstance-operator`, `nstance-server proxy`, and `nstance-tunnel` commands. A minimal allowlisted loopback process stands in for the external tunnel implementation, while all lifecycle control still crosses the production Unix gRPC interfaces.
 
 Each launch selects one free random port base and derives every process address from it. The coordinated plan is written to `temp/dev-ports.env`; processes never select ports independently.
 
@@ -110,7 +110,7 @@ The Kubernetes operator that syncs instance groups between nstance-server and Ku
 
 ### 5. Local proxy and tunnel supervisor
 
-Each server has a matching `nstance-proxy` and `nstance-tunnel` process. The proxy receives complete listener snapshots and listener-scoped wake results over its Unix gRPC socket. The tunnel supervisor uses a generated local allowlist and a minimal Go loopback process solely to exercise process lifecycle and readiness without external tunnel credentials.
+Each server has a matching `nstance-server proxy` and `nstance-tunnel` process. The proxy receives complete listener snapshots and listener-scoped wake results over its Unix gRPC socket. The tunnel supervisor uses a generated local allowlist and a minimal Go loopback process solely to exercise process lifecycle and readiness without external tunnel credentials.
 
 ### 6. tmux Agent Session
 
@@ -142,7 +142,7 @@ make clean-dev && make dev-tmux
 This starts components via Overmind:
 - `s3`: dev-s3 fake object storage server
 - `server`: nstance-server with tmux dev provider (2 instances)
-- `proxy`: nstance-proxy (one per server)
+- `proxy`: `nstance-server proxy` (one per server)
 - `tunnel`: nstance-tunnel supervisor with a minimal loopback implementation (one per server)
 - `k8s`: dev-k8s fake Kubernetes API (`dev-tmux-k8s` only)
 - `operator`: nstance-operator (`dev-tmux-k8s` only)

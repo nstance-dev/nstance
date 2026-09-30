@@ -23,6 +23,7 @@ import (
 
 	"github.com/nstance-dev/nstance/internal/buildvars"
 	"github.com/nstance-dev/nstance/internal/proto"
+	proxycmd "github.com/nstance-dev/nstance/internal/proxy/cmd"
 	"github.com/nstance-dev/nstance/internal/server/api"
 	"github.com/nstance-dev/nstance/internal/server/api/agent"
 	"github.com/nstance-dev/nstance/internal/server/api/operator"
@@ -95,9 +96,10 @@ func init() {
 	}
 	lflags.StringVar(&flagCacheDir, "cachedir", "./cache", "Directory for cache and database files")
 	lflags.StringVar(&flagAdvertiseHost, "advertise-host", "", "Override advertise host for health and election addrs (per-instance)")
-	lflags.StringVar(&flagProxySocket, "proxy-socket", "/run/nstance/nstance-server.sock", "Local nstance-proxy control socket")
+	lflags.StringVar(&flagProxySocket, "proxy-socket", "/run/nstance/nstance-server.sock", "Local proxy control socket")
 	lflags.StringVar(&flagTunnelSocket, "tunnel-socket", "/run/nstance/nstance-tunnel.sock", "Local nstance-tunnel control socket")
 	lflags.StringVar(&flagServerFilesDir, "server-files-dir", "/run/nstance/files", "Directory for server-local files")
+	rootCmd.AddCommand(proxycmd.NewCommand())
 }
 
 // NewRootCmd creates the nstance-server root command.

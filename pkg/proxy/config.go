@@ -4,7 +4,7 @@
 
 package proxy
 
-// Config is the static nstance-proxy configuration.
+// Config is the static proxy configuration.
 type Config struct {
 	Listeners map[string]Listener `json:"listeners"`
 }

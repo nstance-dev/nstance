@@ -21,7 +21,7 @@ import (
 	proxyconfig "github.com/nstance-dev/nstance/pkg/proxy"
 )
 
-// commandConfig contains nstance-proxy's environment configuration.
+// commandConfig contains the proxy's environment configuration.
 type commandConfig struct {
 	SocketPath      string        `env:"NSTANCE_PROXY_SOCKET" envDefault:"/run/nstance/nstance-server.sock"`
 	HoldTimeout     time.Duration `env:"NSTANCE_PROXY_HOLD_TIMEOUT" envDefault:"2m"`
@@ -32,30 +32,30 @@ type commandConfig struct {
 }
 
 var (
-	flagDebug      bool
-	flagVersion    bool
 	flagSocketPath string
 	flagBindHost   string
 )
 
-// NewRootCmd creates the nstance-proxy command.
-func NewRootCmd() *cobra.Command {
+// NewCommand creates the nstance-server proxy command.
+func NewCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "nstance-proxy",
+		Use:   "proxy",
 		Short: "Hold connections while waking sleeping Nstance tenants",
 		RunE:  run,
 	}
-	command.Flags().BoolVarP(&flagDebug, "debug", "v", false, "Enable debug output")
-	command.Flags().BoolVar(&flagVersion, "version", false, "Show version information")
 	command.Flags().StringVar(&flagSocketPath, "socket", "", "Override the nstance-server Unix socket")
 	command.Flags().StringVar(&flagBindHost, "bind-host", "", "Override the proxy listener bind host")
 	return command
 }
 
-// run composes and runs nstance-proxy until its process context is canceled.
-func run(_ *cobra.Command, _ []string) error {
-	if flagVersion {
-		fmt.Printf("nstance-proxy %s\n", buildvars.BuildVersion())
+// run composes and runs the proxy until its process context is canceled.
+func run(command *cobra.Command, _ []string) error {
+	version, err := command.Flags().GetBool("version")
+	if err != nil {
+		return err
+	}
+	if version {
+		fmt.Printf("nstance-server proxy %s\n", buildvars.BuildVersion())
 		return nil
 	}
 	var cfg commandConfig
@@ -68,8 +68,12 @@ func run(_ *cobra.Command, _ []string) error {
 	if flagBindHost != "" {
 		cfg.BindHost = flagBindHost
 	}
+	debug, err := command.Flags().GetBool("debug")
+	if err != nil {
+		return err
+	}
 	level := slog.LevelInfo
-	if flagDebug || cfg.Debug {
+	if debug || cfg.Debug {
 		level = slog.LevelDebug
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
