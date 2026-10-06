@@ -73,6 +73,13 @@ resource "google_project_iam_member" "server_network_user" {
   member  = "serviceAccount:${google_service_account.server.email}"
 }
 
+# Cloud Logging access for the server guest agent.
+resource "google_project_iam_member" "server_log_writer" {
+  project = var.cluster.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.server.email}"
+}
+
 # Nstance owns only dynamic NEG membership and Nstance-tagged NAT routes.
 resource "google_project_iam_custom_role" "server_network_control" {
   project     = var.cluster.project_id
@@ -86,6 +93,7 @@ resource "google_project_iam_custom_role" "server_network_control" {
     "compute.networkEndpointGroups.get",
     "compute.networkEndpointGroups.list",
     "compute.networkEndpointGroups.use",
+    "compute.networks.updatePolicy",
     "compute.routes.create",
     "compute.routes.delete",
     "compute.routes.get",
@@ -112,4 +120,11 @@ resource "google_service_account_iam_member" "server_can_use_agent_sa" {
 resource "google_service_account" "agent" {
   account_id   = "${local.name_prefix}-agent"
   display_name = "Nstance Agent Service Account"
+}
+
+# Cloud Logging access for managed instance guest agents.
+resource "google_project_iam_member" "agent_log_writer" {
+  project = var.cluster.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.agent.email}"
 }

@@ -7,6 +7,7 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -56,7 +57,7 @@ func (g *GoogleSecretManager) Get(ctx context.Context, name string) ([]byte, err
 
 // Set stores a secret in Google Cloud Secret Manager
 func (g *GoogleSecretManager) Set(ctx context.Context, name string, data []byte) error {
-	secretID := g.prefix + name
+	secretID := g.secretID(name)
 	parent := fmt.Sprintf("projects/%s", g.project)
 	secretPath := fmt.Sprintf("%s/secrets/%s", parent, secretID)
 
@@ -107,7 +108,7 @@ func (g *GoogleSecretManager) Set(ctx context.Context, name string, data []byte)
 
 // Delete removes a secret from Google Cloud Secret Manager
 func (g *GoogleSecretManager) Delete(ctx context.Context, name string) error {
-	secretID := g.prefix + name
+	secretID := g.secretID(name)
 	secretPath := fmt.Sprintf("projects/%s/secrets/%s", g.project, secretID)
 
 	req := &secretmanagerpb.DeleteSecretRequest{
@@ -152,6 +153,10 @@ func (g *GoogleSecretManager) List(ctx context.Context) ([]string, error) {
 
 // secretVersionName returns the full resource name for the latest version of a secret
 func (g *GoogleSecretManager) secretVersionName(name string) string {
-	secretID := g.prefix + name
-	return fmt.Sprintf("projects/%s/secrets/%s/versions/latest", g.project, secretID)
+	return fmt.Sprintf("projects/%s/secrets/%s/versions/latest", g.project, g.secretID(name))
+}
+
+// secretID converts a logical Nstance secret name to a Google Secret Manager ID.
+func (g *GoogleSecretManager) secretID(name string) string {
+	return g.prefix + strings.ReplaceAll(name, ".", "-")
 }
