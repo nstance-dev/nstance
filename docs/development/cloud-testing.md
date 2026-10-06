@@ -110,7 +110,7 @@ make aws-portfwd
 ```
 
 This resolves the EC2 instance and private address of the shard leader ENI,
-then forwards `127.0.0.1:8993` through that instance to its operator API. It
+then forwards `127.0.0.1:18993` through that instance to its operator API. It
 requires the Session Manager plugin in addition to the AWS CLI. Set
 `NSTANCE_ADMIN_LOCAL_PORT` to use a different local port, or
 `NSTANCE_ADMIN_REMOTE_PORT` if the deployment's operator bind port was
@@ -150,7 +150,7 @@ Next, start an IAP TCP-forwarding session in one terminal:
 make google-portfwd
 ```
 
-This forwards `127.0.0.1:8993` directly to the shard's stable private leader
+This forwards `127.0.0.1:28993` directly to the shard's stable private leader
 address using IAP TCP forwarding. The deployment permits the operator port only
 from Google's IAP forwarding range, so the API is not exposed to the public
 internet and no SSH key is required. The same `NSTANCE_ADMIN_LOCAL_PORT` and

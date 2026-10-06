@@ -214,9 +214,9 @@ aws-admin: nstance-admin ## Register a local admin identity with the AWS test cl
 	@$(CURRENT)scripts/cloud-test.sh aws admin
 google-admin: nstance-admin ## Register a local admin identity with the Google test cluster
 	@$(CURRENT)scripts/cloud-test.sh google admin
-aws-portfwd: ## Forward localhost:8993 to the AWS test server operator API
+aws-portfwd: ## Forward localhost:18993 to the AWS test server operator API
 	@$(CURRENT)scripts/cloud-test.sh aws portfwd
-google-portfwd: ## Forward localhost:8993 to the Google test server operator API
+google-portfwd: ## Forward localhost:28993 to the Google test server operator API
 	@$(CURRENT)scripts/cloud-test.sh google portfwd
 aws-destroy: ## Destroy an AWS test deployment and its artifacts
 google-destroy: ## Destroy a Google Cloud test deployment and its artifacts
