@@ -45,8 +45,8 @@ var (
 
 func init() {
 	lflags := serveCmd.Flags()
-	lflags.StringVar(&flagServeServers, "servers", "", "Shard servers (format: shard1=host1:port1,shard2=host2:port2)")
-	lflags.StringVar(&flagServeIdentityDir, "identity-dir", "", "Directory containing identity files (default: <temp-dir>/cli-operator-identity/)")
+	lflags.StringVar(&flagServeServers, "servers", os.Getenv(envAdminServers), "Shard servers (format: shard1=host1:port1,shard2=host2:port2)")
+	lflags.StringVar(&flagServeIdentityDir, "identity-dir", os.Getenv(envAdminIdentityDir), "Directory containing identity files (default: <temp-dir>/cli-operator-identity/)")
 	lflags.StringVar(&flagServeBind, "bind", ":8080", "Address to bind the HTTP server")
 
 	rootCmd.AddCommand(serveCmd)

@@ -85,6 +85,22 @@ resource "google_compute_firewall" "iap_ssh" {
   target_tags   = ["nstance-server-${var.shard}", "nstance-agent-${var.shard}"]
 }
 
+# Allow direct IAP tunneling to the private operator API.
+resource "google_compute_firewall" "iap_operator" {
+  count = var.enable_iap ? 1 : 0
+
+  name    = "${local.name_prefix}-iap-operator-${var.shard}"
+  network = var.network.vpc_id
+
+  allow {
+    protocol = "tcp"
+    ports    = [local.operator_port]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["nstance-server-${var.shard}"]
+}
+
 # ============================================================================
 # Internal Communication
 # ============================================================================

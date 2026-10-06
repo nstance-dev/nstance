@@ -21,7 +21,7 @@ case "$PROVIDER" in
     WORK_DIR="$ROOT_DIR/temp/google-test"
     ;;
   *)
-    echo "Usage: $0 (aws|google) (prepare|upload|apply|destroy)" >&2
+    echo "Usage: $0 (aws|google) (prepare|upload|apply|admin|portfwd|destroy)" >&2
     exit 1
     ;;
 esac
@@ -232,10 +232,10 @@ upload_google() {
   gcloud storage cp "$WORK_DIR/artifacts/nstance-agent.tar.gz" \
     "gs://$ARTIFACT_BUCKET/$key_prefix/nstance-agent.tar.gz" --project "$GOOGLE_PROJECT" >/dev/null
   SERVER_URL=$(gcloud storage sign-url "gs://$ARTIFACT_BUCKET/$key_prefix/nstance-server.tar.gz" \
-    --duration=12h --region="$GOOGLE_REGION" --impersonate-service-account="$GOOGLE_SIGNER" \
+    --duration=12h --region=auto --impersonate-service-account="$GOOGLE_SIGNER" \
     --format='value(signed_url)')
   AGENT_URL=$(gcloud storage sign-url "gs://$ARTIFACT_BUCKET/$key_prefix/nstance-agent.tar.gz" \
-    --duration=12h --region="$GOOGLE_REGION" --impersonate-service-account="$GOOGLE_SIGNER" \
+    --duration=12h --region=auto --impersonate-service-account="$GOOGLE_SIGNER" \
     --format='value(signed_url)')
 }
 
@@ -265,6 +265,136 @@ apply() {
     exit 1
   fi
   tofu -chdir="$WORK_DIR" apply
+}
+
+write_admin_environment() {
+  local identity_dir local_port shard
+  identity_dir="$WORK_DIR/operator-identity"
+  local_port=${NSTANCE_ADMIN_LOCAL_PORT:-8993}
+  if [[ "$PROVIDER" == aws ]]; then
+    shard=$AWS_ZONE
+  else
+    shard=$GOOGLE_ZONE
+  fi
+
+  {
+    printf 'export NSTANCE_ADMIN_SERVERS=%q\n' "$shard=127.0.0.1:$local_port"
+    printf 'export NSTANCE_ADMIN_IDENTITY_DIR=%q\n' "$identity_dir"
+    printf 'export NSTANCE_ADMIN_SHARD=%q\n' "$shard"
+  } > "$WORK_DIR/admin.env"
+}
+
+admin() {
+  require_command tofu
+  load_environment
+
+  local admin_binary bucket identity_dir
+  admin_binary="$ROOT_DIR/bin/nstance-admin"
+  identity_dir="$WORK_DIR/operator-identity"
+
+  if [[ ! -x "$admin_binary" ]]; then
+    echo "nstance-admin is not built. Run 'make nstance-admin' first." >&2
+    exit 1
+  fi
+  if [[ -s "$identity_dir/ca.crt" && -s "$identity_dir/identity.crt" && -s "$identity_dir/identity.key" ]]; then
+    echo "Admin identity already exists at $identity_dir."
+    write_admin_environment
+    return
+  fi
+  if [[ -e "$identity_dir/ca.crt" || -e "$identity_dir/identity.crt" || -e "$identity_dir/identity.key" ]]; then
+    echo "Admin identity at $identity_dir is incomplete; remove it before registering again." >&2
+    exit 1
+  fi
+
+  bucket=$(printf 'module.cluster.bucket\n' | tofu -chdir="$WORK_DIR" console)
+  bucket=${bucket#\"}
+  bucket=${bucket%\"}
+  if [[ -z "$bucket" ]]; then
+    echo "Unable to resolve the test cluster storage bucket." >&2
+    exit 1
+  fi
+
+  if [[ "$PROVIDER" == aws ]]; then
+    export AWS_PROFILE AWS_REGION
+    "$admin_binary" cluster register-operator \
+      --storage-bucket "$bucket" \
+      --secrets-provider aws-parameter-store \
+      --secrets-prefix "/$TEST_CLUSTER_ID/" \
+      --output-dir "$identity_dir"
+  else
+    "$admin_binary" cluster register-operator \
+      --storage-provider gcs \
+      --storage-bucket "$bucket" \
+      --secrets-provider google-secret-manager \
+      --secrets-prefix "$TEST_CLUSTER_ID-" \
+      --secrets-project "$GOOGLE_PROJECT" \
+      --output-dir "$identity_dir"
+  fi
+  write_admin_environment
+}
+
+portfwd_aws() {
+  require_command aws
+  require_command session-manager-plugin
+  load_environment
+  write_admin_environment
+
+  local instance_id local_port remote_host remote_port target
+  local_port=${NSTANCE_ADMIN_LOCAL_PORT:-8993}
+  remote_port=${NSTANCE_ADMIN_REMOTE_PORT:-8993}
+
+  # Backticks below are JMESPath literals, not shell substitutions.
+  # shellcheck disable=SC2016
+  target=$(aws ec2 describe-network-interfaces --profile "$AWS_PROFILE" --region "$AWS_REGION" \
+    --filters "Name=tag:nstance:cluster-id,Values=$TEST_CLUSTER_ID" \
+      "Name=tag:nstance:component,Values=server-leader-eni" \
+      "Name=tag:nstance:shard,Values=$AWS_ZONE" \
+    --query 'NetworkInterfaces[?Attachment.Status==`attached`] | [0].[Attachment.InstanceId,PrivateIpAddress]' \
+    --output text)
+  read -r instance_id remote_host <<< "$target"
+  if [[ -z "$instance_id" || "$instance_id" == "None" || -z "$remote_host" || "$remote_host" == "None" ]]; then
+    echo "No active AWS test server leader found for shard $AWS_ZONE." >&2
+    exit 1
+  fi
+
+  echo "Forwarding 127.0.0.1:$local_port through $instance_id to $remote_host:$remote_port ($AWS_ZONE)."
+  echo "Keep this session open while using nstance-admin."
+  aws ssm start-session --profile "$AWS_PROFILE" --region "$AWS_REGION" \
+    --target "$instance_id" \
+    --document-name AWS-StartPortForwardingSessionToRemoteHost \
+    --parameters "host=$remote_host,portNumber=$remote_port,localPortNumber=$local_port"
+}
+
+portfwd_google() {
+  require_command gcloud
+  require_command tofu
+  load_environment
+  write_admin_environment
+
+  local leader_ip local_port network remote_port
+  local_port=${NSTANCE_ADMIN_LOCAL_PORT:-8993}
+  remote_port=${NSTANCE_ADMIN_REMOTE_PORT:-8993}
+
+  network=$(gcloud compute instances list --project "$GOOGLE_PROJECT" \
+    --filter="labels.nstance-cluster-id=$TEST_CLUSTER_ID AND labels.nstance-shard=$GOOGLE_ZONE AND labels.nstance-tf=true AND status=RUNNING" \
+    --limit=1 --format='value(networkInterfaces[0].network.basename())')
+  if [[ -z "$network" ]]; then
+    echo "No running Google Cloud test server found for shard $GOOGLE_ZONE." >&2
+    exit 1
+  fi
+
+  leader_ip=$(tofu -chdir="$WORK_DIR" output -json server_private_ips |
+    sed -n 's/^\["\([^"]*\)"\]$/\1/p')
+  if [[ -z "$leader_ip" ]]; then
+    echo "Unable to resolve the Google Cloud test server leader IP." >&2
+    exit 1
+  fi
+
+  echo "Forwarding 127.0.0.1:$local_port through IAP to $leader_ip:$remote_port ($GOOGLE_ZONE)."
+  echo "Keep this session open while using nstance-admin."
+  gcloud compute start-iap-tunnel "$leader_ip" "$remote_port" \
+    --project "$GOOGLE_PROJECT" --region "$GOOGLE_REGION" --network "$network" \
+    --local-host-port="127.0.0.1:$local_port"
 }
 
 destroy_aws() {
@@ -312,7 +442,7 @@ destroy_google() {
   gcloud secrets list --project "$GOOGLE_PROJECT" --format='value(name)' |
     while read -r secret; do
       case "$secret" in
-        "$TEST_CLUSTER_ID-ca.key" | "$TEST_CLUSTER_ID-registration-nonce.key")
+        "$TEST_CLUSTER_ID-ca-key" | "$TEST_CLUSTER_ID-registration-nonce-key")
           gcloud secrets delete "$secret" --project "$GOOGLE_PROJECT" --quiet
           ;;
       esac
@@ -350,9 +480,14 @@ case "$ACTION" in
   prepare) prepare ;;
   upload) upload ;;
   apply) apply ;;
-  destroy) destroy ;;
-  *)
-    echo "Usage: $0 (aws|google) (prepare|upload|apply|destroy)" >&2
-    exit 1
+  admin) admin ;;
+  portfwd)
+    if [[ "$PROVIDER" == aws ]]; then
+      portfwd_aws
+    else
+      portfwd_google
+    fi
     ;;
+  destroy) destroy ;;
+  *) echo "Usage: $0 (aws|google) (prepare|upload|apply|admin|portfwd|destroy)" >&2; exit 1 ;;
 esac

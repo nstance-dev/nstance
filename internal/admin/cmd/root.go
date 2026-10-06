@@ -26,6 +26,12 @@ var (
 	flagTempDir string
 )
 
+const (
+	envAdminServers     = "NSTANCE_ADMIN_SERVERS"
+	envAdminIdentityDir = "NSTANCE_ADMIN_IDENTITY_DIR"
+	envAdminShard       = "NSTANCE_ADMIN_SHARD"
+)
+
 func init() {
 	pflags := rootCmd.PersistentFlags()
 	pflags.BoolVarP(&flagDebug, "debug", "v", false, "Enable debug output")

@@ -198,6 +198,11 @@ All shard commands (`config`, `group`) and the `serve` command share these flags
 | `--all-shards` | | Target all shards in the servers list |
 | `--timeout` | `30s` | Timeout for operations |
 
+`NSTANCE_ADMIN_SERVERS`, `NSTANCE_ADMIN_IDENTITY_DIR`, and
+`NSTANCE_ADMIN_SHARD` provide defaults for the corresponding flags. Explicit
+flags override the environment. The servers and identity variables also apply
+to `nstance-admin serve`.
+
 ---
 
 ### `nstance-admin config refresh`

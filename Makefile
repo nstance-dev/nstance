@@ -51,7 +51,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate tf-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin $(TEST_PREPARE_TARGETS) $(TEST_UPLOAD_TARGETS) $(TEST_APPLY_TARGETS) $(TEST_DESTROY_TARGETS)
+.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate tf-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin aws-admin google-admin aws-portfwd google-portfwd $(TEST_PREPARE_TARGETS) $(TEST_UPLOAD_TARGETS) $(TEST_APPLY_TARGETS) $(TEST_DESTROY_TARGETS)
 
 help: ## Show available targets
 	@echo "Usage: make <target>"
@@ -210,6 +210,14 @@ aws-upload: ## Build and upload binaries for an AWS test deployment
 google-upload: ## Build and upload binaries for a Google Cloud test deployment
 aws-apply: ## Apply a prepared AWS test deployment
 google-apply: ## Apply a prepared Google Cloud test deployment
+aws-admin: nstance-admin ## Register a local admin identity with the AWS test cluster
+	@$(CURRENT)scripts/cloud-test.sh aws admin
+google-admin: nstance-admin ## Register a local admin identity with the Google test cluster
+	@$(CURRENT)scripts/cloud-test.sh google admin
+aws-portfwd: ## Forward localhost:8993 to the AWS test server operator API
+	@$(CURRENT)scripts/cloud-test.sh aws portfwd
+google-portfwd: ## Forward localhost:8993 to the Google test server operator API
+	@$(CURRENT)scripts/cloud-test.sh google portfwd
 aws-destroy: ## Destroy an AWS test deployment and its artifacts
 google-destroy: ## Destroy a Google Cloud test deployment and its artifacts
 

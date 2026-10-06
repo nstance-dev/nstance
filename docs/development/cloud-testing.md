@@ -84,6 +84,87 @@ both files.
 Signed URLs expire. Run the provider's `upload` command again before applying
 or replacing instances after expiration.
 
+## Local admin CLI
+
+Both cloud test deployments keep the Nstance Server APIs private. The AWS and
+Google Cloud CLIs can tunnel the operator API to the local machine without
+adding a public listener or Internet-wide firewall rule.
+
+### AWS
+
+Create a local operator identity for the `nstance-admin` CLI using the same AWS
+profile and region as the test deployment:
+
+```bash
+make aws-admin
+```
+
+The generated identity is retained under `temp/aws-test/operator-identity`.
+Re-running the target reuses that identity. The target also writes connection
+defaults to `temp/aws-test/admin.env`.
+
+Next, start an SSM Session Manager port-forwarding session in one terminal:
+
+```bash
+make aws-portfwd
+```
+
+This resolves the EC2 instance and private address of the shard leader ENI,
+then forwards `127.0.0.1:8993` through that instance to its operator API. It
+requires the Session Manager plugin in addition to the AWS CLI. Set
+`NSTANCE_ADMIN_LOCAL_PORT` to use a different local port, or
+`NSTANCE_ADMIN_REMOTE_PORT` if the deployment's operator bind port was
+customized.
+
+With the port-forwarding session open, shard commands can use the local
+endpoint:
+
+```bash
+source temp/aws-test/admin.env
+
+./bin/nstance-admin group list
+./bin/nstance-admin group scale workers 3
+```
+
+Scaling to `0` scales the group down completely. The gRPC connection remains
+mutually authenticated: SSM supplies the private transport, while
+`nstance-admin` still verifies the server CA and presents its operator client
+certificate.
+
+### Google Cloud
+
+Create a local operator identity for the `nstance-admin` CLI using the same
+Google Cloud project as the test deployment:
+
+```bash
+make google-admin
+```
+
+The generated identity is retained under `temp/google-test/operator-identity`.
+Re-running the target reuses that identity. The target also writes connection
+defaults to `temp/google-test/admin.env`.
+
+Next, start an IAP TCP-forwarding session in one terminal:
+
+```bash
+make google-portfwd
+```
+
+This forwards `127.0.0.1:8993` directly to the shard's stable private leader
+address using IAP TCP forwarding. The deployment permits the operator port only
+from Google's IAP forwarding range, so the API is not exposed to the public
+internet and no SSH key is required. The same `NSTANCE_ADMIN_LOCAL_PORT` and
+`NSTANCE_ADMIN_REMOTE_PORT` overrides are supported.
+
+With the port-forwarding session open, use the local endpoint:
+
+```bash
+source temp/google-test/admin.env
+
+./bin/nstance-admin group list
+./bin/nstance-admin group scale workers 3
+```
+
 ## Cleanup
 
 ```bash

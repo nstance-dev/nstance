@@ -5,6 +5,8 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 )
 
@@ -27,9 +29,9 @@ var (
 
 func init() {
 	pflags := configCmd.PersistentFlags()
-	pflags.StringVar(&flagConfigServers, "servers", "", "Shard servers (format: shard1=host1:port1,shard2=host2:port2)")
-	pflags.StringVar(&flagConfigIdentityDir, "identity-dir", "", "Directory containing identity files (default: <temp-dir>/cli-operator-identity/)")
-	pflags.StringVar(&flagConfigShard, "shard", "", "Target a specific shard")
+	pflags.StringVar(&flagConfigServers, "servers", os.Getenv(envAdminServers), "Shard servers (format: shard1=host1:port1,shard2=host2:port2)")
+	pflags.StringVar(&flagConfigIdentityDir, "identity-dir", os.Getenv(envAdminIdentityDir), "Directory containing identity files (default: <temp-dir>/cli-operator-identity/)")
+	pflags.StringVar(&flagConfigShard, "shard", os.Getenv(envAdminShard), "Target a specific shard")
 	pflags.BoolVar(&flagConfigAllShards, "all-shards", false, "Target all shards in the servers list")
 	pflags.StringVar(&flagConfigTimeout, "timeout", "30s", "Timeout for operations")
 
