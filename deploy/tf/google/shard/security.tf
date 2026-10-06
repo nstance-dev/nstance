@@ -16,11 +16,23 @@ resource "google_compute_firewall" "server_health" {
     ports    = [local.health_port]
   }
 
-  source_ranges = compact([
-    var.network.vpc_cidr_ipv4,
-    var.network.ipv6_enabled ? var.network.vpc_cidr_ipv6 : "",
-  ])
-  target_tags = ["nstance-server-${var.shard}"]
+  source_ranges = [var.network.vpc_cidr_ipv4]
+  target_tags   = ["nstance-server-${var.shard}"]
+}
+
+resource "google_compute_firewall" "server_health_ipv6" {
+  count = var.network.ipv6_enabled ? 1 : 0
+
+  name    = "${local.name_prefix}-server-health-ipv6-${var.shard}"
+  network = var.network.vpc_id
+
+  allow {
+    protocol = "tcp"
+    ports    = [local.health_port]
+  }
+
+  source_ranges = [var.network.vpc_cidr_ipv6]
+  target_tags   = ["nstance-server-${var.shard}"]
 }
 
 # gRPC APIs (leader election, registration, operator, agent)
@@ -33,11 +45,23 @@ resource "google_compute_firewall" "server_grpc" {
     ports    = ["${local.election_port}-${local.agent_port}"]
   }
 
-  source_ranges = compact([
-    var.network.vpc_cidr_ipv4,
-    var.network.ipv6_enabled ? var.network.vpc_cidr_ipv6 : "",
-  ])
-  target_tags = ["nstance-server-${var.shard}"]
+  source_ranges = [var.network.vpc_cidr_ipv4]
+  target_tags   = ["nstance-server-${var.shard}"]
+}
+
+resource "google_compute_firewall" "server_grpc_ipv6" {
+  count = var.network.ipv6_enabled ? 1 : 0
+
+  name    = "${local.name_prefix}-server-grpc-ipv6-${var.shard}"
+  network = var.network.vpc_id
+
+  allow {
+    protocol = "tcp"
+    ports    = ["${local.election_port}-${local.agent_port}"]
+  }
+
+  source_ranges = [var.network.vpc_cidr_ipv6]
+  target_tags   = ["nstance-server-${var.shard}"]
 }
 
 # ============================================================================
@@ -82,8 +106,26 @@ resource "google_compute_firewall" "internal" {
     protocol = "icmp"
   }
 
-  source_ranges = compact([
-    var.network.vpc_cidr_ipv4,
-    var.network.ipv6_enabled ? var.network.vpc_cidr_ipv6 : "",
-  ])
+  source_ranges = [var.network.vpc_cidr_ipv4]
+}
+
+resource "google_compute_firewall" "internal_ipv6" {
+  count = var.network.ipv6_enabled ? 1 : 0
+
+  name    = "${local.name_prefix}-internal-ipv6-${var.shard}"
+  network = var.network.vpc_id
+
+  allow {
+    protocol = "tcp"
+  }
+
+  allow {
+    protocol = "udp"
+  }
+
+  allow {
+    protocol = "58"
+  }
+
+  source_ranges = [var.network.vpc_cidr_ipv6]
 }
