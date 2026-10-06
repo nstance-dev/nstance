@@ -1,6 +1,10 @@
 # Nstance Network Module (AWS)
 
-Creates VPC infrastructure including subnets, NAT gateways, route tables, provider-aware VPC endpoints, and optional Network Load Balancers. The SSM API endpoint is enabled whenever Parameter Store is used, independently of Session Manager; messaging and Secrets Manager endpoints remain conditional. New VPCs using Nstance NAT instances also receive a private EC2 API endpoint before provider NAT is removed, so route, ENI, and Elastic IP operations remain available during NAT cutover.
+Creates VPC infrastructure including subnets, NAT gateways, route tables,
+provider-aware VPC endpoints, and optional Network Load Balancers. The free S3
+gateway endpoint is created automatically. Set `enable_interface_endpoints = true`
+to create billed PrivateLink endpoints for the configured AWS integrations;
+otherwise, AWS API traffic uses normal public service endpoints.
 
 Nstance NAT instances are the default. Set `use_provider_nat = true` to use AWS
 NAT Gateway instead.

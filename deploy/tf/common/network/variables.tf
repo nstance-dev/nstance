@@ -39,8 +39,14 @@ variable "enable_ipv6" {
   default     = true
 }
 
+variable "enable_interface_endpoints" {
+  description = "Create billed AWS PrivateLink interface endpoints for configured AWS services"
+  type        = bool
+  default     = false
+}
+
 variable "enable_ssm" {
-  description = "Enable VPC endpoints for SSM (AWS only)"
+  description = "Include Session Manager endpoints when AWS interface endpoints are enabled"
   type        = bool
   default     = true
 }

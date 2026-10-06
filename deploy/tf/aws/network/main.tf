@@ -434,9 +434,9 @@ resource "aws_vpc_endpoint" "s3" {
   })
 }
 
-# Security group for VPC interface endpoints - only when creating new VPC
+# Security group for optional VPC interface endpoints.
 resource "aws_security_group" "vpc_endpoints" {
-  count = local.use_existing_vpc ? 0 : 1
+  count = local.use_existing_vpc || !var.enable_interface_endpoints ? 0 : 1
 
   name        = "${local.name_prefix}-vpc-endpoints-sg"
   description = "Security group for VPC endpoints"
@@ -487,7 +487,7 @@ resource "aws_security_group" "vpc_endpoints" {
 
 # VPC Endpoint for Secrets Manager when used by the cluster or encryption key.
 resource "aws_vpc_endpoint" "secretsmanager" {
-  count = local.use_existing_vpc ? 0 : ((var.cluster.secrets_provider == "aws-secrets-manager" || var.cluster.encryption_key_provider == "aws-secrets-manager") && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && (var.cluster.secrets_provider == "aws-secrets-manager" || var.cluster.encryption_key_provider == "aws-secrets-manager") && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.secretsmanager"
@@ -505,7 +505,7 @@ resource "aws_vpc_endpoint" "secretsmanager" {
 
 # Parameter Store uses the SSM API endpoint independently of Session Manager.
 resource "aws_vpc_endpoint" "ssm" {
-  count = local.use_existing_vpc ? 0 : ((var.cluster.secrets_provider == "aws-parameter-store" || var.cluster.encryption_key_provider == "aws-parameter-store" || var.enable_ssm) && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && (var.cluster.secrets_provider == "aws-parameter-store" || var.cluster.encryption_key_provider == "aws-parameter-store" || var.enable_ssm) && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ssm"
@@ -521,10 +521,10 @@ resource "aws_vpc_endpoint" "ssm" {
   depends_on = [aws_subnet.managed]
 }
 
-# Nstance NAT instances need EC2 route, ENI, and address APIs while ordinary
-# IPv4 egress is temporarily unavailable during a cutover.
+# Optional private access to the EC2 route, ENI, and address APIs used by
+# Nstance NAT orchestration.
 resource "aws_vpc_endpoint" "ec2" {
-  count = local.use_existing_vpc ? 0 : (!var.use_provider_nat && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && !var.use_provider_nat && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ec2"
@@ -542,7 +542,7 @@ resource "aws_vpc_endpoint" "ec2" {
 
 # VPC Endpoint for SSM Messages - only when creating new VPC
 resource "aws_vpc_endpoint" "ssmmessages" {
-  count = local.use_existing_vpc ? 0 : (var.enable_ssm && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && var.enable_ssm && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ssmmessages"
@@ -560,7 +560,7 @@ resource "aws_vpc_endpoint" "ssmmessages" {
 
 # VPC Endpoint for EC2 Messages - only when creating new VPC
 resource "aws_vpc_endpoint" "ec2messages" {
-  count = local.use_existing_vpc ? 0 : (var.enable_ssm && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && var.enable_ssm && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ec2messages"

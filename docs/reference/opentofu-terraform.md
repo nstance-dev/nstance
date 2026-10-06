@@ -114,7 +114,9 @@ deploy/tf/
 - Instances run in private subnets by default. Nstance NAT instances place
   nstance-server and NAT identities on explicitly public service paths while
   keeping every server API private.
-- Automatic VPC endpoints eliminate need for internet access to cloud services.
+- The AWS network module creates a free S3 gateway endpoint automatically.
+  Billed PrivateLink interface endpoints are an explicit opt-in for deployments
+  that must reach AWS APIs without internet egress.
 - Instance metadata service configuration uses secure defaults (i.e. IMDSv2 on AWS).
 - Instance volumes are encrypted by default.
 - IAM roles are separated per use case, each with least-privilege permissions.
@@ -568,7 +570,8 @@ Creates VPC/network infrastructure:
 | `vpc_id` | Existing VPC ID (if set, skips VPC/IGW creation) | `""` |
 | `vpc_cidr_ipv4` | VPC IPv4 CIDR block (required when creating new VPC, must be empty when using existing) | `""` |
 | `enable_ipv6` | Enable IPv6 dual-stack support | `true` |
-| `enable_ssm` | Create SSM VPC endpoints (AWS) | `true` |
+| `enable_interface_endpoints` | Create billed AWS PrivateLink interface endpoints for configured services | `false` |
+| `enable_ssm` | Include Session Manager endpoints when interface endpoints are enabled | `true` |
 | `use_provider_nat` | Use AWS NAT Gateway or Google Cloud NAT instead of Nstance NAT instances | `false` |
 | `fixed_public_ipv4_count` | Optional fixed public IPv4 addresses per NAT service subnet | `0` |
 | `subnets` | Subnet definitions by role key and zone (see below) | `{}` |
