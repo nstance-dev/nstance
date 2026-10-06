@@ -82,7 +82,7 @@ locals {
         subnet_key = subnet_key
         index      = index
       }
-    } if var.nat_mode == "nstance-managed"
+    } if !var.use_provider_nat
   ]...)
 
   # For each role that has nat_gateway=true, map zone -> logical subnet ID
@@ -164,13 +164,13 @@ resource "terraform_data" "validate_nat_gateway_public" {
   }
 }
 
-resource "terraform_data" "validate_managed_nat" {
-  for_each = var.nat_mode == "nstance-managed" ? local.nat_gateway_subnets : {}
+resource "terraform_data" "validate_nstance_nat" {
+  for_each = var.use_provider_nat ? {} : local.nat_gateway_subnets
 
   lifecycle {
     precondition {
       condition     = each.value.public
-      error_message = "Subnet ${each.key}: nstance-managed NAT VMs require a public service subnet."
+      error_message = "Subnet ${each.key}: Nstance NAT instances require a public service subnet."
     }
   }
 }
@@ -230,7 +230,7 @@ resource "google_compute_subnetwork" "managed" {
 
 # Cloud Router (required for Cloud NAT) - created when any subnet has nat_gateway = true
 resource "google_compute_router" "main" {
-  count = local.has_nat_gateway && var.nat_mode == "cloud-managed" ? 1 : 0
+  count = local.has_nat_gateway && var.use_provider_nat ? 1 : 0
 
   name    = "${local.name_prefix}-router"
   project = local.project_id
@@ -241,7 +241,7 @@ resource "google_compute_router" "main" {
 # Cloud NAT (provides outbound internet access) - created when any subnet has nat_gateway = true
 # Note: Google Cloud Cloud NAT is regional, unlike AWS which is per-AZ
 resource "google_compute_router_nat" "main" {
-  count = local.has_nat_gateway && var.nat_mode == "cloud-managed" ? 1 : 0
+  count = local.has_nat_gateway && var.use_provider_nat ? 1 : 0
 
   name                               = "${local.name_prefix}-nat"
   project                            = local.project_id

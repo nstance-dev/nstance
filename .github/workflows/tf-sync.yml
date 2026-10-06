@@ -44,7 +44,7 @@ jobs:
             -e 's|source *= *"\.\./\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
             -e 's|source *= *"\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
             -e 's|source *= *"\.\./\.\./google/\([^"]*\)"|source  = "nstance-dev/nstance/google//modules/\1"|g' \
-            -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 1.0"' \
+            -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 2.0"' \
             {} \;
 
           # Verify no symlinks remain
@@ -76,7 +76,7 @@ jobs:
             -e 's|source *= *"\.\./\.\./\.\./google/\([^"]*\)"|source  = "nstance-dev/nstance/google//modules/\1"|g' \
             -e 's|source *= *"\.\./\.\./google/\([^"]*\)"|source  = "nstance-dev/nstance/google//modules/\1"|g' \
             -e 's|source *= *"\.\./\.\./aws/\([^"]*\)"|source  = "nstance-dev/nstance/aws//modules/\1"|g' \
-            -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 1.0"' \
+            -e '/source  *= *"nstance-dev\/nstance\//a\  version = "~> 2.0"' \
             {} \;
 
           if find /tmp/google -type l | grep -q .; then

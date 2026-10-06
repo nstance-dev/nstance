@@ -63,19 +63,14 @@ variable "region" {
   default     = ""
 }
 
-variable "nat_mode" {
-  description = "IPv4 egress mode for subnets with nat_subnet: cloud-managed or nstance-managed"
-  type        = string
-  default     = "cloud-managed"
-
-  validation {
-    condition     = contains(["cloud-managed", "nstance-managed"], var.nat_mode)
-    error_message = "nat_mode must be cloud-managed or nstance-managed."
-  }
+variable "use_provider_nat" {
+  description = "Use the cloud provider's NAT service instead of Nstance NAT instances"
+  type        = bool
+  default     = false
 }
 
 variable "fixed_public_ipv4_count" {
-  description = "Optional fixed public IPv4 addresses to pre-provision per NAT service subnet in nstance-managed mode"
+  description = "Optional fixed public IPv4 addresses to pre-provision per NAT service subnet when using Nstance NAT instances"
   type        = number
   default     = 0
 

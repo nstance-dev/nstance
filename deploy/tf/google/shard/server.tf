@@ -72,7 +72,7 @@ resource "google_compute_instance_template" "server" {
     subnetwork = local.server_subnet_id
 
     dynamic "access_config" {
-      for_each = var.network.nat_mode == "nstance-managed" ? [1] : []
+      for_each = var.network.use_provider_nat ? [] : [1]
       content {
         network_tier = "PREMIUM"
       }

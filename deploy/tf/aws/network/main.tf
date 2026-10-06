@@ -130,7 +130,7 @@ locals {
         subnet_key = subnet_key
         index      = index
       }
-    } if var.nat_mode == "nstance-managed"
+    } if !var.use_provider_nat
   ]...)
 
   # Unique AZs that have NAT gateways
@@ -225,17 +225,17 @@ resource "terraform_data" "validate_nat_gateway_public" {
   }
 }
 
-resource "terraform_data" "validate_managed_nat" {
-  for_each = var.nat_mode == "nstance-managed" ? local.nat_gateway_subnets : {}
+resource "terraform_data" "validate_nstance_nat" {
+  for_each = var.use_provider_nat ? {} : local.nat_gateway_subnets
 
   lifecycle {
     precondition {
       condition     = !local.use_existing_vpc
-      error_message = "Subnet ${each.key}: nstance-managed NAT requires a module-managed VPC so route-table ownership can be guaranteed."
+      error_message = "Subnet ${each.key}: Nstance NAT instances require a module-managed VPC so route-table ownership can be guaranteed."
     }
     precondition {
       condition     = each.value.public
-      error_message = "Subnet ${each.key}: nstance-managed NAT VMs require a public service subnet."
+      error_message = "Subnet ${each.key}: Nstance NAT instances require a public service subnet."
     }
   }
 }
@@ -331,7 +331,7 @@ resource "aws_route_table" "public" {
 
 # Elastic IP for NAT Gateway - one per AZ
 resource "aws_eip" "per_az" {
-  for_each = local.use_existing_vpc || var.nat_mode != "cloud-managed" ? toset([]) : toset(local.nat_gateway_azs)
+  for_each = local.use_existing_vpc || !var.use_provider_nat ? toset([]) : toset(local.nat_gateway_azs)
 
   domain = "vpc"
 
@@ -344,7 +344,7 @@ resource "aws_eip" "per_az" {
 
 # NAT Gateway - one per AZ in the subnet with nat_gateway = true
 resource "aws_nat_gateway" "per_az" {
-  for_each = local.use_existing_vpc || var.nat_mode != "cloud-managed" ? {} : {
+  for_each = local.use_existing_vpc || !var.use_provider_nat ? {} : {
     for az in local.nat_gateway_azs : az => local.nat_gateway_by_az[az][0]
   }
 
@@ -377,7 +377,7 @@ resource "aws_route_table" "private" {
   vpc_id = local.vpc_id
 
   dynamic "route" {
-    for_each = var.nat_mode == "cloud-managed" ? [1] : []
+    for_each = var.use_provider_nat ? [1] : []
     content {
       cidr_block     = "0.0.0.0/0"
       nat_gateway_id = aws_nat_gateway.per_az[each.value.zone].id
@@ -521,10 +521,10 @@ resource "aws_vpc_endpoint" "ssm" {
   depends_on = [aws_subnet.managed]
 }
 
-# Nstance-managed NAT needs EC2 route, ENI, and address APIs while ordinary
-# IPv4 egress is temporarily unavailable during a mode cutover.
+# Nstance NAT instances need EC2 route, ENI, and address APIs while ordinary
+# IPv4 egress is temporarily unavailable during a cutover.
 resource "aws_vpc_endpoint" "ec2" {
-  count = local.use_existing_vpc ? 0 : (var.nat_mode == "nstance-managed" && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (!var.use_provider_nat && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ec2"

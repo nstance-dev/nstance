@@ -111,7 +111,7 @@ deploy/tf/
 
 ## Security
 
-- Instances run in private subnets by default. Nstance-managed NAT places
+- Instances run in private subnets by default. Nstance NAT instances place
   nstance-server and NAT identities on explicitly public service paths while
   keeping every server API private.
 - Automatic VPC endpoints eliminate need for internet access to cloud services.
@@ -147,7 +147,7 @@ When `enable_ipv6 = true` (the default), each subnet needs an IPv6 CIDR. You can
 ```hcl
 module "network" {
   source  = "nstance-dev/nstance/aws//modules/network"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   vpc_cidr_ipv4 = "172.18.0.0/16"
 
@@ -178,7 +178,7 @@ To disable IPv6 and use IPv4-only networking:
 ```hcl
 module "network" {
   source  = "nstance-dev/nstance/aws//modules/network"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   vpc_cidr_ipv4 = "172.18.0.0/16"
   enable_ipv6   = false
@@ -205,19 +205,19 @@ provider "aws" {
 
 module "cluster" {
   source  = "nstance-dev/nstance/aws//modules/cluster"
-  version = "~> 1.0"
+  version = "~> 2.0"
 }
 
 module "account" {
   source  = "nstance-dev/nstance/aws//modules/account"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
 }
 
 module "network" {
   source  = "nstance-dev/nstance/aws//modules/network"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster       = module.cluster
   vpc_cidr_ipv4 = "172.18.0.0/16"
@@ -251,7 +251,7 @@ module "network" {
 
 module "shard" {
   source  = "nstance-dev/nstance/aws//modules/shard"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
   account = module.account
@@ -288,19 +288,19 @@ provider "aws" {
 
 module "cluster" {
   source  = "nstance-dev/nstance/aws//modules/cluster"
-  version = "~> 1.0"
+  version = "~> 2.0"
 }
 
 module "account" {
   source  = "nstance-dev/nstance/aws//modules/account"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
 }
 
 module "network" {
   source  = "nstance-dev/nstance/aws//modules/network"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
 
@@ -356,7 +356,7 @@ module "network" {
 # Create shards for each AZ
 module "shard_1a" {
   source  = "nstance-dev/nstance/aws//modules/shard"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
   account = module.account
@@ -376,7 +376,7 @@ module "shard_1a" {
 
 module "shard_1b" {
   source  = "nstance-dev/nstance/aws//modules/shard"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
   account = module.account
@@ -396,7 +396,7 @@ module "shard_1b" {
 
 module "shard_1c" {
   source  = "nstance-dev/nstance/aws//modules/shard"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
   account = module.account
@@ -556,7 +556,7 @@ Creates VPC/network infrastructure:
 - VPC with specified CIDR
 - Internet Gateway
 - NAT Gateway / Cloud NAT
-- Optional fixed public IPv4 attachments for Nstance-managed NAT
+- Optional fixed public IPv4 attachments for Nstance NAT instances
 - Route tables
 - VPC Endpoints (S3, SSM) on AWS
 - Group subnets (optional, via `subnets` variable)
@@ -569,7 +569,7 @@ Creates VPC/network infrastructure:
 | `vpc_cidr_ipv4` | VPC IPv4 CIDR block (required when creating new VPC, must be empty when using existing) | `""` |
 | `enable_ipv6` | Enable IPv6 dual-stack support | `true` |
 | `enable_ssm` | Create SSM VPC endpoints (AWS) | `true` |
-| `nat_mode` | IPv4 egress: `cloud-managed` or `nstance-managed` | `"cloud-managed"` |
+| `use_provider_nat` | Use AWS NAT Gateway or Google Cloud NAT instead of Nstance NAT instances | `false` |
 | `fixed_public_ipv4_count` | Optional fixed public IPv4 addresses per NAT service subnet | `0` |
 | `subnets` | Subnet definitions by role key and zone (see below) | `{}` |
 | `load_balancers` | Load balancer definitions (see below) | `{}` |
@@ -587,14 +587,14 @@ Each subnet definition supports the following attributes:
 | `ipv6_cidr` | Explicit IPv6 CIDR block (alternative to `ipv6_netnum`) |
 | `existing` | Reference an existing subnet by ID (mutually exclusive with `ipv4_cidr`) |
 | `public` | (bool) Route via Internet Gateway, assign public IPs |
-| `nat_gateway` | (bool) Use this public subnet for the selected NAT mode |
-| `nat_subnet` | (string) Route IPv4 egress through the selected NAT mode in this role (same zone) |
+| `nat_gateway` | (bool) Make this public subnet available for NAT |
+| `nat_subnet` | (string) Route IPv4 egress through NAT in this role (same zone) |
 | `shards` | (list) Restrict subnet to specific shard IDs |
 
 **Routing Behavior:**
 
 - `public = true` → Routes via Internet Gateway, instances get public IPs
-- `nat_subnet = "X"` → Routes through the selected NAT mode in role X's subnet (same zone)
+- `nat_subnet = "X"` → Routes through NAT in role X's subnet (same zone)
 - Neither → Isolated subnet with user-managed routing
 
 Routing fields (`public`, `nat_subnet`) work on both new AND existing subnets.
@@ -679,8 +679,8 @@ share membership. For example, `["www"]` selects every `www` listener.
 
 | Feature | AWS | Google Cloud |
 |---------|-----|-----|
-| Cloud-managed NAT | Per-AZ NAT gateway | Regional Cloud NAT restricted to selected subnets |
-| Nstance-managed NAT | Active VM primary ENI, with an optional reassociated Elastic IP | Active VM, with an optional reserved external IPv4 |
+| Provider NAT | Per-AZ NAT gateway | Regional Cloud NAT restricted to selected subnets |
+| Nstance NAT instances | Active VM primary ENI, with an optional reassociated Elastic IP | Active VM, with an optional reserved external IPv4 |
 | Route ownership | One route table per private subnet | Nstance-tagged default routes |
 | Public Subnets | Route via IGW, public IPs assigned | Marked for reference (load balancer placement) |
 
@@ -693,16 +693,16 @@ share membership. For example, `["www"]` selects every `www` listener.
 | `public_subnet_ids` | Map of AZ/zone → subnet ID/name for public subnets |
 | `nat_gateway_ids` | Map of AZ → NAT gateway ID (AWS) or `{"regional": name}` (Google Cloud) |
 | `private_route_table_ids` | Map of subnet key → route table ID (AWS only) |
-| `public_addresses` | Optional Nstance-managed NAT fixed IPv4 attachments keyed by service role and zone |
-| `nat_mode` | Selected IPv4 egress mode |
+| `public_addresses` | Optional fixed IPv4 attachments for Nstance NAT instances, keyed by service role and zone |
+| `use_provider_nat` | Whether provider NAT is used instead of Nstance NAT instances |
 | `subnet_ids` | Map of all managed subnet IDs by key (role key/zone/index) |
 | `subnets` | Subnet metadata by role/zone with {id, shards, public} for each subnet |
 | `load_balancers` | AWS target-group metadata or Google Cloud NEG/frontend metadata |
 
-Changing `nat_mode` preserves subnet resources. Cloud-managed to
-Nstance-managed temporarily interrupts general IPv4 egress while
-nstance-server establishes healthy next hops. Nstance-managed to cloud-managed
-creates the provider NAT path before nstance-server retires its NAT VMs.
+Changing `use_provider_nat` preserves subnet resources. Switching to Nstance
+NAT instances temporarily interrupts general IPv4 egress while nstance-server
+establishes healthy next hops. Switching to provider NAT creates that path
+before nstance-server retires its NAT instances.
 
 ### Shard Module
 
@@ -716,6 +716,12 @@ Note: All subnets (server and groups) are created by the network module and acce
 The shard module filters subnets internally based on `shard` and `zone`.
 
 When `cluster.shards` is non-empty, the shard module validates that `var.shard` is in the list.
+
+Templates whose `kind` is `nat` use the default agent userdata plus a minimal
+demonstration NAT setup: IPv4 forwarding, iptables masquerading on the
+default-route interface, and agent network metrics for that interface. This is
+intended to make standalone Nstance deployments testable. Production users can
+replace the template userdata with their own hardened host configuration.
 
 **Key Variables:**
 | Name | Description | Default |

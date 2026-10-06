@@ -19,22 +19,28 @@ Create a new Nstance cluster in AWS using OpenTofu:
 ```bash
 export AWS_PROFILE=
 export AWS_REGION=us-west-2
+export AWS_ZONE=us-west-2a
+export NSTANCE_USE_PROVIDER_NAT=false # Set true to use AWS NAT Gateway.
 
 curl -O https://raw.githubusercontent.com/nstance-dev/terraform-aws-nstance/refs/heads/main/examples/single-shard/main.tf
 
 tofu init
 
-tofu apply -var="profile=${AWS_PROFILE}" -var="region=${AWS_REGION}" -var="cluster_id=test"
+tofu apply -var="profile=${AWS_PROFILE}" -var="region=${AWS_REGION}" -var="zone=${AWS_ZONE}" -var="use_provider_nat=${NSTANCE_USE_PROVIDER_NAT}" -var="cluster_id=test"
 ```
+
+By default, the example configures Nstance NAT instances with a deliberately minimal demonstration userdata script. It enables IPv4 forwarding and iptables masquerading so Nstance can be tested independently; production deployments can replace this userdata with their own hardened image or configuration.
 
 Destroy:
 
 ```bash
 export AWS_PROFILE=
 export AWS_REGION=us-west-2
+export AWS_ZONE=us-west-2a
+export NSTANCE_USE_PROVIDER_NAT=false # Match the value used during apply.
 
 # 1. Destroy the nstance-server ASG to stop it from managing instances
-tofu destroy -var="profile=${AWS_PROFILE}" -var="region=${AWS_REGION}" -var="cluster_id=test" -target=module.shard.aws_autoscaling_group.server
+tofu destroy -var="profile=${AWS_PROFILE}" -var="region=${AWS_REGION}" -var="zone=${AWS_ZONE}" -var="use_provider_nat=${NSTANCE_USE_PROVIDER_NAT}" -var="cluster_id=test" -target=module.shard.aws_autoscaling_group.server
 
 # 2. Terminate all Nstance-managed instances to avoid orphaned resources or subnet deletion failures
 INSTANCE_IDS=$(aws --profile="${AWS_PROFILE}" --region="${AWS_REGION}" ec2 describe-instances \
@@ -51,7 +57,7 @@ aws --profile="${AWS_PROFILE}" s3 rb "s3://${BUCKET_NAME}" --force
 tofu state rm 'module.cluster.aws_s3_bucket.nstance[0]'
 
 # 4. Destroy all remaining Nstance cluster resources
-tofu destroy -var="profile=${AWS_PROFILE}" -var="region=${AWS_REGION}" -var="cluster_id=test"
+tofu destroy -var="profile=${AWS_PROFILE}" -var="region=${AWS_REGION}" -var="zone=${AWS_ZONE}" -var="use_provider_nat=${NSTANCE_USE_PROVIDER_NAT}" -var="cluster_id=test"
 ```
 
 See the [OpenTofu/Terraform reference](../reference/opentofu-terraform.md) for full module documentation and advanced configurations.
@@ -63,23 +69,29 @@ Create a new Nstance cluster in Google Cloud using OpenTofu:
 ```bash
 export GOOGLE_PROJECT=
 export GOOGLE_REGION=us-central1
+export GOOGLE_ZONE=us-central1-a
+export NSTANCE_USE_PROVIDER_NAT=false # Set true to use Google Cloud NAT.
 gcloud auth application-default login # or set GOOGLE_APPLICATION_CREDENTIALS
 
 curl -O https://raw.githubusercontent.com/nstance-dev/terraform-google-nstance/refs/heads/main/examples/single-shard/main.tf
 
 tofu init
 
-tofu apply -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="cluster_id=test"
+tofu apply -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="zone=${GOOGLE_ZONE}" -var="use_provider_nat=${NSTANCE_USE_PROVIDER_NAT}" -var="cluster_id=test"
 ```
+
+As on AWS, the default Nstance NAT instances use minimal demonstration userdata rather than a production-hardened host configuration.
 
 Destroy:
 ```bash
 export GOOGLE_PROJECT=
 export GOOGLE_REGION=us-central1
+export GOOGLE_ZONE=us-central1-a
+export NSTANCE_USE_PROVIDER_NAT=false # Match the value used during apply.
 gcloud auth application-default login # or set GOOGLE_APPLICATION_CREDENTIALS
 
 # 1. Destroy the nstance-server instance group manager to stop it from managing instances
-tofu destroy -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="cluster_id=test" -target=module.shard.google_compute_instance_group_manager.server
+tofu destroy -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="zone=${GOOGLE_ZONE}" -var="use_provider_nat=${NSTANCE_USE_PROVIDER_NAT}" -var="cluster_id=test" -target=module.shard.google_compute_instance_group_manager.server
 
 # 2. Delete all Nstance-managed instances to avoid orphaned resources or subnet deletion failures
 gcloud compute instances list \
@@ -95,7 +107,7 @@ gcloud storage rm -r "gs://${BUCKET_NAME}"
 tofu state rm 'module.cluster.google_storage_bucket.nstance[0]'
 
 # 4. Destroy all remaining Nstance cluster resources
-tofu destroy -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="cluster_id=test"
+tofu destroy -var="project=${GOOGLE_PROJECT}" -var="region=${GOOGLE_REGION}" -var="zone=${GOOGLE_ZONE}" -var="use_provider_nat=${NSTANCE_USE_PROVIDER_NAT}" -var="cluster_id=test"
 ```
 
 See the [OpenTofu/Terraform reference](../reference/opentofu-terraform.md) for full module documentation and advanced configurations.

@@ -9,7 +9,7 @@ Requires Terraform/OpenTofu 1.11 or newer and AWS provider 6.8 or newer for ephe
 ```hcl
 module "cluster" {
   source  = "nstance-dev/nstance/aws//modules/cluster"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster_id = "my-cluster"
 }

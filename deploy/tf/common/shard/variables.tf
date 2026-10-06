@@ -89,7 +89,7 @@ variable "network" {
     public_route_table_id   = optional(string, null)    # AWS only
     private_route_table_ids = optional(map(string), {}) # subnet key -> route table ID (AWS only)
     nat_gateway_ids         = optional(map(string), {}) # zone -> NAT gateway ID
-    nat_mode                = optional(string, "cloud-managed")
+    use_provider_nat        = optional(bool, false)
     subnets                 = optional(any, {}) # role -> zone -> [{id, shards, public}]
     load_balancers = optional(map(object({
       dns_name          = optional(string, "")
@@ -189,7 +189,7 @@ variable "groups" {
 }
 
 variable "nat" {
-  description = "Tenant-keyed managed NAT configuration written to nstance-server"
+  description = "Tenant-keyed Nstance NAT configuration written to nstance-server"
   type        = any
   default     = {}
 }

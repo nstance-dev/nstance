@@ -204,7 +204,7 @@ func TestManagerRemovesUnusedNATAfterGrace(t *testing.T) {
 }
 
 // TestManagerRemovesNATImmediatelyWhenDisabled verifies switching to
-// cloud-managed NAT bypasses the last-instance grace period.
+// provider NAT bypasses the last-instance grace period.
 func TestManagerRemovesNATImmediatelyWhenDisabled(t *testing.T) {
 	db, err := localdb.Open(filepath.Join(t.TempDir(), "nat.db"))
 	if err != nil {

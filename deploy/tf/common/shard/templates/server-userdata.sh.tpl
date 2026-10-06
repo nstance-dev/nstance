@@ -8,6 +8,13 @@ echo "=== Userdata Script Started at $(date) ==="
 
 ARCH=$(dpkg --print-architecture)
 
+for command in curl python3; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "ERROR: Debian 13 image is missing required command: $command" >&2
+    exit 1
+  fi
+done
+
 # Provider-specific setup
 %{ if provider == "aws" && enable_ssm ~}
 # If enabled, ensure SSM Agent is installed and running
@@ -26,7 +33,7 @@ fi
 
 # Install runtime dependencies
 apt-get update -o Acquire::Retries=3
-apt-get install -y -o Acquire::Retries=3 jq sqlite3
+apt-get install -y -o Acquire::Retries=3 sqlite3
 
 # Create data directory
 mkdir -p /var/lib/nstance-server
@@ -53,7 +60,7 @@ else
 
   if [ "$VERSION" = "latest" ]; then
     echo "Fetching latest release..."
-    VERSION=$(curl -sL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | jq -r '.tag_name')
+    VERSION=$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])')
   fi
 
   echo "Installing nstance-server $VERSION..."
@@ -62,7 +69,7 @@ fi
 
 # Download and extract
 echo "Downloading from: $DOWNLOAD_URL"
-curl -sL "$DOWNLOAD_URL" | tar -xz -C /usr/local/bin nstance-server
+curl -fsSL "$DOWNLOAD_URL" | tar -xz -C /usr/local/bin nstance-server
 chmod +x /usr/local/bin/nstance-server
 
 # Create systemd service

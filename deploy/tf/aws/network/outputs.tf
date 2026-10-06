@@ -38,7 +38,7 @@ output "nat_gateway_ids" {
 }
 
 output "public_addresses" {
-  description = "Optional fixed public IPv4 attachments for Nstance-managed NAT, keyed by service role and zone"
+  description = "Optional fixed public IPv4 attachments for Nstance NAT instances, keyed by service role and zone"
   value = {
     for group in distinct([for address in values(local.fixed_public_ipv4) : "${address.role}-${address.zone}"]) : group => [
       for key, address in local.fixed_public_ipv4 : {
@@ -49,9 +49,9 @@ output "public_addresses" {
   }
 }
 
-output "nat_mode" {
-  description = "Selected IPv4 egress mode"
-  value       = var.nat_mode
+output "use_provider_nat" {
+  description = "Whether the cloud provider's NAT service is used instead of Nstance NAT instances"
+  value       = var.use_provider_nat
 }
 
 output "public_subnet_ids" {

@@ -7,7 +7,7 @@ Creates IAM roles and instance profiles for Nstance server and agent EC2 instanc
 ```hcl
 module "account" {
   source  = "nstance-dev/nstance/aws//modules/account"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
 }

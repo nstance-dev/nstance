@@ -2,18 +2,19 @@
 
 Creates VPC network infrastructure including subnets, Cloud NAT, Cloud Router, firewall rules, and optional regional load balancers.
 
-Cloud NAT remains the default. Set `nat_mode = "nstance-managed"` to disable
-Cloud NAT and use dedicated NAT VMs. Set `fixed_public_ipv4_count` when stable
+Nstance NAT instances are the default. Set `use_provider_nat = true` to use
+Google Cloud NAT instead. Set `fixed_public_ipv4_count` when stable
 IPv4 egress is required and pass the appropriate `public_addresses` output
-directly into each tenant's NAT configuration. Switching modes preserves the
-subnets; nstance-server owns the live tagged routes in Nstance-managed mode.
+directly into each tenant's NAT configuration. Switching implementations
+preserves the subnets; nstance-server owns the live tagged routes when using
+Nstance NAT instances.
 
 ## Usage
 
 ```hcl
 module "network" {
   source  = "nstance-dev/nstance/google//modules/network"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster       = module.cluster
   vpc_cidr_ipv4 = "172.18.0.0/16"

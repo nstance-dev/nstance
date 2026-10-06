@@ -7,7 +7,7 @@ Creates shared cluster resources including a cluster ID, GCS bucket for config/s
 ```hcl
 module "cluster" {
   source  = "nstance-dev/nstance/google//modules/cluster"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster_id = "my-cluster"
 }

@@ -6,7 +6,7 @@
 resource "aws_network_interface" "server_leader" {
   subnet_id         = local.server_subnet_id
   security_groups   = [aws_security_group.server.id]
-  source_dest_check = var.network.nat_mode != "nstance-managed"
+  source_dest_check = var.network.use_provider_nat
 
   description = "Stable ENI for Nstance Server shard leader (${var.shard})"
 

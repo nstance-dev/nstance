@@ -561,7 +561,7 @@ For more information see: [Image Resolution](templates-and-vars.md#image-resolut
 
 ## `nat`
 
-`nat.<tenant>` enables Nstance-managed NAT for that tenant. `group` is required
+`nat.<tenant>` enables Nstance NAT instances for that tenant. `group` is required
 and is a singular reference to a group in the same tenant, so at most one NAT
 group can be configured. The group must omit `size` and set its starting `instance_type`. The
 tenant NAT configuration contains `instance_type_ladder`, ordered from lowest

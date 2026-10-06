@@ -11,7 +11,7 @@ uses its built-in nstance-server installer.
 ```hcl
 module "shard" {
   source  = "nstance-dev/nstance/google//modules/shard"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
   account = module.account

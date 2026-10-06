@@ -7,7 +7,7 @@ Creates service accounts for Nstance server and agent instances with least-privi
 ```hcl
 module "account" {
   source  = "nstance-dev/nstance/google//modules/account"
-  version = "~> 1.0"
+  version = "~> 2.0"
 
   cluster = module.cluster
 }

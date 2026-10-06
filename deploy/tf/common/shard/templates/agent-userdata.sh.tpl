@@ -27,6 +27,18 @@ export DEBIAN_FRONTEND=noninteractive
 
 ARCH="{{ .Instance.Arch }}"
 
+commands=(curl python3)
+%{ if configure_nat ~}
+commands+=(iptables)
+%{ endif ~}
+
+for command in "$${commands[@]}"; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "ERROR: Debian 13 image is missing required command: $command" >&2
+    exit 1
+  fi
+done
+
 # SSH access (optional) - inject authorized keys for the specified user
 SSH_USERNAME="{{ .Vars.SSH_USERNAME }}"
 SSH_AUTHORIZED_KEYS="{{ .Vars.SSH_AUTHORIZED_KEYS }}"
@@ -90,13 +102,44 @@ do
   sleep $retry_in
 done
 
-# Install dependencies
-apt-get update -o Acquire::Retries=3
-apt-get install -y -o Acquire::Retries=3 curl jq
+%{ if configure_nat ~}
+# Configure minimal IPv4 NAT.
+cat > /usr/local/sbin/nstance-configure-nat <<'NSTANCE_CONFIGURE_NAT'
+#!/bin/bash
+set -euo pipefail
+
+interface=$(ip -4 route show default | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+if [[ -z "$interface" || ! "$interface" =~ ^[a-zA-Z0-9_.:-]+$ ]]; then
+  echo "Unable to determine a safe IPv4 egress interface" >&2
+  exit 1
+fi
+
+sysctl -w net.ipv4.ip_forward=1
+iptables -w -t nat -C POSTROUTING -o "$interface" -j MASQUERADE 2>/dev/null ||
+  iptables -w -t nat -A POSTROUTING -o "$interface" -j MASQUERADE
+NSTANCE_CONFIGURE_NAT
+chmod 755 /usr/local/sbin/nstance-configure-nat
+cat > /etc/systemd/system/nstance-configure-nat.service <<'SYSTEMD'
+[Unit]
+Description=Configure Nstance IPv4 NAT
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nstance-configure-nat
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD
+NSTANCE_METRICS_INTERFACE=$(ip -4 route show default | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+%{ endif ~}
 
 # Provider-specific dependencies
 %{ if provider == "proxmox" ~}
 # Install QEMU Guest Agent for Proxmox VM management
+apt-get update -o Acquire::Retries=3
 apt-get install -y -o Acquire::Retries=3 qemu-guest-agent
 systemctl start qemu-guest-agent
 %{ endif ~}
@@ -121,7 +164,7 @@ else
 
   if [ "$VERSION" = "latest" ]; then
     echo "Fetching latest release..."
-    VERSION=$(curl -sL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | jq -r '.tag_name')
+    VERSION=$(curl -fsSL "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])')
   fi
 
   echo "Installing nstance-agent $VERSION..."
@@ -130,7 +173,7 @@ fi
 
 # Download and extract nstance-agent binary
 echo "Downloading from: $DOWNLOAD_URL"
-curl -sL "$DOWNLOAD_URL" | tar -xz -C /usr/local/bin nstance-agent
+curl -fsSL "$DOWNLOAD_URL" | tar -xz -C /usr/local/bin nstance-agent
 chmod +x /usr/local/bin/nstance-agent
 
 # Write registration nonce
@@ -162,6 +205,9 @@ NSTANCE_INSTANCE_KIND={{ .Instance.Kind }}
 NSTANCE_INSTANCE_ID={{ .Instance.ID }}
 NSTANCE_REPORT_INTERVAL=${agent_report_interval}
 NSTANCE_SPOT_POLL_INTERVAL=${agent_spot_poll}
+%{ if configure_nat ~}
+NSTANCE_METRICS_INTERFACE=$NSTANCE_METRICS_INTERFACE
+%{ endif ~}
 ENVFILE
 
 # Fix ownership — all files above were written as root after the initial chown
@@ -173,6 +219,10 @@ cat > /etc/systemd/system/nstance-agent.service <<SYSTEMD
 Description=Nstance Agent
 After=network-online.target
 Wants=network-online.target
+%{ if configure_nat ~}
+Requires=nstance-configure-nat.service
+After=nstance-configure-nat.service
+%{ endif ~}
 
 [Service]
 Type=simple
@@ -196,7 +246,9 @@ SYSTEMD
 
 # Enable and start service
 systemctl daemon-reload
-systemctl enable nstance-agent
-systemctl start nstance-agent
+%{ if configure_nat ~}
+systemctl enable nstance-configure-nat
+%{ endif ~}
+systemctl enable --now nstance-agent
 
 echo "=== Nstance Agent Init Complete $(date) ==="

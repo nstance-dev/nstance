@@ -6,7 +6,7 @@
 #
 # This example demonstrates a minimal single-shard deployment with:
 # - New VPC with public and private subnets
-# - Cloud NAT for outbound traffic
+# - Google Cloud NAT or Nstance NAT instances for outbound IPv4 traffic
 # - Single shard with worker group
 
 variable "project" {
@@ -19,15 +19,20 @@ variable "region" {
   type        = string
 }
 
+variable "zone" {
+  description = "Google Cloud zone"
+  type        = string
+}
+
 variable "cluster_id" {
   description = "Cluster ID (lowercase alphanumeric with hyphens, max 32 chars)"
   type        = string
 }
 
-variable "nat_mode" {
-  description = "IPv4 egress mode"
-  type        = string
-  default     = "cloud-managed"
+variable "use_provider_nat" {
+  description = "Use Google Cloud NAT instead of Nstance NAT instances"
+  type        = bool
+  default     = false
 }
 
 provider "google" {
@@ -50,16 +55,16 @@ module "account" {
 module "network" {
   source = "../../../google/network"
 
-  cluster       = module.cluster
-  vpc_cidr_ipv4 = "172.18.0.0/16"
-  nat_mode      = var.nat_mode
+  cluster          = module.cluster
+  vpc_cidr_ipv4    = "172.18.0.0/16"
+  use_provider_nat = var.use_provider_nat
 
   # Define subnets by role and zone
   # ipv6_netnum (0-65535) auto-computes /64 from VPC's Google Cloud-assigned /48
   subnets = {
     # Public subnet with Cloud NAT for outbound traffic
     "public" = {
-      "us-central1-a" = [{
+      (var.zone) = [{
         ipv4_cidr   = "172.18.0.0/24"
         ipv6_netnum = 0
         public      = true
@@ -68,7 +73,7 @@ module "network" {
     }
     # Nstance Server subnet routes through NAT
     "nstance" = {
-      "us-central1-a" = [{
+      (var.zone) = [{
         ipv4_cidr   = "172.18.1.0/28"
         ipv6_netnum = 1
         nat_subnet  = "public"
@@ -76,7 +81,7 @@ module "network" {
     }
     # Worker subnet routes through NAT
     "workers" = {
-      "us-central1-a" = [{
+      (var.zone) = [{
         ipv4_cidr   = "172.18.10.0/24"
         ipv6_netnum = 10
         nat_subnet  = "public"
@@ -92,17 +97,17 @@ module "shard" {
   account = module.account
   network = module.network
 
-  shard         = "us-central1-a"
-  zone          = "us-central1-a"
-  server_subnet = var.nat_mode == "nstance-managed" ? "public" : "nstance"
+  shard         = var.zone
+  zone          = var.zone
+  server_subnet = var.use_provider_nat ? "nstance" : "public"
 
-  nat = var.nat_mode == "nstance-managed" ? {
+  nat = var.use_provider_nat ? {} : {
     default = {
       group                = "nat"
-      public_addresses     = try(module.network.public_addresses["public-us-central1-a"], [])
+      public_addresses     = try(module.network.public_addresses["public-${var.zone}"], [])
       instance_type_ladder = ["e2-micro"]
     }
-  } : {}
+  }
 
   templates = {
     default = { kind = "dft", arch = "amd64" }
@@ -115,12 +120,32 @@ module "shard" {
         size        = 1
         subnet_pool = "workers" # References key from subnets map
       }
-      }, var.nat_mode == "nstance-managed" ? {
+      }, var.use_provider_nat ? {} : {
       nat = {
         subnet_pool  = "public"
         template     = "nat"
         machine_type = "e2-micro"
       }
-    } : {})
+    })
   }
+}
+
+output "server_private_ips" {
+  description = "Private IP addresses of the Nstance servers"
+  value       = module.shard.server_ips
+}
+
+output "config_key" {
+  description = "Object-storage key containing the shard configuration"
+  value       = module.shard.config_key
+}
+
+output "use_provider_nat" {
+  description = "Whether Google Cloud NAT is used instead of Nstance NAT instances"
+  value       = module.network.use_provider_nat
+}
+
+output "nat_public_addresses" {
+  description = "Fixed public IPv4 addresses allocated for Nstance NAT instances"
+  value       = module.network.public_addresses
 }

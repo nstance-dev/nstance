@@ -10,9 +10,7 @@ locals {
   nstance_version = var.nstance_version != "" ? var.nstance_version : "latest"
   github_repo     = "nstance-dev/nstance"
 
-  # Agent userdata template - read as-is, uses Go text/template syntax
-  # This gets stored in GCS config and interpolated by nstance-server at instance creation
-  agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", {
+  agent_userdata_vars = {
     nstance_version       = local.nstance_version
     github_repo           = local.github_repo
     binary_url            = var.nstance_agent_binary_url
@@ -25,7 +23,15 @@ locals {
     agent_recv_mode       = "0640"
     agent_report_interval = var.cluster.server_config.health_check_interval != null ? var.cluster.server_config.health_check_interval : ""
     agent_spot_poll       = var.agent_spot_poll_interval
-  })
+  }
+
+  # Agent userdata is stored in GCS config and interpolated by nstance-server at instance creation.
+  agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", merge(local.agent_userdata_vars, {
+    configure_nat = false
+  }))
+  nat_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", merge(local.agent_userdata_vars, {
+    configure_nat = true
+  }))
 
   cluster_leader_election_config = merge(
     var.cluster.server_config.cluster_leader_election.frequent_interval != null ? { frequent_interval = var.cluster.server_config.cluster_leader_election.frequent_interval } : {},
@@ -77,7 +83,7 @@ locals {
       {
         kind     = try(var.templates[name].kind, "dft")
         arch     = try(var.templates[name].arch, "amd64")
-        userdata = { content = local.agent_userdata_template }
+        userdata = { content = try(var.templates[name].kind, "dft") == "nat" ? local.nat_userdata_template : local.agent_userdata_template }
         args = {
           SourceImage = "projects/debian-cloud/global/images/family/debian-13"
         }
@@ -174,7 +180,7 @@ resource "google_storage_bucket_object" "shard_config" {
         }
         if length(try(lb.network_endpoint_groups[var.zone], [])) > 0
       }
-      nat = var.network.nat_mode == "nstance-managed" ? var.nat : {}
+      nat = var.network.use_provider_nat ? {} : var.nat
       groups = {
         # Groups are nested by tenant: { tenant -> { group_name -> GroupConfig } }
         for tenant, tenant_groups in var.groups : tenant => {

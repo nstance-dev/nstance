@@ -46,7 +46,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
+.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate tf-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
 
 help: ## Show available targets
 	@echo "Usage: make <target>"
@@ -101,6 +101,27 @@ helm-lint: ## Quickly lint the Helm chart
 helm-validate: helm-lint ## Render and validate all Helm chart manifests
 	@command -v kubeconform >/dev/null 2>&1 || { echo "Error: kubeconform is not installed."; exit 1; }
 	helm template nstance-operator $(CURRENT)deploy/helm | kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.34.0
+
+tf-validate: ## Check and validate OpenTofu modules and examples
+	@command -v tofu >/dev/null 2>&1 || { echo "Error: tofu is not installed."; exit 1; }
+	tofu fmt -check -recursive $(CURRENT)deploy/tf
+	@set -e; for dir in \
+		$(CURRENT)deploy/tf/aws/account \
+		$(CURRENT)deploy/tf/aws/cluster \
+		$(CURRENT)deploy/tf/aws/network \
+		$(CURRENT)deploy/tf/aws/shard \
+		$(CURRENT)deploy/tf/google/account \
+		$(CURRENT)deploy/tf/google/cluster \
+		$(CURRENT)deploy/tf/google/network \
+		$(CURRENT)deploy/tf/google/shard \
+		$(CURRENT)deploy/tf/examples/aws/multi-az \
+		$(CURRENT)deploy/tf/examples/aws/single-shard \
+		$(CURRENT)deploy/tf/examples/google/multi-az \
+		$(CURRENT)deploy/tf/examples/google/single-shard \
+		$(CURRENT)deploy/tf/examples/multi-cloud; do \
+		tofu -chdir="$$dir" init -backend=false -input=false >/dev/null; \
+		tofu -chdir="$$dir" validate; \
+	done
 
 precommit: ## Check formatting and run linters (read-only)
 	@echo "Checking formatting..."
