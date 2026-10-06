@@ -35,6 +35,18 @@ variable "use_provider_nat" {
   default     = false
 }
 
+variable "nstance_server_binary_url" {
+  description = "Optional fixed URL for the nstance-server binary tarball"
+  type        = string
+  default     = ""
+}
+
+variable "nstance_agent_binary_url" {
+  description = "Optional fixed URL for the nstance-agent binary tarball"
+  type        = string
+  default     = ""
+}
+
 provider "aws" {
   profile = var.profile
   region  = var.region
@@ -101,6 +113,9 @@ module "shard" {
   shard         = var.zone
   zone          = var.zone
   server_subnet = var.use_provider_nat ? "nstance" : "public"
+
+  nstance_server_binary_url = var.nstance_server_binary_url
+  nstance_agent_binary_url  = var.nstance_agent_binary_url
 
   nat = var.use_provider_nat ? {} : {
     default = {

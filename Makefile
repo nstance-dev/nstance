@@ -16,6 +16,11 @@ BUILDVARS_PKG=github.com/nstance-dev/nstance/internal/buildvars
 
 BINARYDIR=$(CURRENT)bin
 BINARIES=nstance-server nstance-agent nstance-operator nstance-admin
+TEST_PROVIDERS=aws google
+TEST_PREPARE_TARGETS=$(addsuffix -prepare,$(TEST_PROVIDERS))
+TEST_UPLOAD_TARGETS=$(addsuffix -upload,$(TEST_PROVIDERS))
+TEST_APPLY_TARGETS=$(addsuffix -apply,$(TEST_PROVIDERS))
+TEST_DESTROY_TARGETS=$(addsuffix -destroy,$(TEST_PROVIDERS))
 
 # Cross-compilation settings for SQLite support
 GOOS ?= $(shell go env GOOS)
@@ -46,7 +51,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate tf-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin
+.PHONY: help setup git-hooks proto fmt lint helm-lint helm-validate tf-validate precommit test e2e-admin e2e-k8s dev-tmux dev-tmux-k8s dev-operator dev-proxmox kind-create kind-provision kind-delete clean-dev build clean-build $(BINARIES) manifests tag images image-operator image-agent image-server image-admin publish publish-operator publish-agent publish-server publish-admin $(TEST_PREPARE_TARGETS) $(TEST_UPLOAD_TARGETS) $(TEST_APPLY_TARGETS) $(TEST_DESTROY_TARGETS)
 
 help: ## Show available targets
 	@echo "Usage: make <target>"
@@ -196,6 +201,29 @@ manifests: ## Generate Kubernetes manifests
 				close(f); \
 			} \
 		}'
+
+##@ Cloud Testing
+
+aws-prepare: ## Prepare a standalone AWS test deployment
+google-prepare: ## Prepare a standalone Google Cloud test deployment
+aws-upload: ## Build and upload binaries for an AWS test deployment
+google-upload: ## Build and upload binaries for a Google Cloud test deployment
+aws-apply: ## Apply a prepared AWS test deployment
+google-apply: ## Apply a prepared Google Cloud test deployment
+aws-destroy: ## Destroy an AWS test deployment and its artifacts
+google-destroy: ## Destroy a Google Cloud test deployment and its artifacts
+
+$(TEST_PREPARE_TARGETS): %-prepare:
+	@$(CURRENT)scripts/cloud-test.sh "$*" prepare
+
+$(TEST_UPLOAD_TARGETS): %-upload:
+	@$(CURRENT)scripts/cloud-test.sh "$*" upload
+
+$(TEST_APPLY_TARGETS): %-apply:
+	@$(CURRENT)scripts/cloud-test.sh "$*" apply
+
+$(TEST_DESTROY_TARGETS): %-destroy:
+	@$(CURRENT)scripts/cloud-test.sh "$*" destroy
 
 ##@ Dev Environment
 
