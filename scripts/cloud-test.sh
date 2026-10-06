@@ -162,6 +162,16 @@ prepare_google() {
   fi
   gcloud iam service-accounts add-iam-policy-binding "$GOOGLE_SIGNER" --project "$GOOGLE_PROJECT" \
     --member "$member" --role roles/iam.serviceAccountTokenCreator >/dev/null
+  for attempt in {1..12}; do
+    if gcloud auth print-access-token --impersonate-service-account="$GOOGLE_SIGNER" >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "$attempt" -eq 12 ]]; then
+      echo "Timed out waiting to impersonate $GOOGLE_SIGNER" >&2
+      exit 1
+    fi
+    sleep 5
+  done
   gcloud storage buckets add-iam-policy-binding "gs://$ARTIFACT_BUCKET" \
     --member "serviceAccount:$GOOGLE_SIGNER" --role roles/storage.objectViewer >/dev/null
 }
@@ -222,9 +232,11 @@ upload_google() {
   gcloud storage cp "$WORK_DIR/artifacts/nstance-agent.tar.gz" \
     "gs://$ARTIFACT_BUCKET/$key_prefix/nstance-agent.tar.gz" --project "$GOOGLE_PROJECT" >/dev/null
   SERVER_URL=$(gcloud storage sign-url "gs://$ARTIFACT_BUCKET/$key_prefix/nstance-server.tar.gz" \
-    --duration=12h --impersonate-service-account="$GOOGLE_SIGNER" --format='value(signed_url)')
+    --duration=12h --region="$GOOGLE_REGION" --impersonate-service-account="$GOOGLE_SIGNER" \
+    --format='value(signed_url)')
   AGENT_URL=$(gcloud storage sign-url "gs://$ARTIFACT_BUCKET/$key_prefix/nstance-agent.tar.gz" \
-    --duration=12h --impersonate-service-account="$GOOGLE_SIGNER" --format='value(signed_url)')
+    --duration=12h --region="$GOOGLE_REGION" --impersonate-service-account="$GOOGLE_SIGNER" \
+    --format='value(signed_url)')
 }
 
 upload() {
