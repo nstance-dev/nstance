@@ -10,14 +10,6 @@
 
 data "google_client_config" "current" {}
 
-data "google_compute_subnetwork" "server" {
-  count = local.server_subnet_id == "" ? 0 : 1
-
-  name    = local.server_subnet_id
-  project = local.project_id
-  region  = local.region
-}
-
 locals {
   project_id  = data.google_client_config.current.project
   region      = regex("^([a-z]+-[a-z]+[0-9]+)", var.zone)[0]
@@ -121,10 +113,6 @@ resource "terraform_data" "validate_server_subnet" {
     precondition {
       condition     = length(try(local.filtered_subnets[var.server_subnet], [])) > 0
       error_message = "No subnets found for server role '${var.server_subnet}' in zone '${var.zone}'."
-    }
-    precondition {
-      condition     = var.network.ipv4_enabled || try(data.google_compute_subnetwork.server[0].stack_type, "") == "IPV4_IPV6"
-      error_message = "Google Cloud requires a dual-stack server subnet when ipv4_enabled is false so the movable IPv6 leader range can attach to IPv4-capable server instances."
     }
   }
 }

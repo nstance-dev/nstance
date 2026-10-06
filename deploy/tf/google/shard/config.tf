@@ -115,29 +115,16 @@ resource "google_storage_bucket_object" "shard_config" {
       cluster = merge(
         {
           id = var.cluster.id
-          secrets = merge(
-            {
-              provider = var.cluster.secrets_provider == "object-storage" ? "object-storage" : var.cluster.secrets_provider
-            },
-            var.cluster.secrets_provider == "object-storage" ? {
-              prefix = "secret/"
-              encryption_key = merge(
-                {
-                  provider = var.cluster.encryption_key_provider
-                  source   = var.cluster.encryption_key_source
-                },
-                var.cluster.encryption_key_provider == "google-secret-manager" ? {
-                  project_id = var.cluster.project_id
-                } : {},
-              )
-            } : {},
-            var.cluster.secrets_provider == "google-secret-manager" ? {
-              project_id = var.cluster.project_id
-            } : {},
-            var.cluster.secrets_provider != "object-storage" ? {
-              prefix = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.id}-"
-            } : {},
-          )
+          secrets = {
+            provider   = var.cluster.secrets_provider
+            prefix     = var.cluster.secrets_provider == "object-storage" ? "secret/" : var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.id}-"
+            project_id = var.cluster.secrets_provider == "google-secret-manager" ? var.cluster.project_id : null
+            encryption_key = var.cluster.secrets_provider == "object-storage" ? {
+              provider   = var.cluster.encryption_key_provider
+              source     = var.cluster.encryption_key_source
+              project_id = var.cluster.encryption_key_provider == "google-secret-manager" ? var.cluster.project_id : null
+            } : null
+          }
         },
         length(local.cluster_leader_election_config) > 0 ? { leader_election = local.cluster_leader_election_config } : {}
       )
