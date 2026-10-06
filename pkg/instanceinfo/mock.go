@@ -7,7 +7,7 @@ package instanceinfo
 import (
 	"context"
 
-	"github.com/nstance-dev/nstance/pkg/health"
+	"github.com/nstance-dev/nstance/v2/pkg/health"
 )
 
 // mockProvider is a Provider that returns a static instance identity.

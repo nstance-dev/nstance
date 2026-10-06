@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // snapshotReceiver returns a fixed sequence of snapshots.

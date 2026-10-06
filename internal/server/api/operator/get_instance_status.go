@@ -13,9 +13,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
 )
 
 func (s *Service) GetInstanceStatus(ctx context.Context, req *proto.GetInstanceStatusRequest) (*proto.InstanceStatusResponse, error) {

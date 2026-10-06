@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nstance-dev/nstance/pkg/health"
+	"github.com/nstance-dev/nstance/v2/pkg/health"
 )
 
 // SpotMonitor monitors for spot instance termination notices.

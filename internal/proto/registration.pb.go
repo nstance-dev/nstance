@@ -172,7 +172,7 @@ const file_proto_registration_proto_rawDesc = "" +
 	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt2\xc8\x01\n" +
 	"\x13RegistrationService\x12V\n" +
 	"\rRegisterAgent\x12!.nstance.v1.RegisterClientRequest\x1a\".nstance.v1.RegisterClientResponse\x12Y\n" +
-	"\x10RegisterOperator\x12!.nstance.v1.RegisterClientRequest\x1a\".nstance.v1.RegisterClientResponseB/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
+	"\x10RegisterOperator\x12!.nstance.v1.RegisterClientRequest\x1a\".nstance.v1.RegisterClientResponseB2Z0github.com/nstance-dev/nstance/v2/internal/protob\x06proto3"
 
 var (
 	file_proto_registration_proto_rawDescOnce sync.Once

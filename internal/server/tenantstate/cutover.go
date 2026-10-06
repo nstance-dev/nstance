@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/infra"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
 )
 
 // ErrBusy indicates that fresh eBPF observations found active connections.

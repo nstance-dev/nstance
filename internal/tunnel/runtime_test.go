@@ -16,9 +16,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/secrets"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 // TestStaticPodIsHardened verifies the generated Pod's security boundary and mounts.

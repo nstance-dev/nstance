@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
 )
 
 func (s *Service) GetConfigStatus(ctx context.Context, req *emptypb.Empty) (*proto.ConfigStatusResponse, error) {

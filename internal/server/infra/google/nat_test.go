@@ -16,7 +16,7 @@ import (
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/option"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 // TestNATRouteRefusesForeignRoute verifies neither ensure nor removal mutates

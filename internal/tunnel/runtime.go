@@ -18,9 +18,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/secrets"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 // RuntimeOptions contains the local paths and providers owned by the tunnel command.

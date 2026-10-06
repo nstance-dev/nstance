@@ -777,7 +777,7 @@ const file_proto_agent_proto_rawDesc = "" +
 	"\x12ReceiveKeyRequests\x12\x16.google.protobuf.Empty\x1a .nstance.v1.KeyGenerationRequest0\x01\x12I\n" +
 	"\x10SubmitPublicKeys\x12\x1d.nstance.v1.PublicKeysRequest\x1a\x16.google.protobuf.Empty\x12O\n" +
 	"\x12SubmitHealthReport\x12\x1f.nstance.v1.HealthReportRequest\x1a\x16.google.protobuf.Empty(\x01\x12B\n" +
-	"\fReceiveFiles\x12\x16.google.protobuf.Empty\x1a\x18.nstance.v1.FileTransfer0\x01B/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
+	"\fReceiveFiles\x12\x16.google.protobuf.Empty\x1a\x18.nstance.v1.FileTransfer0\x01B2Z0github.com/nstance-dev/nstance/v2/internal/protob\x06proto3"
 
 var (
 	file_proto_agent_proto_rawDescOnce sync.Once

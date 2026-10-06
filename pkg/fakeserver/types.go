@@ -7,7 +7,7 @@ package fakeserver
 import (
 	"log/slog"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // Config controls a fake Nstance server.

@@ -15,9 +15,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/pkg/nonce"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 // TestConfigureTenantAndInstanceEnv verifies tenant and instance setup returns agent environment variables.

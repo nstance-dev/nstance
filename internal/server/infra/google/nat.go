@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/api/compute/v1"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 // EnsureNATRoute points a tenant-tagged NAT44 or NAT64 route at the requested VM.

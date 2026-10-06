@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/nstance-dev/nstance/internal/admin/service"
+	"github.com/nstance-dev/nstance/v2/internal/admin/service"
 )
 
 var clusterNonceCmd = &cobra.Command{

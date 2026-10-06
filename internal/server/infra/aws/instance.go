@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	smithy "github.com/aws/smithy-go"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 // CreateInstance creates a new EC2 instance

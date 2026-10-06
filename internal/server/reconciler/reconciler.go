@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/infra"
-	"github.com/nstance-dev/nstance/internal/server/instances"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
 )
 
 // InstanceManager defines the interface for instance management operations required by the reconciler

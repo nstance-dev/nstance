@@ -15,16 +15,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/infra"
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 
 	"github.com/puidv7/puidv7-go"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/keys"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/internal/server/secrets"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 // ErrSubnetDependencyCapacity indicates that a subnet cannot acquire a required dependency.

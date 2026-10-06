@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/admin/service"
+	"github.com/nstance-dev/nstance/v2/internal/admin/service"
 )
 
 func (s *Server) handleConfigStatus(w http.ResponseWriter, r *http.Request) {

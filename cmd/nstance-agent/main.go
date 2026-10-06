@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/nstance-dev/nstance/internal/agent/cmd"
+	"github.com/nstance-dev/nstance/v2/internal/agent/cmd"
 )
 
 func main() {

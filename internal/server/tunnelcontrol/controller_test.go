@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // TestControllerStreamsLeasesAndRevokesOnStop verifies the complete leader-owned stream lifecycle.

@@ -29,13 +29,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
-	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
-	"github.com/nstance-dev/nstance/internal/operator/config"
-	"github.com/nstance-dev/nstance/internal/operator/connection"
-	"github.com/nstance-dev/nstance/internal/operator/drain"
-	"github.com/nstance-dev/nstance/internal/operator/sync"
-	"github.com/nstance-dev/nstance/internal/renewal"
-	"github.com/nstance-dev/nstance/pkg/client/registration"
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
+	"github.com/nstance-dev/nstance/v2/internal/operator/config"
+	"github.com/nstance-dev/nstance/v2/internal/operator/connection"
+	"github.com/nstance-dev/nstance/v2/internal/operator/drain"
+	"github.com/nstance-dev/nstance/v2/internal/operator/sync"
+	"github.com/nstance-dev/nstance/v2/internal/renewal"
+	"github.com/nstance-dev/nstance/v2/pkg/client/registration"
 )
 
 const (

@@ -7,7 +7,7 @@ package instances
 import (
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // CreateInstanceRequest contains parameters for creating an instance

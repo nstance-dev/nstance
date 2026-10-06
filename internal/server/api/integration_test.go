@@ -18,17 +18,17 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/internal/server/api/agent"
-	"github.com/nstance-dev/nstance/internal/server/api/registration"
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/keys"
-	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/internal/server/pki"
-	"github.com/nstance-dev/nstance/internal/server/secrets"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/api/agent"
+	"github.com/nstance-dev/nstance/v2/internal/server/api/registration"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/listeneractivity"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 func TestRegistrationServiceIntegration(t *testing.T) {

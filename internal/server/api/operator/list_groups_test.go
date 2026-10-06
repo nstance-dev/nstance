@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 // TestListGroupsHidesNATGroup verifies the operator cannot import or resize

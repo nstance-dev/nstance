@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
 )
 
 // Config holds the operator configuration loaded from ConfigMap and Secrets

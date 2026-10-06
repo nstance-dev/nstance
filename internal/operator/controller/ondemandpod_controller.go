@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
 )
 
 const (

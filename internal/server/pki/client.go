@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
 )
 
 // GenerateClientCertificate creates a client certificate signed by the CA with a specified TTL.

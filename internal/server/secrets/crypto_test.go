@@ -9,7 +9,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/nstance-dev/nstance/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
 )
 
 func TestEncryptDecrypt(t *testing.T) {

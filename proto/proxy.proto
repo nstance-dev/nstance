@@ -6,7 +6,7 @@ syntax = "proto3";
 
 package nstance.v1;
 
-option go_package = "github.com/nstance-dev/nstance/internal/proto";
+option go_package = "github.com/nstance-dev/nstance/v2/internal/proto";
 
 import "proto/operator.proto";
 

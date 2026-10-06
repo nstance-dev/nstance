@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"text/template"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // UserdataTemplateData contains data available for userdata template processing

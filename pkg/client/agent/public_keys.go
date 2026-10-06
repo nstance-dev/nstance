@@ -10,7 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // SubmitPublicKeys sends generated public keys to the agent service.

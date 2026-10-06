@@ -4,7 +4,7 @@
 
 package infra
 
-import "github.com/nstance-dev/nstance/internal/server/infra/provider"
+import "github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 
 // Provider is the infrastructure provider contract.
 type Provider = provider.Provider

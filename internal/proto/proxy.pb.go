@@ -267,7 +267,7 @@ const file_proto_proxy_proto_rawDesc = "" +
 	"\fProxyService\x12U\n" +
 	"\vWatchConfig\x12#.nstance.v1.WatchProxyConfigRequest\x1a\x1f.nstance.v1.ProxyConfigSnapshot0\x01\x12J\n" +
 	"\n" +
-	"WakeTenant\x12\x1c.nstance.v1.ProxyWakeRequest\x1a\x1e.nstance.v1.WakeTenantResponseB/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
+	"WakeTenant\x12\x1c.nstance.v1.ProxyWakeRequest\x1a\x1e.nstance.v1.WakeTenantResponseB2Z0github.com/nstance-dev/nstance/v2/internal/protob\x06proto3"
 
 var (
 	file_proto_proxy_proto_rawDescOnce sync.Once

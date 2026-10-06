@@ -7,7 +7,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/nstance-dev/nstance/internal/admin/service"
+	"github.com/nstance-dev/nstance/v2/internal/admin/service"
 )
 
 func (s *Server) handleConfigRefresh(w http.ResponseWriter, r *http.Request) {

@@ -12,8 +12,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/nstance-dev/nstance/internal/files"
-	"github.com/nstance-dev/nstance/pkg/client/agent"
+	"github.com/nstance-dev/nstance/v2/internal/files"
+	"github.com/nstance-dev/nstance/v2/pkg/client/agent"
 )
 
 // Handler implements the KeyRequestHandler interface for processing key generation requests

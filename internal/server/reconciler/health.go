@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/infra"
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
 )
 
 // providerStatusTimeout is the maximum time to wait for a provider status check

@@ -299,7 +299,7 @@ const file_proto_tunnel_proto_rawDesc = "" +
 	"\x1bTUNNEL_STATUS_STATE_STOPPED\x10\x04B\b\n" +
 	"\x06_error2W\n" +
 	"\rTunnelService\x12F\n" +
-	"\x06Manage\x12\x18.nstance.v1.TunnelStatus\x1a\x1e.nstance.v1.TunnelDesiredState(\x010\x01B/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
+	"\x06Manage\x12\x18.nstance.v1.TunnelStatus\x1a\x1e.nstance.v1.TunnelDesiredState(\x010\x01B2Z0github.com/nstance-dev/nstance/v2/internal/protob\x06proto3"
 
 var (
 	file_proto_tunnel_proto_rawDescOnce sync.Once

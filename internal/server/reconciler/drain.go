@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // replaceAndDrain creates a replacement instance and initiates drain on the old one.

@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nstance-dev/nstance/pkg/health"
+	"github.com/nstance-dev/nstance/v2/pkg/health"
 )
 
 type awsProvider struct {

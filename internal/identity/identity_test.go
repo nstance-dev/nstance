@@ -21,7 +21,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwt"
-	"github.com/nstance-dev/nstance/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/files"
 )
 
 func newTestLogger() *slog.Logger {

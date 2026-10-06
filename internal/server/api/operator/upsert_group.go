@@ -10,10 +10,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 func (s *Service) UpsertGroup(ctx context.Context, req *proto.UpsertGroupRequest) (*proto.GroupStatus, error) {

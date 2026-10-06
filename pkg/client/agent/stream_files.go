@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/nstance-dev/nstance/internal/agent/receiver"
+	"github.com/nstance-dev/nstance/v2/internal/agent/receiver"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 

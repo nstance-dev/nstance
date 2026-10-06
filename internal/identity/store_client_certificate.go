@@ -9,7 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/files"
 )
 
 // StoreClientCertificate saves the provided certificate and updates the in-memory copy.

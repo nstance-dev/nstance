@@ -15,8 +15,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/nstance-dev/nstance/internal/buildvars"
-	"github.com/nstance-dev/nstance/internal/tunnel"
+	"github.com/nstance-dev/nstance/v2/internal/buildvars"
+	"github.com/nstance-dev/nstance/v2/internal/tunnel"
 )
 
 var (

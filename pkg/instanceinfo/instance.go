@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/nstance-dev/nstance/pkg/health"
+	"github.com/nstance-dev/nstance/v2/pkg/health"
 )
 
 // Provider defines the interface for querying cloud instance metadata.

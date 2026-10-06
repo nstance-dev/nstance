@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/nstance-dev/nstance/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // EC2API defines the interface for EC2 operations needed by AWSResolver

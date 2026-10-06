@@ -21,12 +21,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
-	"github.com/nstance-dev/nstance/internal/operator/config"
-	"github.com/nstance-dev/nstance/internal/operator/connection"
-	"github.com/nstance-dev/nstance/internal/operator/controller"
-	"github.com/nstance-dev/nstance/internal/operator/leader"
-	"github.com/nstance-dev/nstance/internal/operator/webhooks"
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
+	"github.com/nstance-dev/nstance/v2/internal/operator/config"
+	"github.com/nstance-dev/nstance/v2/internal/operator/connection"
+	"github.com/nstance-dev/nstance/v2/internal/operator/controller"
+	"github.com/nstance-dev/nstance/v2/internal/operator/leader"
+	"github.com/nstance-dev/nstance/v2/internal/operator/webhooks"
 )
 
 var (

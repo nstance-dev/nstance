@@ -8,8 +8,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 )
 
 // generateSecrets handles secret file processing for required files

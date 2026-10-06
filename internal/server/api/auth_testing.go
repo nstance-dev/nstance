@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/nstance-dev/nstance/pkg/nonce"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 // GenerateTestJWT generates a JWT for testing purposes with default cluster/shard/tenant

@@ -7,7 +7,7 @@ package drain
 import (
 	"testing"
 
-	"github.com/nstance-dev/nstance/internal/operator/node"
+	"github.com/nstance-dev/nstance/v2/internal/operator/node"
 )
 
 func TestMatchesProviderID(t *testing.T) {

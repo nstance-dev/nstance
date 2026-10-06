@@ -9,7 +9,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/files"
 )
 
 // GenerateKeypair creates a new identity keypair, stores it on disk, and updates the struct.

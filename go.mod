@@ -1,4 +1,4 @@
-module github.com/nstance-dev/nstance
+module github.com/nstance-dev/nstance/v2
 
 go 1.26.2
 

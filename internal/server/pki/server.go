@@ -15,7 +15,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
 )
 
 // GenerateServerCertificate creates a server certificate signed by the CA.

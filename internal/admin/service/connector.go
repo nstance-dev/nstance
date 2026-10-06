@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // ShardServer represents a shard and its operator endpoint.

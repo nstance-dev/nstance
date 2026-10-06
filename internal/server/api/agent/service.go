@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/filegen"
-	"github.com/nstance-dev/nstance/internal/server/listeneractivity"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/internal/server/pki"
-	"github.com/nstance-dev/nstance/internal/server/secrets"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/filegen"
+	"github.com/nstance-dev/nstance/v2/internal/server/listeneractivity"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 // Service implements the AgentService gRPC service

@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
 )
 
 // LoadBalancerConfigForProvider converts server load balancer configuration for provider calls.

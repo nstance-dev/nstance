@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 )
 
 // GenerateServerFiles generates files consumed by services local to nstance-server.

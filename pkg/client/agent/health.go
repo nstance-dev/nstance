@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/pkg/health"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/pkg/health"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

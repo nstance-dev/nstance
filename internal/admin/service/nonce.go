@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/instances"
-	"github.com/nstance-dev/nstance/internal/server/keys"
-	"github.com/nstance-dev/nstance/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
 )
 
 // NonceRequest contains parameters for generating a registration nonce.

@@ -14,7 +14,7 @@ import (
 
 	"log/slog"
 
-	"github.com/nstance-dev/nstance/internal/buildvars"
+	"github.com/nstance-dev/nstance/v2/internal/buildvars"
 	"github.com/shirou/gopsutil/v4/host"
 )
 

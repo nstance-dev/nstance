@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
 )
 
 // ResolveSubnetKey resolves a subnet pool ID to its provider subnet IDs.

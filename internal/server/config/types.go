@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
 )
 
 // Duration is a wrapper around time.Duration that supports parsing duration strings in JSON

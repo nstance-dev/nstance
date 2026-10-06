@@ -11,7 +11,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/nstance-dev/nstance/pkg/nonce"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 // JWTSigner handles signing of registration nonce JWTs

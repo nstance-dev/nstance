@@ -24,10 +24,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
-	"github.com/nstance-dev/nstance/internal/operator/connection"
-	"github.com/nstance-dev/nstance/internal/operator/sync"
-	"github.com/nstance-dev/nstance/internal/proto"
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
+	"github.com/nstance-dev/nstance/v2/internal/operator/connection"
+	"github.com/nstance-dev/nstance/v2/internal/operator/sync"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 const (

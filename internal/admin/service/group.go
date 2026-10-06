@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // GroupScaleRequest contains parameters for scaling a group.

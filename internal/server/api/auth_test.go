@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/nstance-dev/nstance/internal/server/keys"
-	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 )
 
 func TestAuthInterceptor(t *testing.T) {

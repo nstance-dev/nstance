@@ -14,10 +14,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/nstance-dev/nstance/internal/admin/server"
-	"github.com/nstance-dev/nstance/internal/admin/service"
-	"github.com/nstance-dev/nstance/internal/identity"
-	"github.com/nstance-dev/nstance/internal/renewal"
+	"github.com/nstance-dev/nstance/v2/internal/admin/server"
+	"github.com/nstance-dev/nstance/v2/internal/admin/service"
+	"github.com/nstance-dev/nstance/v2/internal/identity"
+	"github.com/nstance-dev/nstance/v2/internal/renewal"
 )
 
 var serveCmd = &cobra.Command{

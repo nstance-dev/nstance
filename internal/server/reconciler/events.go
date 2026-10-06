@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // handleSpotTerminating processes spot instance termination notices

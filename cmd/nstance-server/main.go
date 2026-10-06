@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/nstance-dev/nstance/internal/server/cmd"
+	"github.com/nstance-dev/nstance/v2/internal/server/cmd"
 )
 
 func main() {

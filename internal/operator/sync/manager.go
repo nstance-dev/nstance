@@ -24,8 +24,8 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
-	"github.com/nstance-dev/nstance/internal/proto"
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // AnnotationManagedBy is the annotation key used to mark resources created by the sync manager.

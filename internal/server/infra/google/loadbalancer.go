@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/api/compute/v1"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 // RegisterWithLB attaches an instance IP endpoint to its configured zonal NEG.

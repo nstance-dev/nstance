@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
 )
 
 // Service manages periodic image resolution and caching

@@ -11,10 +11,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/internal/server/infra"
-	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
 )
 
 func (s *Service) DeleteInstance(ctx context.Context, req *proto.DeleteInstanceRequest) (*proto.DeleteInstanceResponse, error) {

@@ -9,7 +9,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
 )
 
 // validateNAT validates tenant NAT mechanisms, references, and scaling settings.

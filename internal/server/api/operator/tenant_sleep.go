@@ -13,10 +13,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/internal/server/tenantstate"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/tenantstate"
 )
 
 // errSleepBlocked indicates that an on-demand instance prevents sleep.

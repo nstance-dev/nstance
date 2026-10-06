@@ -16,10 +16,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/pki"
-	"github.com/nstance-dev/nstance/internal/server/storage"
-	"github.com/nstance-dev/nstance/pkg/nonce"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 func (s *Service) RegisterOperator(ctx context.Context, req *proto.RegisterClientRequest) (*proto.RegisterClientResponse, error) {

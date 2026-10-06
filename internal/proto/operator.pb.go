@@ -2039,7 +2039,7 @@ const file_proto_operator_proto_rawDesc = "" +
 	"\x0fGetTenantStatus\x12\".nstance.v1.GetTenantStatusRequest\x1a#.nstance.v1.GetTenantStatusResponse\x12?\n" +
 	"\vWatchGroups\x12\x16.google.protobuf.Empty\x1a\x16.nstance.v1.GroupEvent0\x01\x12E\n" +
 	"\x0eWatchInstances\x12\x16.google.protobuf.Empty\x1a\x19.nstance.v1.InstanceEvent0\x01\x12?\n" +
-	"\vWatchErrors\x12\x16.google.protobuf.Empty\x1a\x16.nstance.v1.ErrorEvent0\x01B/Z-github.com/nstance-dev/nstance/internal/protob\x06proto3"
+	"\vWatchErrors\x12\x16.google.protobuf.Empty\x1a\x16.nstance.v1.ErrorEvent0\x01B2Z0github.com/nstance-dev/nstance/v2/internal/protob\x06proto3"
 
 var (
 	file_proto_operator_proto_rawDescOnce sync.Once

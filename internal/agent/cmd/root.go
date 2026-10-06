@@ -16,15 +16,15 @@ import (
 
 	"log/slog"
 
-	"github.com/nstance-dev/nstance/internal/agent/config"
-	"github.com/nstance-dev/nstance/internal/agent/keygen"
-	"github.com/nstance-dev/nstance/internal/agent/receiver"
-	"github.com/nstance-dev/nstance/internal/buildvars"
-	"github.com/nstance-dev/nstance/internal/identity"
-	"github.com/nstance-dev/nstance/pkg/client/agent"
-	"github.com/nstance-dev/nstance/pkg/client/registration"
-	"github.com/nstance-dev/nstance/pkg/health"
-	"github.com/nstance-dev/nstance/pkg/instanceinfo"
+	"github.com/nstance-dev/nstance/v2/internal/agent/config"
+	"github.com/nstance-dev/nstance/v2/internal/agent/keygen"
+	"github.com/nstance-dev/nstance/v2/internal/agent/receiver"
+	"github.com/nstance-dev/nstance/v2/internal/buildvars"
+	"github.com/nstance-dev/nstance/v2/internal/identity"
+	"github.com/nstance-dev/nstance/v2/pkg/client/agent"
+	"github.com/nstance-dev/nstance/v2/pkg/client/registration"
+	"github.com/nstance-dev/nstance/v2/pkg/health"
+	"github.com/nstance-dev/nstance/v2/pkg/instanceinfo"
 	"github.com/spf13/cobra"
 )
 

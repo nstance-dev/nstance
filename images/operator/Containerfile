@@ -24,9 +24,9 @@ ARG BUILD_DATE=unknown
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build -a -trimpath \
     -ldflags="-w -s \
-    -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion=${VERSION} \
-    -X github.com/nstance-dev/nstance/internal/buildvars.buildDate=${BUILD_DATE} \
-    -X github.com/nstance-dev/nstance/internal/buildvars.commitHash=${COMMIT_HASH}" \
+    -X github.com/nstance-dev/nstance/v2/internal/buildvars.buildVersion=${VERSION} \
+    -X github.com/nstance-dev/nstance/v2/internal/buildvars.buildDate=${BUILD_DATE} \
+    -X github.com/nstance-dev/nstance/v2/internal/buildvars.commitHash=${COMMIT_HASH}" \
     -o /nstance-operator \
     ./cmd/nstance-operator
 

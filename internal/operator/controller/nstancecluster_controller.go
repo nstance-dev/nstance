@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infrastructurev1beta1 "github.com/nstance-dev/nstance/api/v1beta1"
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
 )
 
 // NstanceClusterReconciler reconciles an NstanceCluster object.

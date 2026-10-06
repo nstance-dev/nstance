@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
 )
 
 // errTenantAsleep stops stale scale-up and replacement work after a tenant sleeps.

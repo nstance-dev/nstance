@@ -17,7 +17,7 @@ import (
 
 	proxmox "github.com/luthermonson/go-proxmox"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 // vmidFloor is the minimum VMID allocated for managed VMs. VMIDs below this

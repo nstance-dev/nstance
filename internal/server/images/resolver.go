@@ -8,9 +8,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/server/infra"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
 )
 
 // Resolver interface supports multiple cloud providers

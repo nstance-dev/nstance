@@ -10,12 +10,12 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/aws"
-	"github.com/nstance-dev/nstance/internal/server/infra/google"
-	"github.com/nstance-dev/nstance/internal/server/infra/mock"
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
-	"github.com/nstance-dev/nstance/internal/server/infra/proxmox"
-	"github.com/nstance-dev/nstance/internal/server/infra/tmux"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/aws"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/google"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/mock"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/proxmox"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/tmux"
 )
 
 // HighestProviderIDFunc returns the highest known numeric provider instance ID

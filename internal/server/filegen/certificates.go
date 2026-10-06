@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 )
 
 // prepareCertificateRequests builds certificate generation requests from required files

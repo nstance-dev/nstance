@@ -10,7 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/files"
 )
 
 // BuildTLSConfig creates a TLS config using the identity's certificate and key.

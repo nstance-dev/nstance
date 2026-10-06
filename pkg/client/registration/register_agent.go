@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nstance-dev/nstance/internal/files"
-	"github.com/nstance-dev/nstance/internal/identity"
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/identity"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // RegisterAgent registers an agent using its nonce and public key, and stores the returned client cert.

@@ -14,7 +14,7 @@ import (
 
 	"github.com/podplane/s3lect"
 
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 const leaderLockfilePath = "leader.json"

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/nstance-dev/nstance/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/files"
 )
 
 // Load loads identity material from dir for use as a client.

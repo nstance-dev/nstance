@@ -11,10 +11,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/api"
-	"github.com/nstance-dev/nstance/internal/server/instances"
-	"github.com/nstance-dev/nstance/internal/server/tenantstate"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/server/tenantstate"
 )
 
 // CreateInstance wakes the tenant and creates an on-demand instance.

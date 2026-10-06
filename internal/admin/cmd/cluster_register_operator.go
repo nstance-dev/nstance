@@ -16,8 +16,8 @@ import (
 	"github.com/puidv7/puidv7-go"
 	"github.com/spf13/cobra"
 
-	"github.com/nstance-dev/nstance/internal/files"
-	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 )
 
 var clusterRegisterOperatorCmd = &cobra.Command{

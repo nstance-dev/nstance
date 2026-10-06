@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 // RegisterWithLB reports that Proxmox load-balancer registration is unsupported.

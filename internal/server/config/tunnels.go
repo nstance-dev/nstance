@@ -11,7 +11,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/nstance-dev/nstance/internal/identifiers"
+	"github.com/nstance-dev/nstance/v2/internal/identifiers"
 )
 
 // validateTunnels validates provider-neutral tunnel runtimes and references.

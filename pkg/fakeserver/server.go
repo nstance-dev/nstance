@@ -17,8 +17,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/nstance-dev/nstance/internal/proto"
-	"github.com/nstance-dev/nstance/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 )
 
 // Server is a lightweight fake Nstance server for test use. Callers configure

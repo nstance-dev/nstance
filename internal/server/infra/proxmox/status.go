@@ -5,7 +5,7 @@
 package proxmox
 
 import (
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
 )
 
 func convertStatus(qemuStatus string) string {

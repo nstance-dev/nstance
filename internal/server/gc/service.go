@@ -10,10 +10,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/server/instances"
-	"github.com/nstance-dev/nstance/internal/server/localdb"
-	"github.com/nstance-dev/nstance/internal/server/reconciler"
-	"github.com/nstance-dev/nstance/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/internal/server/instances"
+	"github.com/nstance-dev/nstance/v2/internal/server/localdb"
+	"github.com/nstance-dev/nstance/v2/internal/server/reconciler"
+	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
 // Reconciler interface for enqueuing reconciliation events

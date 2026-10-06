@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/nstance-dev/nstance/internal/server/api"
+	"github.com/nstance-dev/nstance/v2/internal/server/api"
 )
 
 // serveGRPC serves one fake-server gRPC endpoint until it is stopped.

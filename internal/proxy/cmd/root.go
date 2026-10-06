@@ -16,8 +16,8 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/spf13/cobra"
 
-	"github.com/nstance-dev/nstance/internal/buildvars"
-	"github.com/nstance-dev/nstance/internal/proxy"
+	"github.com/nstance-dev/nstance/v2/internal/buildvars"
+	"github.com/nstance-dev/nstance/v2/internal/proxy"
 )
 
 // commandConfig contains the proxy's environment configuration.

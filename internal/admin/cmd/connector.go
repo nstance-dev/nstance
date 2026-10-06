@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/nstance-dev/nstance/internal/admin/service"
-	"github.com/nstance-dev/nstance/internal/identity"
+	"github.com/nstance-dev/nstance/v2/internal/admin/service"
+	"github.com/nstance-dev/nstance/v2/internal/identity"
 )
 
 // newConnector creates a Connector from command flags.

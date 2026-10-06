@@ -9,8 +9,8 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
-	"github.com/nstance-dev/nstance/internal/files"
-	"github.com/nstance-dev/nstance/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/files"
+	"github.com/nstance-dev/nstance/v2/internal/proto"
 )
 
 // RegisterOperator registers an operator using its nonce and public key, and returns the client cert

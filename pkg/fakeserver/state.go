@@ -16,10 +16,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/nstance-dev/nstance/internal/server/config"
-	"github.com/nstance-dev/nstance/internal/server/keys"
-	"github.com/nstance-dev/nstance/internal/server/pki"
-	"github.com/nstance-dev/nstance/pkg/nonce"
+	"github.com/nstance-dev/nstance/v2/internal/server/config"
+	"github.com/nstance-dev/nstance/v2/internal/server/keys"
+	"github.com/nstance-dev/nstance/v2/internal/server/pki"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 // persistedInstance is the fake server's durable state for one prepared instance.

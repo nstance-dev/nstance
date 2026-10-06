@@ -10,8 +10,8 @@ import (
 
 	proxmox "github.com/luthermonson/go-proxmox"
 
-	"github.com/nstance-dev/nstance/internal/server/infra/provider"
-	"github.com/nstance-dev/nstance/pkg/topsis"
+	"github.com/nstance-dev/nstance/v2/internal/server/infra/provider"
+	"github.com/nstance-dev/nstance/v2/pkg/topsis"
 )
 
 // selectNode chooses the optimal Proxmox node for VM placement using the TOPSIS

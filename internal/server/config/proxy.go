@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/nstance-dev/nstance/internal/proxy"
+	"github.com/nstance-dev/nstance/v2/internal/proxy"
 )
 
 // ProxyConfig derives provider-neutral listeners from load balancers and group references.

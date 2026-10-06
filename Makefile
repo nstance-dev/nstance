@@ -12,7 +12,7 @@ COMMIT_HASH=$(shell git rev-parse --short HEAD)
 COMMIT_DATE=$(shell git log -1 --format=%cd --date=format:'%Y-%m-%dT%H:%M:%S')
 COMMIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 
-BUILDVARS_PKG=github.com/nstance-dev/nstance/internal/buildvars
+BUILDVARS_PKG=github.com/nstance-dev/nstance/v2/internal/buildvars
 
 GO ?= go
 BINARYDIR=$(CURRENT)bin
