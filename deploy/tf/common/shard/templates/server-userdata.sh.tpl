@@ -96,6 +96,7 @@ StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+RuntimeDirectory=nstance
 ReadWritePaths=/var/lib/nstance-server
 
 [Install]
