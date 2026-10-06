@@ -180,11 +180,11 @@ manifests: ## Generate Kubernetes manifests
 		fi; \
 	done
 	@echo "Syncing CRDs to Helm chart..."
-	@rm -f $(CURRENT)deploy/helm/crds/*.yaml
+	@rm -f $(CURRENT)deploy/helm/files/crds/*.yaml
 	@cd $(CURRENT) && kustomize build config/crd/ | awk ' \
 		/^---$$/ || /^apiVersion:/ { \
 			if (name != "" && doc != "") { \
-				f = "deploy/helm/crds/" name ".yaml"; \
+				f = "deploy/helm/files/crds/" name ".yaml"; \
 				printf "$(YAML_HEADER)\n\n---\n%s", doc > f; \
 				close(f); \
 				} \
@@ -193,10 +193,14 @@ manifests: ## Generate Kubernetes manifests
 				next; \
 				} \
 				/^  name: / && name == "" { name = $$2 } \
-				{ doc = doc $$0 "\n" } \
+				{ \
+					doc = doc $$0 "\n"; \
+					if ($$0 ~ /^    controller-gen.kubebuilder.io\/version:/) \
+						doc = doc "    helm.sh/resource-policy: keep\n"; \
+				} \
 				END { \
 				if (name != "" && doc != "") { \
-				f = "deploy/helm/crds/" name ".yaml"; \
+				f = "deploy/helm/files/crds/" name ".yaml"; \
 				printf "$(YAML_HEADER)\n\n---\n%s", doc > f; \
 				close(f); \
 			} \
