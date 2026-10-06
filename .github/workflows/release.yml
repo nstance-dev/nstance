@@ -15,8 +15,29 @@ permissions:
   packages: write
 
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Helm chart versions match the Git tag
+        shell: bash
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          for field in version appVersion; do
+            actual=$(awk -v field="$field:" '$1 == field { gsub(/["\047]/, "", $2); print $2 }' deploy/helm/Chart.yaml)
+            if [[ "$actual" != "$version" ]]; then
+              echo "::error file=deploy/helm/Chart.yaml::$field is '$actual', expected '$version' for tag '$GITHUB_REF_NAME'"
+              exit 1
+            fi
+          done
+
   goreleaser:
     runs-on: ubuntu-latest
+    needs: validate-version
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
