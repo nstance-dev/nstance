@@ -180,18 +180,21 @@ prepare() {
 }
 
 build_archives() {
+  require_command go
   require_command make
+  require_command mise
   require_command tar
-  if [[ "$ARCH" == arm64 ]]; then
-    require_command aarch64-linux-musl-gcc
-  else
-    require_command x86_64-linux-musl-gcc
-  fi
-  rm -rf "${ROOT_DIR:?}/bin"
-  make -C "$ROOT_DIR" GOOS=linux GOARCH="$ARCH" nstance-server nstance-agent
+  local build_dir go_command
+  build_dir="$WORK_DIR/build"
+  go_command=$(command -v go)
+  rm -rf "${build_dir:?}"
+  mkdir -p "$build_dir"
+  mise install zig@0.17.0
+  mise exec zig@0.17.0 -- make -C "$ROOT_DIR" GO="$go_command" BINARYDIR="$build_dir/" \
+    GOOS=linux GOARCH="$ARCH" nstance-server nstance-agent
   mkdir -p "$WORK_DIR/artifacts"
-  tar -C "$ROOT_DIR/bin" -czf "$WORK_DIR/artifacts/nstance-server.tar.gz" nstance-server
-  tar -C "$ROOT_DIR/bin" -czf "$WORK_DIR/artifacts/nstance-agent.tar.gz" nstance-agent
+  tar -C "$build_dir" -czf "$WORK_DIR/artifacts/nstance-server.tar.gz" nstance-server
+  tar -C "$build_dir" -czf "$WORK_DIR/artifacts/nstance-agent.tar.gz" nstance-agent
 }
 
 upload_aws() {

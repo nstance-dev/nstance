@@ -24,10 +24,10 @@ Replace `aws` with `google` for Google Cloud. Preparation is normally run once.
 Run `upload` again after changing Go code, then run `apply`. OpenTofu module and
 configuration changes require only another `apply`.
 
-The workflow requires Go, OpenTofu, `make`, `tar`, and the provider CLI. Building
-the SQLite-enabled Linux server also requires `aarch64-linux-musl-gcc` for AWS
-or `x86_64-linux-musl-gcc` for Google Cloud. Each command reports any missing
-tool before making its relevant changes.
+The workflow requires Go, OpenTofu, Mise, `make`, `tar`, and the provider CLI.
+Mise installs the pinned Zig cross-compiler used to build the SQLite-enabled
+server against a glibc 2.36 baseline, independent of the host operating system.
+Each command reports any missing tool before making its relevant changes.
 
 ## AWS
 

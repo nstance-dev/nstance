@@ -21,9 +21,13 @@ builds:
       - arm64
     overrides:
       - goos: linux
+        goarch: amd64
+        env:
+          - CC=mise exec zig@0.17.0 -- zig cc -target x86_64-linux-gnu.2.36
+      - goos: linux
         goarch: arm64
         env:
-          - CC=aarch64-linux-gnu-gcc
+          - CC=mise exec zig@0.17.0 -- zig cc -target aarch64-linux-gnu.2.36
     ldflags:
       - -s -w
       - -X github.com/nstance-dev/nstance/internal/buildvars.buildVersion={{.Version}}
@@ -89,7 +93,7 @@ builds:
 archives:
   - id: nstance-server
     name_template: "nstance-server_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
+    ids:
       - nstance-server
     files:
       - LICENSE
@@ -98,7 +102,7 @@ archives:
         strip_parent: true
   - id: nstance-agent
     name_template: "nstance-agent_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
+    ids:
       - nstance-agent
     files:
       - LICENSE
@@ -107,7 +111,7 @@ archives:
         strip_parent: true
   - id: nstance-operator
     name_template: "nstance-operator_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
+    ids:
       - nstance-operator
     files:
       - LICENSE
@@ -116,7 +120,7 @@ archives:
         strip_parent: true
   - id: nstance-admin
     name_template: "nstance-admin_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
+    ids:
       - nstance-admin
     files:
       - LICENSE

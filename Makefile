@@ -14,6 +14,7 @@ COMMIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
 
 BUILDVARS_PKG=github.com/nstance-dev/nstance/internal/buildvars
 
+GO ?= go
 BINARYDIR=$(CURRENT)bin
 BINARIES=nstance-server nstance-agent nstance-operator nstance-admin
 TEST_PROVIDERS=aws google
@@ -29,13 +30,12 @@ CGO_ENABLED=1
 EXTRA_LD_FLAGS=
 ifeq ($(GOOS),linux)
 	BUILD_TAGS=linux
-	EXTRA_LD_FLAGS=-extldflags -static
 	ifeq ($(GOARCH),amd64)
-		CC=x86_64-linux-musl-gcc
-		CXX=x86_64-linux-musl-g++
+		CC=zig cc -target x86_64-linux-gnu.2.36
+		CXX=zig c++ -target x86_64-linux-gnu.2.36
 	else ifeq ($(GOARCH),arm64)
-		CC=aarch64-linux-musl-gcc
-		CXX=aarch64-linux-musl-g++
+		CC=zig cc -target aarch64-linux-gnu.2.36
+		CXX=zig c++ -target aarch64-linux-gnu.2.36
 	endif
 else ifeq ($(GOOS),darwin)
 	ifeq ($(GOARCH),amd64)
@@ -154,8 +154,8 @@ build: $(BINARIES) ## Build all binaries
 $(BINARIES):
 	mkdir -p $(BINARYDIR)
 	GOOS=$(GOOS) GOARCH=$(GOARCH) \
-	CGO_ENABLED=$(if $(findstring server,$@),1,0) CC=$(CC) CXX=$(CXX) \
-	go build $(if $(BUILD_TAGS),-tags "$(BUILD_TAGS)") \
+	CGO_ENABLED=$(if $(findstring server,$@),1,0) CC="$(CC)" CXX="$(CXX)" \
+	$(GO) build $(if $(BUILD_TAGS),-tags "$(BUILD_TAGS)") \
 		-o $(BINARYDIR)/$@ \
 		-trimpath \
 		-ldflags "$(EXTRA_LD_FLAGS) \
