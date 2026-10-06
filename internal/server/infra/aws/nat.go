@@ -17,7 +17,7 @@ import (
 )
 
 // EnsureNATRoute activates the requested NAT interface and points the instance
-// subnet's owned IPv4 default route at it.
+// subnet's owned IPv4 default or NAT64 prefix route at it.
 func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
 	target, err := p.natTargetInterface(ctx, req)
 	if err != nil {
@@ -43,17 +43,19 @@ func (p *Provider) ensureNATRoute(ctx context.Context, req provider.NATRouteRequ
 		return fmt.Errorf("subnet %s default route is not Nstance-managed", req.InstanceSubnetID)
 	}
 	if route == nil {
-		_, err = p.routeClient.CreateRoute(ctx, &ec2.CreateRouteInput{
-			RouteTableId:         routeTable.RouteTableId,
-			DestinationCidrBlock: aws.String("0.0.0.0/0"),
-			NetworkInterfaceId:   aws.String(target),
-		})
+		input := &ec2.CreateRouteInput{
+			RouteTableId:       routeTable.RouteTableId,
+			NetworkInterfaceId: aws.String(target),
+		}
+		setCreateRouteDestination(input, req.DestinationCIDR)
+		_, err = p.routeClient.CreateRoute(ctx, input)
 	} else {
-		_, err = p.routeClient.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{
-			RouteTableId:         routeTable.RouteTableId,
-			DestinationCidrBlock: aws.String("0.0.0.0/0"),
-			NetworkInterfaceId:   aws.String(target),
-		})
+		input := &ec2.ReplaceRouteInput{
+			RouteTableId:       routeTable.RouteTableId,
+			NetworkInterfaceId: aws.String(target),
+		}
+		setReplaceRouteDestination(input, req.DestinationCIDR)
+		_, err = p.routeClient.ReplaceRoute(ctx, input)
 	}
 	if err != nil {
 		return fmt.Errorf("set subnet %s default route: %w", req.InstanceSubnetID, err)
@@ -74,7 +76,9 @@ func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequ
 	if !slices.Contains(managed, aws.ToString(route.NetworkInterfaceId)) {
 		return nil
 	}
-	_, err = p.routeClient.DeleteRoute(ctx, &ec2.DeleteRouteInput{RouteTableId: routeTable.RouteTableId, DestinationCidrBlock: aws.String("0.0.0.0/0")})
+	input := &ec2.DeleteRouteInput{RouteTableId: routeTable.RouteTableId}
+	setDeleteRouteDestination(input, req.DestinationCIDR)
+	_, err = p.routeClient.DeleteRoute(ctx, input)
 	if err != nil {
 		return fmt.Errorf("delete subnet %s default route: %w", req.InstanceSubnetID, err)
 	}
@@ -160,7 +164,7 @@ func (p *Provider) assignPublicAddress(ctx context.Context, instanceID string, a
 	return nil
 }
 
-// natRoute returns the cluster-owned route table and its IPv4 default route.
+// natRoute returns the cluster-owned route table and requested NAT route.
 func (p *Provider) natRoute(ctx context.Context, req provider.NATRouteRequest) (*types.RouteTable, *types.Route, error) {
 	result, err := p.routeClient.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: []types.Filter{{
 		Name: aws.String("association.subnet-id"), Values: []string{req.InstanceSubnetID},
@@ -180,9 +184,44 @@ func (p *Provider) natRoute(ctx context.Context, req provider.NATRouteRequest) (
 		return nil, nil, fmt.Errorf("subnet %s route table is not owned by cluster %s", req.InstanceSubnetID, req.ClusterID)
 	}
 	for i := range routeTable.Routes {
-		if aws.ToString(routeTable.Routes[i].DestinationCidrBlock) == "0.0.0.0/0" {
+		if routeDestination(&routeTable.Routes[i]) == req.DestinationCIDR {
 			return routeTable, &routeTable.Routes[i], nil
 		}
 	}
 	return routeTable, nil, nil
+}
+
+// routeDestination returns either the IPv4 or IPv6 destination of a route.
+func routeDestination(route *types.Route) string {
+	if route.DestinationCidrBlock != nil {
+		return aws.ToString(route.DestinationCidrBlock)
+	}
+	return aws.ToString(route.DestinationIpv6CidrBlock)
+}
+
+// setCreateRouteDestination sets the appropriate address-family field.
+func setCreateRouteDestination(input *ec2.CreateRouteInput, destination string) {
+	if destination == "64:ff9b::/96" {
+		input.DestinationIpv6CidrBlock = aws.String(destination)
+	} else {
+		input.DestinationCidrBlock = aws.String(destination)
+	}
+}
+
+// setReplaceRouteDestination sets the appropriate address-family field.
+func setReplaceRouteDestination(input *ec2.ReplaceRouteInput, destination string) {
+	if destination == "64:ff9b::/96" {
+		input.DestinationIpv6CidrBlock = aws.String(destination)
+	} else {
+		input.DestinationCidrBlock = aws.String(destination)
+	}
+}
+
+// setDeleteRouteDestination sets the appropriate address-family field.
+func setDeleteRouteDestination(input *ec2.DeleteRouteInput, destination string) {
+	if destination == "64:ff9b::/96" {
+		input.DestinationIpv6CidrBlock = aws.String(destination)
+	} else {
+		input.DestinationCidrBlock = aws.String(destination)
+	}
 }

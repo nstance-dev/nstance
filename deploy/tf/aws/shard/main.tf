@@ -99,7 +99,7 @@ resource "terraform_data" "validate_server_subnet" {
       error_message = "No subnets found for server role '${var.server_subnet}' in zone '${var.zone}'."
     }
     precondition {
-      condition     = var.network.use_provider_nat || local.server_subnet_public
+      condition     = var.network.nat_mode != "nstance" || local.server_subnet_public
       error_message = "Nstance NAT instances require server_subnet to reference a public service subnet."
     }
   }

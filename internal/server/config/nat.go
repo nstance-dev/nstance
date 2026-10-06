@@ -23,6 +23,9 @@ func (c *Config) validateNAT() error {
 		if nat.Group == "" {
 			return fmt.Errorf("nat tenant %q group is required", tenant)
 		}
+		if nat.Mode != "nat44" && nat.Mode != "nat64" {
+			return fmt.Errorf("nat tenant %q mode must be nat44 or nat64", tenant)
+		}
 		if nat.LastInstanceGracePeriod <= 0 {
 			return fmt.Errorf("nat tenant %q last_instance_grace_period must be positive", tenant)
 		}

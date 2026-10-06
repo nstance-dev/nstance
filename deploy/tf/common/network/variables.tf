@@ -33,8 +33,14 @@ variable "vpc_cidr_ipv4" {
   default     = ""
 }
 
-variable "enable_ipv6" {
-  description = "Enable IPv6 dual-stack support"
+variable "ipv4_enabled" {
+  description = "Enable IPv4 on workload subnets"
+  type        = bool
+  default     = true
+}
+
+variable "ipv6_enabled" {
+  description = "Enable IPv6 on workload subnets"
   type        = bool
   default     = true
 }
@@ -69,10 +75,15 @@ variable "region" {
   default     = ""
 }
 
-variable "use_provider_nat" {
-  description = "Use the cloud provider's NAT service instead of Nstance NAT instances"
-  type        = bool
-  default     = false
+variable "nat_mode" {
+  description = "NAT implementation: none, provider, or nstance"
+  type        = string
+  default     = "nstance"
+
+  validation {
+    condition     = contains(["none", "provider", "nstance"], var.nat_mode)
+    error_message = "nat_mode must be one of: none, provider, nstance."
+  }
 }
 
 variable "fixed_public_ipv4_count" {
@@ -102,7 +113,7 @@ variable "subnets" {
     
     Routing behavior:
     - public = true: associates subnet with public route table (IGW route)
-    - nat_subnet = "X": routes IPv4 egress through the selected NAT mode in role "X" for the same zone
+    - nat_subnet = "X": routes translated egress through the selected NAT mode in role "X" for the same zone
     - Neither: no route table association (isolated or user-managed)
     
     Example:

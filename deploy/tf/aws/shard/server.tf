@@ -4,9 +4,10 @@
 
 # Server Leader ENI (Stable IP for shard leader)
 resource "aws_network_interface" "server_leader" {
-  subnet_id         = local.server_subnet_id
-  security_groups   = [aws_security_group.server.id]
-  source_dest_check = var.network.use_provider_nat
+  subnet_id          = local.server_subnet_id
+  security_groups    = [aws_security_group.server.id]
+  source_dest_check  = var.network.nat_mode != "nstance"
+  ipv6_address_count = var.network.ipv6_enabled ? 1 : 0
 
   description = "Stable ENI for Nstance Server shard leader (${var.shard})"
 
@@ -89,14 +90,15 @@ resource "aws_launch_template" "server" {
   }
 
   network_interfaces {
-    associate_public_ip_address = local.server_subnet_public
+    associate_public_ip_address = local.server_subnet_public && var.network.ipv4_enabled
     security_groups             = [aws_security_group.server.id]
-    ipv6_address_count          = var.network.enable_ipv6 ? 1 : 0
+    ipv6_address_count          = var.network.ipv6_enabled ? 1 : 0
   }
 
   key_name = var.ssh_key_name != "" ? var.ssh_key_name : null
 
-  user_data = base64encode(local.server_userdata)
+  # Create a launch-template version whenever the generated shard configuration changes.
+  user_data = base64encode("${local.server_userdata}\n# nstance-config-etag: ${aws_s3_object.shard_config.etag}\n")
 
   metadata_options {
     http_endpoint               = "enabled"

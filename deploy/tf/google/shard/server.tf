@@ -3,13 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ============================================================================
-# Server Leader IP (Reserved internal IP, assigned as alias)
+# Server Leader IP (Reserved internal IPv4 address or IPv6 range)
 # ============================================================================
 
 resource "google_compute_address" "server_leader" {
   name         = "${local.name_prefix}-server-leader-ip-${var.shard}"
   subnetwork   = local.server_subnet_id
   address_type = "INTERNAL"
+  ip_version   = var.network.ipv4_enabled ? "IPV4" : "IPV6"
+  purpose      = var.network.ipv4_enabled ? null : "GCE_ENDPOINT"
   region       = local.region
 
   depends_on = [terraform_data.validate_server_subnet]
@@ -70,9 +72,12 @@ resource "google_compute_instance_template" "server" {
 
   network_interface {
     subnetwork = local.server_subnet_id
+    # The leader acquires the reserved IPv6 range during election. Standbys
+    # remain IPv4-only so the range can move without replacing an instance.
+    stack_type = "IPV4_ONLY"
 
     dynamic "access_config" {
-      for_each = var.network.use_provider_nat ? [] : [1]
+      for_each = var.network.ipv4_enabled && var.network.nat_mode == "nstance" ? [1] : []
       content {
         network_tier = "PREMIUM"
       }

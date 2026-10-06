@@ -9,6 +9,8 @@
 locals {
   nstance_version = var.nstance_version != "" ? var.nstance_version : "latest"
   github_repo     = "nstance-dev/nstance"
+  leader_ip       = google_compute_address.server_leader.address
+  leader_host     = var.network.ipv4_enabled ? local.leader_ip : "[${local.leader_ip}]"
 
   agent_userdata_vars = {
     nstance_version       = local.nstance_version
@@ -28,9 +30,11 @@ locals {
   # Agent userdata is stored in GCS config and interpolated by nstance-server at instance creation.
   agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", merge(local.agent_userdata_vars, {
     configure_nat = false
+    nat64_enabled = false
   }))
   nat_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", merge(local.agent_userdata_vars, {
     configure_nat = true
+    nat64_enabled = !var.network.ipv4_enabled
   }))
 
   cluster_leader_election_config = merge(
@@ -131,7 +135,7 @@ resource "google_storage_bucket_object" "shard_config" {
               project_id = var.cluster.project_id
             } : {},
             var.cluster.secrets_provider != "object-storage" ? {
-              prefix = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.name_prefix}-"
+              prefix = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.id}-"
             } : {},
           )
         },
@@ -149,21 +153,21 @@ resource "google_storage_bucket_object" "shard_config" {
             }
           }
           leader_network = {
-            ip = google_compute_address.server_leader.address
+            ip = local.leader_ip
           }
           bind = {
             health_addr       = var.cluster.server_config.bind.health_addr
             election_addr     = var.cluster.server_config.bind.election_addr
-            registration_addr = "${google_compute_address.server_leader.address}:${local.registration_port}"
-            operator_addr     = "${google_compute_address.server_leader.address}:${local.operator_port}"
-            agent_addr        = "${google_compute_address.server_leader.address}:${local.agent_port}"
+            registration_addr = "${local.leader_ip}:${local.registration_port}"
+            operator_addr     = "${local.leader_ip}:${local.operator_port}"
+            agent_addr        = "${local.leader_ip}:${local.agent_port}"
           }
           advertise = {
             health_addr       = ":${local.health_port}"
             election_addr     = ":${local.election_port}"
-            registration_addr = "${google_compute_address.server_leader.address}:${local.registration_port}"
-            operator_addr     = "${google_compute_address.server_leader.address}:${local.operator_port}"
-            agent_addr        = "${google_compute_address.server_leader.address}:${local.agent_port}"
+            registration_addr = "${local.leader_host}:${local.registration_port}"
+            operator_addr     = "${local.leader_host}:${local.operator_port}"
+            agent_addr        = "${local.leader_host}:${local.agent_port}"
           }
           subnet_pools         = local.filtered_subnets
           dynamic_subnet_pools = var.dynamic_subnet_pools
@@ -180,7 +184,11 @@ resource "google_storage_bucket_object" "shard_config" {
         }
         if length(try(lb.network_endpoint_groups[var.zone], [])) > 0
       }
-      nat = var.network.use_provider_nat ? {} : var.nat
+      nat = var.network.nat_mode == "nstance" ? {
+        for tenant, config in var.nat : tenant => merge(config, {
+          mode = var.network.ipv4_enabled ? "nat44" : "nat64"
+        })
+      } : {}
       groups = {
         # Groups are nested by tenant: { tenant -> { group_name -> GroupConfig } }
         for tenant, tenant_groups in var.groups : tenant => {

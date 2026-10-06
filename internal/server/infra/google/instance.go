@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
@@ -51,18 +52,27 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 
 	// Build full subnet path from subnet name
 	subnetPath := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", p.options.ProjectID, p.config.Region, req.SubnetID)
+	subnet, err := p.subnetClient.Get(ctx, &computepb.GetSubnetworkRequest{
+		Project: p.options.ProjectID, Region: p.config.Region, Subnetwork: req.SubnetID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subnet network stack: %w", err)
+	}
 
 	// Build network interface configuration
+	stackType := subnet.GetStackType()
+	accessConfigs := []*computepb.AccessConfig(nil)
+	if req.IPForwarding && stackType != "IPV6_ONLY" {
+		accessConfigs = []*computepb.AccessConfig{{
+			Name: proto.String("External NAT"), Type: proto.String(computepb.AccessConfig_ONE_TO_ONE_NAT.String()),
+			NetworkTier: proto.String(computepb.AccessConfig_PREMIUM.String()),
+		}}
+	}
 	networkInterfaces := []*computepb.NetworkInterface{
 		{
-			Subnetwork: proto.String(subnetPath),
-			AccessConfigs: []*computepb.AccessConfig{
-				{
-					Name:        proto.String("External NAT"),
-					Type:        proto.String(computepb.AccessConfig_ONE_TO_ONE_NAT.String()),
-					NetworkTier: proto.String(computepb.AccessConfig_PREMIUM.String()),
-				},
-			},
+			Subnetwork:    proto.String(subnetPath),
+			StackType:     proto.String(stackType),
+			AccessConfigs: accessConfigs,
 		},
 	}
 
@@ -151,10 +161,8 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 		if createdInstance.NetworkInterfaces[0].NetworkIP != nil {
 			response.PrivateIPv4 = *createdInstance.NetworkInterfaces[0].NetworkIP
 		}
-		if len(createdInstance.NetworkInterfaces[0].Ipv6AccessConfigs) > 0 {
-			if createdInstance.NetworkInterfaces[0].Ipv6AccessConfigs[0].ExternalIpv6 != nil {
-				response.PrivateIPv6 = *createdInstance.NetworkInterfaces[0].Ipv6AccessConfigs[0].ExternalIpv6
-			}
+		if createdInstance.NetworkInterfaces[0].Ipv6Address != nil {
+			response.PrivateIPv6 = *createdInstance.NetworkInterfaces[0].Ipv6Address
 		}
 	}
 
@@ -314,10 +322,14 @@ func (p *Provider) ListInstances(ctx context.Context, req provider.ListInstances
 	}, nil
 }
 
-// AssignLeaderNetwork assigns a reserved internal IP as an alias IP on the instance's primary NIC.
+// AssignLeaderNetwork assigns a reserved internal IP to the instance's primary NIC.
 func (p *Provider) AssignLeaderNetwork(ctx context.Context, providerInstanceID string, ln provider.LeaderNetwork) error {
 	aliasIP := ln.IP
-	p.logger.Info("Assigning leader network to instance", "alias_ip", aliasIP, "instance_name", providerInstanceID)
+	p.logger.Info("Assigning leader network to instance", "ip", aliasIP, "instance_name", providerInstanceID)
+	leaderIP := net.ParseIP(aliasIP)
+	if leaderIP == nil {
+		return fmt.Errorf("invalid leader IP %q", aliasIP)
+	}
 
 	instance, err := p.instancesClient.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  p.options.ProjectID,
@@ -336,6 +348,33 @@ func (p *Provider) AssignLeaderNetwork(ctx context.Context, providerInstanceID s
 	nicName := primaryNIC.GetName()
 	if nicName == "" {
 		nicName = "nic0"
+	}
+	if leaderIP.To4() == nil {
+		if assignedIP := net.ParseIP(primaryNIC.GetIpv6Address()); assignedIP != nil && assignedIP.Equal(leaderIP) {
+			p.logger.Info("Leader IPv6 already assigned to instance", "ip", aliasIP)
+			return nil
+		}
+		updatedNIC := &computepb.NetworkInterface{
+			Fingerprint:              primaryNIC.Fingerprint,
+			StackType:                proto.String("IPV4_IPV6"),
+			Ipv6Address:              proto.String(aliasIP),
+			InternalIpv6PrefixLength: proto.Int32(96),
+		}
+		op, err := p.instancesClient.UpdateNetworkInterface(ctx, &computepb.UpdateNetworkInterfaceInstanceRequest{
+			Project:                  p.options.ProjectID,
+			Zone:                     p.config.Zone,
+			Instance:                 providerInstanceID,
+			NetworkInterface:         nicName,
+			NetworkInterfaceResource: updatedNIC,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to assign leader IPv6: %w", err)
+		}
+		if err := op.Wait(ctx); err != nil {
+			return fmt.Errorf("failed waiting for leader IPv6 assignment: %w", err)
+		}
+		p.logger.Info("Leader IPv6 assigned successfully", "ip", aliasIP, "instance_name", providerInstanceID)
+		return nil
 	}
 
 	aliasIPRange := aliasIP + "/32"
@@ -374,10 +413,14 @@ func (p *Provider) AssignLeaderNetwork(ctx context.Context, providerInstanceID s
 	return nil
 }
 
-// ReleaseLeaderNetwork removes an alias IP from the instance's primary NIC.
+// ReleaseLeaderNetwork removes the reserved internal IP from the instance's primary NIC.
 func (p *Provider) ReleaseLeaderNetwork(ctx context.Context, providerInstanceID string, ln provider.LeaderNetwork) error {
 	aliasIP := ln.IP
-	p.logger.Info("Releasing leader network from instance", "alias_ip", aliasIP, "instance_name", providerInstanceID)
+	p.logger.Info("Releasing leader network from instance", "ip", aliasIP, "instance_name", providerInstanceID)
+	leaderIP := net.ParseIP(aliasIP)
+	if leaderIP == nil {
+		return fmt.Errorf("invalid leader IP %q", aliasIP)
+	}
 
 	instance, err := p.instancesClient.Get(ctx, &computepb.GetInstanceRequest{
 		Project:  p.options.ProjectID,
@@ -396,6 +439,32 @@ func (p *Provider) ReleaseLeaderNetwork(ctx context.Context, providerInstanceID 
 	nicName := primaryNIC.GetName()
 	if nicName == "" {
 		nicName = "nic0"
+	}
+	if leaderIP.To4() == nil {
+		assignedIP := net.ParseIP(primaryNIC.GetIpv6Address())
+		if assignedIP == nil || !assignedIP.Equal(leaderIP) {
+			p.logger.Info("Leader IPv6 not assigned to instance, nothing to remove", "ip", aliasIP)
+			return nil
+		}
+		updatedNIC := &computepb.NetworkInterface{
+			Fingerprint: primaryNIC.Fingerprint,
+			StackType:   proto.String("IPV4_ONLY"),
+		}
+		op, err := p.instancesClient.UpdateNetworkInterface(ctx, &computepb.UpdateNetworkInterfaceInstanceRequest{
+			Project:                  p.options.ProjectID,
+			Zone:                     p.config.Zone,
+			Instance:                 providerInstanceID,
+			NetworkInterface:         nicName,
+			NetworkInterfaceResource: updatedNIC,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to release leader IPv6: %w", err)
+		}
+		if err := op.Wait(ctx); err != nil {
+			return fmt.Errorf("failed waiting for leader IPv6 release: %w", err)
+		}
+		p.logger.Info("Leader IPv6 released successfully", "ip", aliasIP, "instance_name", providerInstanceID)
+		return nil
 	}
 
 	aliasIPRange := aliasIP + "/32"
@@ -519,10 +588,8 @@ func (p *Provider) convertToInstanceStatus(instanceID string, instance *computep
 		}
 
 		// Check for IPv6
-		if len(instance.NetworkInterfaces[0].Ipv6AccessConfigs) > 0 {
-			if instance.NetworkInterfaces[0].Ipv6AccessConfigs[0].ExternalIpv6 != nil {
-				status.PrivateIPv6 = *instance.NetworkInterfaces[0].Ipv6AccessConfigs[0].ExternalIpv6
-			}
+		if instance.NetworkInterfaces[0].Ipv6Address != nil {
+			status.PrivateIPv6 = *instance.NetworkInterfaces[0].Ipv6Address
 		}
 	}
 

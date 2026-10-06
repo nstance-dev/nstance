@@ -28,7 +28,7 @@ export DEBIAN_FRONTEND=noninteractive
 ARCH="{{ .Instance.Arch }}"
 
 commands=(curl python3)
-%{ if configure_nat ~}
+%{ if configure_nat && !nat64_enabled ~}
 commands+=(iptables)
 %{ endif ~}
 
@@ -103,7 +103,15 @@ do
 done
 
 %{ if configure_nat ~}
-# Configure minimal IPv4 NAT.
+# Configure minimal NAT for demonstration deployments.
+%{ if nat64_enabled ~}
+apt-get update -o Acquire::Retries=3
+apt-get install --no-install-recommends -y -o Acquire::Retries=3 \
+  "linux-headers-$(uname -r)" \
+  jool-dkms \
+  jool-tools
+rm -rf /var/lib/apt/lists/*
+%{ endif ~}
 cat > /usr/local/sbin/nstance-configure-nat <<'NSTANCE_CONFIGURE_NAT'
 #!/bin/bash
 set -euo pipefail
@@ -114,14 +122,31 @@ if [[ -z "$interface" || ! "$interface" =~ ^[a-zA-Z0-9_.:-]+$ ]]; then
   exit 1
 fi
 
+%{ if nat64_enabled ~}
+pool4=$(ip -4 -o address show dev "$interface" scope global | awk 'NR == 1 { sub("/.*", "", $4); print $4 }')
+if [[ -z "$pool4" ]]; then
+  echo "Unable to determine the NAT64 IPv4 pool address" >&2
+  exit 1
+fi
+
+sysctl -w net.ipv4.ip_forward=1
+sysctl -w net.ipv6.conf.all.forwarding=1
+modprobe jool
+jool instance remove nstance 2>/dev/null || true
+jool instance add nstance --netfilter --pool6 64:ff9b::/96
+jool -i nstance pool4 add --tcp "$pool4" 61001-65535
+jool -i nstance pool4 add --udp "$pool4" 61001-65535
+jool -i nstance pool4 add --icmp "$pool4" 61001-65535
+%{ else ~}
 sysctl -w net.ipv4.ip_forward=1
 iptables -w -t nat -C POSTROUTING -o "$interface" -j MASQUERADE 2>/dev/null ||
   iptables -w -t nat -A POSTROUTING -o "$interface" -j MASQUERADE
+%{ endif ~}
 NSTANCE_CONFIGURE_NAT
 chmod 755 /usr/local/sbin/nstance-configure-nat
 cat > /etc/systemd/system/nstance-configure-nat.service <<'SYSTEMD'
 [Unit]
-Description=Configure Nstance IPv4 NAT
+Description=Configure Nstance NAT
 Wants=network-online.target
 After=network-online.target
 

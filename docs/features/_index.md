@@ -11,6 +11,7 @@ description: "Key features of the Nstance platform."
 - **[Spot Instances](./spot-instances.md)** — Automatic detection and handling of spot and preemptible instance termination notices.
 - **[Instance Expiry](./instance-expiry.md)** — Automatic instance rotation based on configurable age limits for compliance and security.
 - **[Load Balancers](./load-balancers.md)** — Automatic registration and deregistration of instances with cloud provider load balancers.
+- **[Network Address Translation](./network-address-translation.md)** — Choosing between provider-managed and Nstance-managed NAT44 and NAT64.
 - **[On-Demand Nodes](./on-demand-nodes.md)** — Provisioning individual instances on-demand via Pod annotations for specific workload requirements.
 - **[Multi-Tenancy](./multi-tenancy.md)** — How multiple Kubernetes clusters can run on a single Nstance cluster with tenant isolation.
 - **[Subnet Pools](./subnet-pools.md)** — Logical subnet pool system that maps human-readable names to provider-specific subnet IDs for portable group configurations.

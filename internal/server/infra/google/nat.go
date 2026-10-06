@@ -14,15 +14,14 @@ import (
 	"github.com/nstance-dev/nstance/internal/server/infra/provider"
 )
 
-// EnsureNATRoute points a tenant-tagged IPv4 default route at the requested VM.
+// EnsureNATRoute points a tenant-tagged NAT44 or NAT64 route at the requested VM.
 func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
 	if req.PublicAddress != nil {
 		if err := p.movePublicAddress(ctx, req); err != nil {
 			return err
 		}
 	}
-	name := provider.NATNetworkTag(req.ClusterID, req.Tenant, req.InstanceSubnetID)
-	description := fmt.Sprintf("nstance:%s:%s:%s", req.ClusterID, req.Tenant, req.InstanceSubnetID)
+	name, description := natRouteIdentity(req)
 	route, err := p.computeService.Routes.Get(p.options.ProjectID, name).Context(ctx).Do()
 	if err != nil && !isNotFound(err) {
 		return fmt.Errorf("get route %s: %w", name, err)
@@ -55,7 +54,7 @@ func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequ
 	operation, err := p.computeService.Routes.Insert(p.options.ProjectID, &compute.Route{
 		Name:            name,
 		Description:     description,
-		DestRange:       "0.0.0.0/0",
+		DestRange:       req.DestinationCIDR,
 		Network:         subnet.Network,
 		Priority:        800,
 		Tags:            []string{req.InstanceTag},
@@ -72,8 +71,7 @@ func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequ
 
 // RemoveNATRoute removes a route only while its current next hop remains managed.
 func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
-	name := provider.NATNetworkTag(req.ClusterID, req.Tenant, req.InstanceSubnetID)
-	description := fmt.Sprintf("nstance:%s:%s:%s", req.ClusterID, req.Tenant, req.InstanceSubnetID)
+	name, description := natRouteIdentity(req)
 	route, err := p.computeService.Routes.Get(p.options.ProjectID, name).Context(ctx).Do()
 	if isNotFound(err) {
 		return nil
@@ -95,6 +93,16 @@ func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequ
 		return fmt.Errorf("wait for route %s deletion: %w", name, err)
 	}
 	return nil
+}
+
+// natRouteIdentity returns the provider name and ownership marker for a NAT route.
+func natRouteIdentity(req provider.NATRouteRequest) (string, string) {
+	name := provider.NATNetworkTag(req.ClusterID, req.Tenant, req.InstanceSubnetID)
+	description := fmt.Sprintf("nstance:%s:%s:%s", req.ClusterID, req.Tenant, req.InstanceSubnetID)
+	if req.DestinationCIDR == "64:ff9b::/96" {
+		return name + "-nat64", description + ":nat64"
+	}
+	return name, description
 }
 
 // permittedNATNextHop reports whether a route targets the current or previous NAT instance.

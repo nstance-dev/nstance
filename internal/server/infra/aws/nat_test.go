@@ -17,8 +17,9 @@ import (
 
 // testRouteClient records replacements against one configured route table.
 type testRouteClient struct {
-	routeTable types.RouteTable
-	replaced   string
+	routeTable          types.RouteTable
+	replaced            string
+	replacedDestination string
 }
 
 // testNATClient records EC2 operations against a synthetic primary ENI.
@@ -69,6 +70,11 @@ func (*testRouteClient) CreateRoute(context.Context, *ec2.CreateRouteInput, ...f
 // ReplaceRoute records the requested ENI.
 func (c *testRouteClient) ReplaceRoute(_ context.Context, input *ec2.ReplaceRouteInput, _ ...func(*ec2.Options)) (*ec2.ReplaceRouteOutput, error) {
 	c.replaced = aws.ToString(input.NetworkInterfaceId)
+	if input.DestinationCidrBlock != nil {
+		c.replacedDestination = aws.ToString(input.DestinationCidrBlock)
+	} else {
+		c.replacedDestination = aws.ToString(input.DestinationIpv6CidrBlock)
+	}
 	return &ec2.ReplaceRouteOutput{}, nil
 }
 
@@ -90,6 +96,7 @@ func TestEnsureNATRouteRequiresOwnedManagedRoute(t *testing.T) {
 		ClusterID:        "cluster",
 		Tenant:           "red",
 		InstanceSubnetID: "subnet-a",
+		DestinationCIDR:  "0.0.0.0/0",
 	}
 	managed := []string{"eni-old", "eni-new"}
 	if err := p.ensureNATRoute(context.Background(), req, "eni-new", managed); err != nil {
@@ -97,6 +104,9 @@ func TestEnsureNATRouteRequiresOwnedManagedRoute(t *testing.T) {
 	}
 	if client.replaced != "eni-new" {
 		t.Fatalf("replacement = %q, want eni-new", client.replaced)
+	}
+	if client.replacedDestination != "0.0.0.0/0" {
+		t.Fatalf("replacement destination = %q, want IPv4 default", client.replacedDestination)
 	}
 	client.replaced = ""
 	client.routeTable.Routes[0] = types.Route{DestinationCidrBlock: aws.String("0.0.0.0/0"), NatGatewayId: aws.String("nat-1")}
@@ -106,6 +116,25 @@ func TestEnsureNATRouteRequiresOwnedManagedRoute(t *testing.T) {
 	client.routeTable.Tags[0].Value = aws.String("other")
 	if err := p.ensureNATRoute(context.Background(), req, "eni-new", managed); err == nil {
 		t.Fatal("another cluster's route table was modified")
+	}
+}
+
+func TestEnsureNAT64RoutePreservesNativeIPv6Default(t *testing.T) {
+	client := &testRouteClient{routeTable: types.RouteTable{
+		RouteTableId: aws.String("rtb-1"),
+		Tags:         []types.Tag{{Key: aws.String(tagClusterID), Value: aws.String("cluster")}},
+		Routes: []types.Route{
+			{DestinationIpv6CidrBlock: aws.String("::/0"), EgressOnlyInternetGatewayId: aws.String("eigw-1")},
+			{DestinationIpv6CidrBlock: aws.String("64:ff9b::/96"), NetworkInterfaceId: aws.String("eni-old")},
+		},
+	}}
+	p := &Provider{routeClient: client}
+	req := provider.NATRouteRequest{ClusterID: "cluster", InstanceSubnetID: "subnet-a", DestinationCIDR: "64:ff9b::/96"}
+	if err := p.ensureNATRoute(context.Background(), req, "eni-new", []string{"eni-old", "eni-new"}); err != nil {
+		t.Fatal(err)
+	}
+	if client.replacedDestination != "64:ff9b::/96" {
+		t.Fatalf("replacement destination = %q, want NAT64 prefix", client.replacedDestination)
 	}
 }
 

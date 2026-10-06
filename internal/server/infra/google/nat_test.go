@@ -37,6 +37,7 @@ func TestNATRouteRefusesForeignRoute(t *testing.T) {
 	}
 	p := &Provider{computeService: service, options: ProviderOptions{ProjectID: "project"}}
 	req := provider.NATRouteRequest{
+		DestinationCIDR:            "0.0.0.0/0",
 		ClusterID:                  "cluster",
 		Tenant:                     "red",
 		InstanceSubnetID:           "subnet-a",
@@ -51,6 +52,47 @@ func TestNATRouteRefusesForeignRoute(t *testing.T) {
 	}
 	if mutations != 0 {
 		t.Fatalf("foreign route received %d mutations", mutations)
+	}
+}
+
+func TestEnsureNAT64RouteUsesRequestedDestination(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/routes/") && r.Method == http.MethodGet:
+			http.NotFound(w, r)
+		case strings.HasSuffix(r.URL.Path, "/subnetworks/subnet-a"):
+			_, _ = fmt.Fprint(w, `{"network":"global/networks/vpc"}`)
+		case strings.HasSuffix(r.URL.Path, "/routes"):
+			data := make([]byte, r.ContentLength)
+			_, _ = r.Body.Read(data)
+			body = string(data)
+			_, _ = fmt.Fprint(w, `{"name":"insert"}`)
+		case strings.HasSuffix(r.URL.Path, "/wait"):
+			_, _ = fmt.Fprint(w, `{"status":"DONE"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	service, err := compute.NewService(context.Background(), option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL+"/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Provider{computeService: service, config: provider.ProviderConfig{Region: "region", Zone: "zone"}, options: ProviderOptions{ProjectID: "project"}}
+	err = p.EnsureNATRoute(context.Background(), provider.NATRouteRequest{
+		ClusterID: "cluster", Tenant: "red", InstanceSubnetID: "subnet-a",
+		ProviderInstanceID: "nat", DestinationCIDR: "64:ff9b::/96",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, `"destRange":"64:ff9b::/96"`) {
+		t.Fatalf("route body = %s", body)
+	}
+	if !strings.Contains(body, `-nat64"`) {
+		t.Fatalf("route body = %s", body)
 	}
 }
 

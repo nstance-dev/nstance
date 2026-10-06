@@ -45,7 +45,7 @@ See [Data Storage](../reference/data-storage.md) for the full bucket layout.
 
 ### 3. AWS Systems Manager Parameter Store
 
-Parameter Store is the default AWS secrets backend. Its server default is `/nstance/`; Terraform derives `/<name_prefix>/` unless `secrets_prefix` is set. It can also supply the 32-byte encryption key when `object-storage` is selected explicitly.
+Parameter Store is the default AWS secrets backend. OpenTofu/Terraform derives its server prefix as `/<cluster_id>/` unless `secrets_prefix` is set. It can also supply the 32-byte encryption key when `object-storage` is selected explicitly.
 
 Nstance values remain `[]byte` at its boundaries, but Parameter Store writes them as raw `SecureString` text without a base64 envelope. Writes must therefore be valid UTF-8 and fit the standard-tier 4 KiB value limit.
 

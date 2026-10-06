@@ -38,7 +38,7 @@ Below is an example/reference configuration file for Nstance Server, using examp
     "secrets": {
       // AWS default. Names are appended below this Parameter Store path.
       "provider": "aws-parameter-store",
-      "prefix": "/nstance/",
+      "prefix": "/example-cluster/",
       // Optional: secret cache TTL. Omit or set to 0 to disable caching.
       "cache_ttl": "5m"
     },
@@ -591,3 +591,6 @@ replacement reuses the subnet's existing fixed address and therefore does not
 require a spare public IPv4. Exhausting the configured addresses blocks
 creation for a new instance subnet but never blocks replacement of an existing NAT
 VM. Removing a tenant's NAT configuration cleans up its NAT instances.
+
+See [Network Address Translation](../features/network-address-translation.md)
+for the feature-level design, deployment choices, and NAT64 constraints.

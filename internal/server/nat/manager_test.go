@@ -122,6 +122,22 @@ func TestManagerCreatesHealthyNATBeforeInstallingRoute(t *testing.T) {
 	}
 }
 
+// TestRouteRequestSelectsTranslationPrefix verifies NAT64 does not replace the
+// native IPv6 default route.
+func TestRouteRequestSelectsTranslationPrefix(t *testing.T) {
+	manager := &Manager{}
+	cfg := &config.Config{
+		Cluster: config.ClusterConfig{ID: "cluster"},
+		NAT:     map[string]config.NATConfig{"red": {Mode: "nat64"}},
+	}
+	request := manager.routeRequest(cfg, nil, Assignment{
+		Tenant: "red", InstanceSubnetID: "subnet", ProviderID: "instance",
+	})
+	if request.DestinationCIDR != "64:ff9b::/96" {
+		t.Fatalf("destination = %q, want NAT64 prefix", request.DestinationCIDR)
+	}
+}
+
 // TestManagerRemovesUnusedNATAfterGrace verifies the route and VM are removed
 // before an identity becomes reusable.
 func TestManagerRemovesUnusedNATAfterGrace(t *testing.T) {

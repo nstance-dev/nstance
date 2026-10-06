@@ -46,8 +46,8 @@ module "account" {
 module "network" {
   source = "../../../aws/network"
 
-  cluster          = module.cluster
-  use_provider_nat = true
+  cluster  = module.cluster
+  nat_mode = "provider"
 
   # Use existing VPC
   vpc_id = "vpc-prod123"

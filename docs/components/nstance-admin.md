@@ -95,7 +95,7 @@ All `nstance-admin cluster` commands share these persistent flags:
 | `--key-provider` | | Encryption key provider (env, file, aws-parameter-store, aws-secrets-manager, google-secret-manager) - required for object-storage |
 | `--key-source` | | Key source (environment variable, file, Parameter Store name, or secret ARN) - defaults to `NSTANCE_ENCRYPTION_KEY` for env provider, otherwise required |
 
-`nstance-admin cluster` does not infer a cloud provider, so `--secrets-provider` must be specified explicitly. Pass `--secrets-prefix` with the same value as `cluster.secrets.prefix` in the Nstance Server configuration—for example, `/nstance/` for the default AWS Parameter Store configuration. Google Secret Manager also requires `--secrets-project`.
+`nstance-admin cluster` does not infer a cloud provider, so `--secrets-provider` must be specified explicitly. Pass `--secrets-prefix` with the same value as `cluster.secrets.prefix` in the Nstance Server configuration—for example, `/example-cluster/` for an AWS cluster whose ID is `example-cluster`. Google Secret Manager also requires `--secrets-project`.
 
 ### `nstance-admin cluster nonce`
 
@@ -114,7 +114,7 @@ nstance-admin cluster nonce --cluster-id <cluster-id> --storage-bucket <bucket> 
 **Example:**
 ```bash
 # Generate nonce using the direct AWS Parameter Store backend
-nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider aws-parameter-store --secrets-prefix /nstance/
+nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider aws-parameter-store --secrets-prefix /example-cluster/
 
 # Generate nonce using encryption key from environment variable
 nstance-admin cluster nonce --cluster-id example-cluster --storage-bucket my-bucket --secrets-provider object-storage --key-provider env

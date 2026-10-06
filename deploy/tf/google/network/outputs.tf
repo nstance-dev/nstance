@@ -29,20 +29,30 @@ output "public_subnet_names" {
 
 output "nat_gateway_name" {
   description = "Cloud NAT name (null when no NAT is configured)"
-  value       = local.has_nat_gateway && var.use_provider_nat ? google_compute_router_nat.main[0].name : null
+  value       = local.has_nat_gateway && var.nat_mode == "provider" ? google_compute_router_nat.main[0].name : null
 }
 
 output "router_name" {
   description = "Cloud Router name (null when no NAT is configured)"
-  value       = local.has_nat_gateway && var.use_provider_nat ? google_compute_router.main[0].name : null
+  value       = local.has_nat_gateway && var.nat_mode == "provider" ? google_compute_router.main[0].name : null
 }
 
-output "use_provider_nat" {
-  description = "Whether the cloud provider's NAT service is used instead of Nstance NAT instances"
-  value       = var.use_provider_nat
+output "ipv4_enabled" {
+  description = "Whether IPv4 is enabled"
+  value       = var.ipv4_enabled
 }
 
-output "public_addresses" {
+output "ipv6_enabled" {
+  description = "Whether IPv6 is enabled"
+  value       = var.ipv6_enabled
+}
+
+output "nat_mode" {
+  description = "Configured NAT mode"
+  value       = var.nat_mode
+}
+
+output "nat_public_addresses" {
   description = "Optional fixed public IPv4 addresses for Nstance NAT instances, keyed by service role and zone"
   value = {
     for group in distinct([for address in values(local.fixed_public_ipv4) : "${address.role}-${address.zone}"]) : group => [

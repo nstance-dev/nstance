@@ -85,7 +85,7 @@ resource "aws_lb" "nstance" {
   name                             = local.lb_names[each.key]
   internal                         = !each.value.public
   load_balancer_type               = "network"
-  ip_address_type                  = var.enable_ipv6 && !local.use_existing_vpc ? "dualstack" : "ipv4"
+  ip_address_type                  = var.ipv6_enabled && !local.use_existing_vpc ? "dualstack" : "ipv4"
   subnets                          = local.subnets_by_role[each.value.subnets]
   security_groups                  = [aws_security_group.load_balancer[each.key].id]
   enable_cross_zone_load_balancing = false
@@ -121,7 +121,7 @@ resource "aws_vpc_security_group_ingress_rule" "load_balancer" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "load_balancer_ipv6" {
-  for_each = var.enable_ipv6 && !local.use_existing_vpc ? local.lb_ports : {}
+  for_each = var.ipv6_enabled && !local.use_existing_vpc ? local.lb_ports : {}
 
   security_group_id = aws_security_group.load_balancer[each.value.lb_key].id
   description       = "Load balancer listener ${each.value.listener_port} (IPv6)"
@@ -141,7 +141,7 @@ resource "aws_vpc_security_group_egress_rule" "load_balancer" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "load_balancer_ipv6" {
-  for_each = var.enable_ipv6 && !local.use_existing_vpc ? var.load_balancers : {}
+  for_each = var.ipv6_enabled && !local.use_existing_vpc ? var.load_balancers : {}
 
   security_group_id = aws_security_group.load_balancer[each.key].id
   description       = "Load balancer traffic to targets (IPv6)"

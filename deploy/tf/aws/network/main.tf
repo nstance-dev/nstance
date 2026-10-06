@@ -25,7 +25,20 @@ locals {
   vpc_cidr_blocks = local.use_existing_vpc ? [
     for association in data.aws_vpc.existing[0].cidr_block_associations : association.cidr_block
   ] : [aws_vpc.main[0].cidr_block]
-  vpc_ipv6_cidr = local.use_existing_vpc ? null : (var.enable_ipv6 ? aws_vpc.main[0].ipv6_cidr_block : null)
+  vpc_ipv6_cidr = local.use_existing_vpc ? null : (var.ipv6_enabled ? aws_vpc.main[0].ipv6_cidr_block : null)
+}
+
+resource "terraform_data" "validate_network_mode" {
+  lifecycle {
+    precondition {
+      condition     = var.ipv4_enabled || var.ipv6_enabled
+      error_message = "At least one of ipv4_enabled or ipv6_enabled must be true."
+    }
+    precondition {
+      condition     = var.nat_mode != "none" || (!var.ipv4_enabled && var.ipv6_enabled)
+      error_message = "nat_mode = \"none\" is only valid for IPv6-only networking."
+    }
+  }
 }
 
 # VPC with optional dual-stack (IPv4 + IPv6) - only when not using existing VPC
@@ -33,7 +46,7 @@ resource "aws_vpc" "main" {
   count = local.use_existing_vpc ? 0 : 1
 
   cidr_block                       = var.vpc_cidr_ipv4
-  assign_generated_ipv6_cidr_block = var.enable_ipv6
+  assign_generated_ipv6_cidr_block = var.ipv6_enabled
   enable_dns_hostnames             = true
   enable_dns_support               = true
 
@@ -55,7 +68,7 @@ resource "aws_internet_gateway" "main" {
 
 # Egress-only Internet Gateway for IPv6 private subnets - only when creating new VPC with IPv6
 resource "aws_egress_only_internet_gateway" "main" {
-  count = local.use_existing_vpc ? 0 : (var.enable_ipv6 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.ipv6_enabled ? 1 : 0)
 
   vpc_id = local.vpc_id
 
@@ -88,12 +101,12 @@ locals {
     ]...)
   ]...)
 
-  # Filter to only subnets that need creation (have ipv4_cidr, not existing)
-  # Compute effective IPv6 CIDR from ipv6_netnum if set, otherwise use explicit ipv6_cidr
+  # Workload subnets may be IPv6-native. NAT service subnets retain IPv4
+  # because both NAT Gateway and Nstance translators require it.
   subnets_to_create = {
     for k, v in local.subnet_definitions : k => merge(v, {
-      ipv6_cidr = coalesce(
-        v.ipv6_cidr,
+      ipv4_cidr = var.ipv4_enabled || (v.nat_gateway && var.nat_mode != "none") ? v.ipv4_cidr : null
+      ipv6_cidr = v.ipv6_cidr != null ? v.ipv6_cidr : (
         v.ipv6_netnum != null && local.vpc_ipv6_cidr != null ? cidrsubnet(local.vpc_ipv6_cidr, 8, v.ipv6_netnum) : null
       )
     }) if !v.existing
@@ -130,7 +143,7 @@ locals {
         subnet_key = subnet_key
         index      = index
       }
-    } if !var.use_provider_nat
+    } if var.nat_mode == "nstance"
   ]...)
 
   # Unique AZs that have NAT gateways
@@ -177,14 +190,15 @@ locals {
   }
 
   # Private route table IDs by subnet.
-  private_route_table_ids = {
-    for key, route_table in aws_route_table.private : key => route_table.id
-  }
+  private_route_table_ids = merge(
+    { for key, route_table in aws_route_table.private : key => route_table.id },
+    { for key, route_table in aws_route_table.private_provider : key => route_table.id },
+  )
 
   # All route table IDs for S3 endpoint attachment
   all_route_table_ids = concat(
     local.use_existing_vpc ? [] : [aws_route_table.public[0].id],
-    [for route_table in values(aws_route_table.private) : route_table.id]
+    values(local.private_route_table_ids),
   )
 
   # First private subnet per AZ for VPC interface endpoints
@@ -207,8 +221,8 @@ resource "terraform_data" "validate_cidr_existing_exclusive" {
       error_message = "Subnet ${each.key}: ipv4_cidr and existing are mutually exclusive. Specify one or the other."
     }
     precondition {
-      condition     = each.value.ipv4_cidr != null || each.value.existing
-      error_message = "Subnet ${each.key}: must specify either ipv4_cidr or existing."
+      condition     = each.value.ipv4_cidr != null || each.value.ipv6_cidr != null || each.value.existing
+      error_message = "Subnet ${each.key}: must specify an enabled address-family CIDR or existing subnet."
     }
   }
 }
@@ -226,7 +240,7 @@ resource "terraform_data" "validate_nat_gateway_public" {
 }
 
 resource "terraform_data" "validate_nstance_nat" {
-  for_each = var.use_provider_nat ? {} : local.nat_gateway_subnets
+  for_each = var.nat_mode == "nstance" ? local.nat_gateway_subnets : {}
 
   lifecycle {
     precondition {
@@ -275,14 +289,14 @@ resource "terraform_data" "validate_shards" {
   }
 }
 
-# Validation: enable_ipv6 requires ipv6_netnum or ipv6_cidr on managed subnets
+# Validation: IPv6 requires ipv6_netnum or ipv6_cidr on managed subnets
 resource "terraform_data" "validate_ipv6_cidrs" {
-  for_each = var.enable_ipv6 && !local.use_existing_vpc ? local.subnets_to_create : {}
+  for_each = var.ipv6_enabled && !local.use_existing_vpc ? local.subnets_to_create : {}
 
   lifecycle {
     precondition {
       condition     = each.value.ipv6_cidr != null
-      error_message = "Subnet ${each.key}: enable_ipv6 is true but no ipv6_netnum or ipv6_cidr specified. Either set ipv6_netnum (0-255), ipv6_cidr, or set enable_ipv6 = false."
+      error_message = "Subnet ${each.key}: ipv6_enabled is true but no ipv6_netnum or ipv6_cidr was specified."
     }
   }
 }
@@ -294,9 +308,11 @@ resource "aws_subnet" "managed" {
   vpc_id                          = local.vpc_id
   cidr_block                      = each.value.ipv4_cidr
   ipv6_cidr_block                 = each.value.ipv6_cidr
+  ipv6_native                     = each.value.ipv4_cidr == null
   availability_zone               = each.value.zone
-  map_public_ip_on_launch         = each.value.public
+  map_public_ip_on_launch         = each.value.public && each.value.ipv4_cidr != null
   assign_ipv6_address_on_creation = each.value.ipv6_cidr != null
+  enable_dns64                    = each.value.ipv4_cidr == null && each.value.nat_subnet != null && var.nat_mode != "none"
 
   tags = merge(var.tags, {
     Name           = "${local.name_prefix}-${each.value.role}-${each.value.zone}-${each.value.index}"
@@ -317,7 +333,7 @@ resource "aws_route_table" "public" {
   }
 
   dynamic "route" {
-    for_each = var.enable_ipv6 ? [1] : []
+    for_each = var.ipv6_enabled ? [1] : []
     content {
       ipv6_cidr_block = "::/0"
       gateway_id      = aws_internet_gateway.main[0].id
@@ -331,7 +347,7 @@ resource "aws_route_table" "public" {
 
 # Elastic IP for NAT Gateway - one per AZ
 resource "aws_eip" "per_az" {
-  for_each = local.use_existing_vpc || !var.use_provider_nat ? toset([]) : toset(local.nat_gateway_azs)
+  for_each = local.use_existing_vpc || var.nat_mode != "provider" ? toset([]) : toset(local.nat_gateway_azs)
 
   domain = "vpc"
 
@@ -344,7 +360,7 @@ resource "aws_eip" "per_az" {
 
 # NAT Gateway - one per AZ in the subnet with nat_gateway = true
 resource "aws_nat_gateway" "per_az" {
-  for_each = local.use_existing_vpc || !var.use_provider_nat ? {} : {
+  for_each = local.use_existing_vpc || var.nat_mode != "provider" ? {} : {
     for az in local.nat_gateway_azs : az => local.nat_gateway_by_az[az][0]
   }
 
@@ -370,22 +386,58 @@ resource "aws_eip" "managed_nat" {
 }
 
 # Each NAT-routed subnet has its own route table so Nstance can safely mutate
-# only that subnet's IPv4 default route.
+# only that subnet's NAT44 default or NAT64 prefix route.
 resource "aws_route_table" "private" {
-  for_each = local.use_existing_vpc ? {} : local.nat_routed_subnets
+  for_each = local.use_existing_vpc || var.nat_mode == "provider" ? {} : local.nat_routed_subnets
 
   vpc_id = local.vpc_id
 
   dynamic "route" {
-    for_each = var.use_provider_nat ? [1] : []
+    for_each = var.ipv6_enabled ? [1] : []
     content {
-      cidr_block     = "0.0.0.0/0"
+      ipv6_cidr_block        = "::/0"
+      egress_only_gateway_id = aws_egress_only_internet_gateway.main[0].id
+    }
+  }
+
+  tags = merge(var.tags, {
+    Name                 = "${local.name_prefix}-private-rt-${replace(each.key, "/", "-")}"
+    "nstance:cluster-id" = var.cluster.id
+  })
+
+  depends_on = [aws_vpc_endpoint.ec2]
+
+  lifecycle {
+    # nstance-server owns the NAT44 default or NAT64 prefix route.
+    ignore_changes = [route]
+  }
+}
+
+# Provider NAT routes remain OpenTofu-managed. Keeping them in separate route
+# tables prevents OpenTofu from removing routes that nstance-server owns.
+resource "aws_route_table" "private_provider" {
+  for_each = local.use_existing_vpc || var.nat_mode != "provider" ? {} : local.nat_routed_subnets
+
+  vpc_id = local.vpc_id
+
+  dynamic "route" {
+    for_each = var.ipv4_enabled ? ["0.0.0.0/0"] : []
+    content {
+      cidr_block     = route.value
       nat_gateway_id = aws_nat_gateway.per_az[each.value.zone].id
     }
   }
 
   dynamic "route" {
-    for_each = var.enable_ipv6 ? [1] : []
+    for_each = !var.ipv4_enabled && var.ipv6_enabled ? ["64:ff9b::/96"] : []
+    content {
+      ipv6_cidr_block = route.value
+      nat_gateway_id  = aws_nat_gateway.per_az[each.value.zone].id
+    }
+  }
+
+  dynamic "route" {
+    for_each = var.ipv6_enabled ? [1] : []
     content {
       ipv6_cidr_block        = "::/0"
       egress_only_gateway_id = aws_egress_only_internet_gateway.main[0].id
@@ -415,7 +467,7 @@ resource "aws_route_table_association" "private" {
   for_each = local.use_existing_vpc ? {} : local.nat_routed_subnets
 
   subnet_id      = local.all_subnet_ids[each.key]
-  route_table_id = aws_route_table.private[each.key].id
+  route_table_id = local.private_route_table_ids[each.key]
 
   depends_on = [aws_subnet.managed]
 }
@@ -451,7 +503,7 @@ resource "aws_security_group" "vpc_endpoints" {
   }
 
   dynamic "ingress" {
-    for_each = var.enable_ipv6 && local.vpc_ipv6_cidr != null ? [1] : []
+    for_each = var.ipv6_enabled && local.vpc_ipv6_cidr != null ? [1] : []
     content {
       description      = "HTTPS from VPC (IPv6)"
       from_port        = 443
@@ -470,7 +522,7 @@ resource "aws_security_group" "vpc_endpoints" {
   }
 
   dynamic "egress" {
-    for_each = var.enable_ipv6 ? [1] : []
+    for_each = var.ipv6_enabled ? [1] : []
     content {
       description      = "All outbound (IPv6)"
       from_port        = 0
@@ -524,7 +576,7 @@ resource "aws_vpc_endpoint" "ssm" {
 # Optional private access to the EC2 route, ENI, and address APIs used by
 # Nstance NAT orchestration.
 resource "aws_vpc_endpoint" "ec2" {
-  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && !var.use_provider_nat && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
+  count = local.use_existing_vpc ? 0 : (var.enable_interface_endpoints && var.nat_mode == "nstance" && length(local.interface_endpoint_subnet_ids) > 0 ? 1 : 0)
 
   vpc_id              = local.vpc_id
   service_name        = "com.amazonaws.${local.region}.ec2"

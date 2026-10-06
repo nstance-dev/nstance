@@ -68,7 +68,7 @@ variable "secrets_provider" {
 }
 
 variable "secrets_prefix" {
-  description = "Explicit prefix for direct cloud secret names. When empty, names are derived from name_prefix."
+  description = "Explicit prefix for direct cloud secret names. When empty, names are derived from cluster_id."
   type        = string
   default     = ""
 }

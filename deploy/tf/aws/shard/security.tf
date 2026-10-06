@@ -24,7 +24,7 @@ resource "aws_vpc_security_group_ingress_rule" "server_health" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "server_health_ipv6" {
-  count = var.network.enable_ipv6 ? 1 : 0
+  count = var.network.ipv6_enabled ? 1 : 0
 
   security_group_id = aws_security_group.server.id
   description       = "Health check from VPC (IPv6)"
@@ -45,7 +45,7 @@ resource "aws_vpc_security_group_ingress_rule" "server_grpc" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "server_grpc_ipv6" {
-  count = var.network.enable_ipv6 ? 1 : 0
+  count = var.network.ipv6_enabled ? 1 : 0
 
   security_group_id = aws_security_group.server.id
   description       = "gRPC from VPC (IPv6)"
@@ -79,6 +79,47 @@ resource "aws_security_group" "agent" {
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-agent-sg-${var.shard}"
   })
+}
+
+# NAT instances need a separate security group because they accept forwarded
+# IPv4 traffic from the VPC; ordinary agent instances do not accept it.
+resource "aws_security_group" "nat" {
+  count = var.network.nat_mode == "nstance" ? 1 : 0
+
+  name        = "${local.name_prefix}-nat-sg-${var.shard}"
+  description = "Security group for Nstance NAT instances (${var.shard})"
+  vpc_id      = var.network.vpc_id
+
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-nat-sg-${var.shard}"
+  })
+}
+
+resource "aws_vpc_security_group_ingress_rule" "nat_forward_ipv4" {
+  count = var.network.nat_mode == "nstance" ? 1 : 0
+
+  security_group_id = aws_security_group.nat[0].id
+  description       = "Forward IPv4 traffic from the VPC"
+  ip_protocol       = "-1"
+  cidr_ipv4         = var.network.vpc_cidr_ipv4
+}
+
+resource "aws_vpc_security_group_ingress_rule" "nat_forward_ipv6" {
+  count = var.network.nat_mode == "nstance" && var.network.ipv6_enabled ? 1 : 0
+
+  security_group_id = aws_security_group.nat[0].id
+  description       = "Forward NAT64 traffic from the VPC"
+  ip_protocol       = "-1"
+  cidr_ipv6         = var.network.vpc_cidr_ipv6
+}
+
+resource "aws_vpc_security_group_egress_rule" "nat_all_ipv4" {
+  count = var.network.nat_mode == "nstance" ? 1 : 0
+
+  security_group_id = aws_security_group.nat[0].id
+  description       = "All outbound IPv4"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
 }
 
 locals {

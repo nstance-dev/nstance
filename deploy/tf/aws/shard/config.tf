@@ -9,6 +9,8 @@
 locals {
   nstance_version = var.nstance_version != "" ? var.nstance_version : "latest"
   github_repo     = "nstance-dev/nstance"
+  leader_ip       = var.network.ipv4_enabled ? aws_network_interface.server_leader.private_ip : one(aws_network_interface.server_leader.ipv6_addresses)
+  leader_host     = var.network.ipv4_enabled ? local.leader_ip : "[${local.leader_ip}]"
 
   agent_userdata_vars = {
     nstance_version       = local.nstance_version
@@ -28,9 +30,11 @@ locals {
   # Agent userdata is stored in S3 config and interpolated by nstance-server at instance creation.
   agent_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", merge(local.agent_userdata_vars, {
     configure_nat = false
+    nat64_enabled = false
   }))
   nat_userdata_template = templatefile("${path.module}/templates/agent-userdata.sh.tpl", merge(local.agent_userdata_vars, {
     configure_nat = true
+    nat64_enabled = !var.network.ipv4_enabled
   }))
 
   cluster_leader_election_config = merge(
@@ -124,7 +128,7 @@ resource "aws_s3_object" "shard_config" {
             provider       = var.cluster.secrets_provider
             encryption_key = null
             prefix = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : (
-              var.cluster.secrets_provider == "aws-parameter-store" ? "/${var.cluster.name_prefix}/" : "${var.cluster.name_prefix}/"
+              var.cluster.secrets_provider == "aws-parameter-store" ? "/${var.cluster.id}/" : "${var.cluster.id}/"
             )
           }
         },
@@ -139,22 +143,22 @@ resource "aws_s3_object" "shard_config" {
             zone     = var.zone
           }
           leader_network = {
-            ip           = aws_network_interface.server_leader.private_ip
+            ip           = local.leader_ip
             interface_id = aws_network_interface.server_leader.id
           }
           bind = {
-            health_addr       = var.cluster.server_config.bind.health_addr
-            election_addr     = var.cluster.server_config.bind.election_addr
-            registration_addr = "${aws_network_interface.server_leader.private_ip}:${local.registration_port}"
-            operator_addr     = "${aws_network_interface.server_leader.private_ip}:${local.operator_port}"
-            agent_addr        = "${aws_network_interface.server_leader.private_ip}:${local.agent_port}"
+            health_addr       = var.network.ipv4_enabled ? var.cluster.server_config.bind.health_addr : "[::]:${local.health_port}"
+            election_addr     = var.network.ipv4_enabled ? var.cluster.server_config.bind.election_addr : "[::]:${local.election_port}"
+            registration_addr = "${local.leader_host}:${local.registration_port}"
+            operator_addr     = "${local.leader_host}:${local.operator_port}"
+            agent_addr        = "${local.leader_host}:${local.agent_port}"
           }
           advertise = {
             health_addr       = ":${local.health_port}"
             election_addr     = ":${local.election_port}"
-            registration_addr = "${aws_network_interface.server_leader.private_ip}:${local.registration_port}"
-            operator_addr     = "${aws_network_interface.server_leader.private_ip}:${local.operator_port}"
-            agent_addr        = "${aws_network_interface.server_leader.private_ip}:${local.agent_port}"
+            registration_addr = "${local.leader_host}:${local.registration_port}"
+            operator_addr     = "${local.leader_host}:${local.operator_port}"
+            agent_addr        = "${local.leader_host}:${local.agent_port}"
           }
           subnet_pools         = local.filtered_subnets
           dynamic_subnet_pools = var.dynamic_subnet_pools
@@ -179,11 +183,13 @@ resource "aws_s3_object" "shard_config" {
               instance_type  = group.instance_type
               subnet_pool    = group.subnet_pool
               load_balancers = group.load_balancers
-              args = {
+              args = merge({
                 IamInstanceProfile = {
                   Arn = var.account.agent_instance_profile_arn
                 }
-                SecurityGroupIds = [aws_security_group.agent.id]
+                SecurityGroupIds = [
+                  try(var.templates[group.template].kind, "dft") == "nat" ? aws_security_group.nat[0].id : aws_security_group.agent.id
+                ]
                 TagSpecifications = [
                   {
                     ResourceType = "instance"
@@ -192,7 +198,9 @@ resource "aws_s3_object" "shard_config" {
                     ]
                   }
                 ]
-              }
+                },
+                var.network.ipv6_enabled ? { Ipv6AddressCount = 1 } : {},
+              )
             },
             # Add group vars if configured
             length(group.vars) > 0 ? { vars = group.vars } : {},
@@ -225,12 +233,17 @@ resource "aws_s3_object" "shard_config" {
           order  = "desc"
         }
       }
-      nat = var.network.use_provider_nat ? {} : var.nat
+      nat = var.network.nat_mode == "nstance" ? {
+        for tenant, config in var.nat : tenant => merge(config, {
+          mode = var.network.ipv4_enabled ? "nat44" : "nat64"
+        })
+      } : {}
     }
   ))
 
   depends_on = [
     aws_network_interface.server_leader,
-    aws_security_group.agent
+    aws_security_group.agent,
+    aws_security_group.nat
   ]
 }

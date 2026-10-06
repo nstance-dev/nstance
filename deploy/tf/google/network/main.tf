@@ -13,7 +13,20 @@ locals {
   # Use existing VPC or create new one
   use_existing_vpc = var.vpc_id != ""
   vpc_id           = local.use_existing_vpc ? var.vpc_id : google_compute_network.main[0].self_link
-  vpc_ipv6_cidr    = local.use_existing_vpc ? null : (var.enable_ipv6 ? google_compute_network.main[0].internal_ipv6_range : null)
+  vpc_ipv6_cidr    = local.use_existing_vpc ? null : (var.ipv6_enabled ? google_compute_network.main[0].internal_ipv6_range : null)
+}
+
+resource "terraform_data" "validate_network_mode" {
+  lifecycle {
+    precondition {
+      condition     = var.ipv4_enabled || var.ipv6_enabled
+      error_message = "At least one of ipv4_enabled or ipv6_enabled must be true."
+    }
+    precondition {
+      condition     = var.nat_mode != "none" || (!var.ipv4_enabled && var.ipv6_enabled)
+      error_message = "nat_mode = \"none\" is only valid for IPv6-only networking."
+    }
+  }
 }
 
 # VPC Network with optional dual-stack (IPv4 + IPv6) - only when not using existing VPC
@@ -24,8 +37,8 @@ resource "google_compute_network" "main" {
   project                  = local.project_id
   auto_create_subnetworks  = false
   routing_mode             = "REGIONAL"
-  enable_ula_internal_ipv6 = var.enable_ipv6
-  internal_ipv6_range      = var.enable_ipv6 ? null : null # Auto-assigned when enable_ula_internal_ipv6 is true
+  enable_ula_internal_ipv6 = var.ipv6_enabled
+  internal_ipv6_range      = var.ipv6_enabled ? null : null # Auto-assigned when enable_ula_internal_ipv6 is true
 }
 
 # Flatten subnets: role -> zone -> list -> individual subnet definitions
@@ -56,8 +69,10 @@ locals {
   # Compute effective IPv6 CIDR from ipv6_netnum if set, otherwise use explicit ipv6_cidr
   subnets_to_create = {
     for k, v in local.subnet_definitions : k => merge(v, {
-      ipv6_cidr = coalesce(
-        v.ipv6_cidr,
+      # Public service subnets retain IPv4 for the movable nstance-server leader
+      # address and for NAT translators. Workload subnets can remain IPv6-only.
+      ipv4_cidr = var.ipv4_enabled || v.public || (v.nat_gateway && var.nat_mode != "none") ? v.ipv4_cidr : null
+      ipv6_cidr = v.ipv6_cidr != null ? v.ipv6_cidr : (
         v.ipv6_netnum != null && local.vpc_ipv6_cidr != null ? cidrsubnet(local.vpc_ipv6_cidr, 16, v.ipv6_netnum) : null
       )
     }) if !v.existing
@@ -82,7 +97,7 @@ locals {
         subnet_key = subnet_key
         index      = index
       }
-    } if !var.use_provider_nat
+    } if var.nat_mode == "nstance"
   ]...)
 
   # For each role that has nat_gateway=true, map zone -> logical subnet ID
@@ -146,8 +161,8 @@ resource "terraform_data" "validate_cidr_existing_exclusive" {
       error_message = "Subnet ${each.key}: ipv4_cidr and existing are mutually exclusive. Specify one or the other."
     }
     precondition {
-      condition     = each.value.ipv4_cidr != null || each.value.existing
-      error_message = "Subnet ${each.key}: must specify either ipv4_cidr or existing."
+      condition     = each.value.ipv4_cidr != null || each.value.ipv6_cidr != null || each.value.ipv6_netnum != null || each.value.existing
+      error_message = "Subnet ${each.key}: must specify an IP CIDR or existing subnet."
     }
   }
 }
@@ -165,7 +180,7 @@ resource "terraform_data" "validate_nat_gateway_public" {
 }
 
 resource "terraform_data" "validate_nstance_nat" {
-  for_each = var.use_provider_nat ? {} : local.nat_gateway_subnets
+  for_each = var.nat_mode == "nstance" ? local.nat_gateway_subnets : {}
 
   lifecycle {
     precondition {
@@ -198,14 +213,14 @@ resource "terraform_data" "validate_shards" {
   }
 }
 
-# Validation: enable_ipv6 requires ipv6_netnum or ipv6_cidr on managed subnets
+# Validation: IPv6 requires ipv6_netnum or ipv6_cidr on managed subnets
 resource "terraform_data" "validate_ipv6_cidrs" {
-  for_each = var.enable_ipv6 && !local.use_existing_vpc ? local.subnets_to_create : {}
+  for_each = var.ipv6_enabled && !local.use_existing_vpc ? local.subnets_to_create : {}
 
   lifecycle {
     precondition {
       condition     = each.value.ipv6_cidr != null
-      error_message = "Subnet ${each.key}: enable_ipv6 is true but no ipv6_netnum or ipv6_cidr specified. Either set ipv6_netnum (0-65535), ipv6_cidr, or set enable_ipv6 = false."
+      error_message = "Subnet ${each.key}: ipv6_enabled is true but no ipv6_netnum or ipv6_cidr was specified."
     }
   }
 }
@@ -221,8 +236,10 @@ resource "google_compute_subnetwork" "managed" {
   network       = local.vpc_id
 
   private_ip_google_access = true
-  stack_type               = var.enable_ipv6 && !local.use_existing_vpc ? "IPV4_IPV6" : "IPV4_ONLY"
-  ipv6_access_type         = var.enable_ipv6 && !local.use_existing_vpc ? "INTERNAL" : null
+  stack_type = var.ipv6_enabled && !local.use_existing_vpc ? (
+    each.value.ipv4_cidr != null ? "IPV4_IPV6" : "IPV6_ONLY"
+  ) : "IPV4_ONLY"
+  ipv6_access_type = var.ipv6_enabled && !local.use_existing_vpc ? "INTERNAL" : null
 
   # Public subnets can have different purpose if needed
   purpose = each.value.public ? "PRIVATE" : "PRIVATE"
@@ -230,7 +247,7 @@ resource "google_compute_subnetwork" "managed" {
 
 # Cloud Router (required for Cloud NAT) - created when any subnet has nat_gateway = true
 resource "google_compute_router" "main" {
-  count = local.has_nat_gateway && var.use_provider_nat ? 1 : 0
+  count = local.has_nat_gateway && var.nat_mode == "provider" ? 1 : 0
 
   name    = "${local.name_prefix}-router"
   project = local.project_id
@@ -241,20 +258,28 @@ resource "google_compute_router" "main" {
 # Cloud NAT (provides outbound internet access) - created when any subnet has nat_gateway = true
 # Note: Google Cloud Cloud NAT is regional, unlike AWS which is per-AZ
 resource "google_compute_router_nat" "main" {
-  count = local.has_nat_gateway && var.use_provider_nat ? 1 : 0
+  count = local.has_nat_gateway && var.nat_mode == "provider" ? 1 : 0
 
-  name                               = "${local.name_prefix}-nat"
-  project                            = local.project_id
-  router                             = google_compute_router.main[0].name
-  region                             = local.region
-  nat_ip_allocate_option             = "AUTO_ONLY"
-  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+  name                                 = "${local.name_prefix}-nat"
+  project                              = local.project_id
+  router                               = google_compute_router.main[0].name
+  region                               = local.region
+  nat_ip_allocate_option               = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat   = "LIST_OF_SUBNETWORKS"
+  source_subnetwork_ip_ranges_to_nat64 = !var.ipv4_enabled && var.ipv6_enabled ? "LIST_OF_IPV6_SUBNETWORKS" : null
 
   dynamic "subnetwork" {
-    for_each = toset(local.nat_routed_subnet_names)
+    for_each = var.ipv4_enabled ? toset(local.nat_routed_subnet_names) : toset([])
     content {
       name                    = subnetwork.value
       source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+    }
+  }
+
+  dynamic "nat64_subnetwork" {
+    for_each = !var.ipv4_enabled && var.ipv6_enabled ? toset(local.nat_routed_subnet_names) : toset([])
+    content {
+      name = nat64_subnetwork.value
     }
   }
 
@@ -264,6 +289,25 @@ resource "google_compute_router_nat" "main" {
   }
 
   depends_on = [google_compute_subnetwork.managed]
+}
+
+# IPv6-only workloads require synthesized AAAA answers to reach IPv4 services
+# through either Cloud NAT64 or an Nstance NAT64 instance.
+resource "google_dns_policy" "dns64" {
+  count = var.ipv6_enabled && !var.ipv4_enabled && var.nat_mode != "none" ? 1 : 0
+
+  name    = "${local.name_prefix}-dns64"
+  project = local.project_id
+
+  networks {
+    network_url = local.vpc_id
+  }
+
+  dns64_config {
+    scope {
+      all_queries = true
+    }
+  }
 }
 
 resource "google_compute_address" "nat_external" {

@@ -2,9 +2,11 @@
 
 Creates VPC network infrastructure including subnets, Cloud NAT, Cloud Router, firewall rules, and optional regional load balancers.
 
-Nstance NAT instances are the default. Set `use_provider_nat = true` to use
-Google Cloud NAT instead. Set `fixed_public_ipv4_count` when stable
-IPv4 egress is required and pass the appropriate `public_addresses` output
+Nstance NAT instances are the default. Set `nat_mode = "provider"` to use
+Google Cloud NAT, or `nat_mode = "none"` for IPv6 networking without address
+translation. Use `ipv4_enabled` and `ipv6_enabled` to select IPv4-only,
+dual-stack, or IPv6-only workload networking. Set `fixed_public_ipv4_count`
+when stable IPv4 egress is required and pass the appropriate `nat_public_addresses` output
 directly into each tenant's NAT configuration. Switching implementations
 preserves the subnets; nstance-server owns the live tagged routes when using
 Nstance NAT instances.

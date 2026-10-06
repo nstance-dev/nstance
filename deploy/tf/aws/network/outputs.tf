@@ -17,9 +17,14 @@ output "vpc_cidr_ipv6" {
   value       = local.vpc_ipv6_cidr
 }
 
-output "enable_ipv6" {
+output "ipv4_enabled" {
+  description = "Whether IPv4 is enabled for workload subnets"
+  value       = var.ipv4_enabled
+}
+
+output "ipv6_enabled" {
   description = "Whether IPv6 is enabled (known at plan time, use for count/for_each)"
-  value       = var.enable_ipv6 && !local.use_existing_vpc
+  value       = var.ipv6_enabled && !local.use_existing_vpc
 }
 
 output "public_route_table_id" {
@@ -37,7 +42,7 @@ output "nat_gateway_ids" {
   value       = local.nat_gateway_ids_by_az
 }
 
-output "public_addresses" {
+output "nat_public_addresses" {
   description = "Optional fixed public IPv4 attachments for Nstance NAT instances, keyed by service role and zone"
   value = {
     for group in distinct([for address in values(local.fixed_public_ipv4) : "${address.role}-${address.zone}"]) : group => [
@@ -49,9 +54,9 @@ output "public_addresses" {
   }
 }
 
-output "use_provider_nat" {
-  description = "Whether the cloud provider's NAT service is used instead of Nstance NAT instances"
-  value       = var.use_provider_nat
+output "nat_mode" {
+  description = "NAT implementation: none, provider, or nstance"
+  value       = var.nat_mode
 }
 
 output "public_subnet_ids" {

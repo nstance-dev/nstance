@@ -44,9 +44,9 @@ module "account" {
 module "network" {
   source = "../../../google/network"
 
-  cluster          = module.cluster
-  vpc_cidr_ipv4    = "10.0.0.0/16"
-  use_provider_nat = true
+  cluster       = module.cluster
+  vpc_cidr_ipv4 = "10.0.0.0/16"
+  nat_mode      = "provider"
 
   subnets = {
     # Public subnets with Cloud NAT (regional NAT covers all zones)

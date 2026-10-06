@@ -381,6 +381,7 @@ type GroupConfig struct {
 // NATConfig defines managed NAT for one tenant.
 type NATConfig struct {
 	Group                   string          `json:"group"`
+	Mode                    string          `json:"mode"`
 	PublicAddresses         []PublicAddress `json:"public_addresses,omitempty"`
 	LastInstanceGracePeriod Duration        `json:"last_instance_grace_period,omitempty"`
 	InstanceTypeLadder      []string        `json:"instance_type_ladder,omitempty"`
@@ -983,6 +984,9 @@ func (c *Config) SetDefaults() {
 	}
 
 	for tenant, nat := range c.NAT {
+		if nat.Mode == "" {
+			nat.Mode = "nat44"
+		}
 		if nat.LastInstanceGracePeriod == 0 {
 			nat.LastInstanceGracePeriod = Duration(10 * time.Minute)
 		}

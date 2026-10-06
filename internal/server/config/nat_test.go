@@ -43,6 +43,7 @@ func TestNATValidation(t *testing.T) {
 		want   string
 	}{
 		{"valid", func(*Config) {}, ""},
+		{"invalid mode", func(c *Config) { n := c.NAT["default"]; n.Mode = "other"; c.NAT["default"] = n }, "mode"},
 		{"missing group", func(c *Config) { n := c.NAT["default"]; n.Group = ""; c.NAT["default"] = n }, "group is required"},
 		{"unknown group", func(c *Config) { n := c.NAT["default"]; n.Group = "missing"; c.NAT["default"] = n }, "unknown group"},
 		{"fixed size", func(c *Config) { g := c.Groups["default"]["nat"]; g.Size = IntPtr(0); c.Groups["default"]["nat"] = g }, "cannot specify size"},

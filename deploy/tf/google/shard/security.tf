@@ -16,8 +16,11 @@ resource "google_compute_firewall" "server_health" {
     ports    = [local.health_port]
   }
 
-  source_ranges = [var.network.vpc_cidr_ipv4]
-  target_tags   = ["nstance-server-${var.shard}"]
+  source_ranges = compact([
+    var.network.vpc_cidr_ipv4,
+    var.network.ipv6_enabled ? var.network.vpc_cidr_ipv6 : "",
+  ])
+  target_tags = ["nstance-server-${var.shard}"]
 }
 
 # gRPC APIs (leader election, registration, operator, agent)
@@ -30,8 +33,11 @@ resource "google_compute_firewall" "server_grpc" {
     ports    = ["${local.election_port}-${local.agent_port}"]
   }
 
-  source_ranges = [var.network.vpc_cidr_ipv4]
-  target_tags   = ["nstance-server-${var.shard}"]
+  source_ranges = compact([
+    var.network.vpc_cidr_ipv4,
+    var.network.ipv6_enabled ? var.network.vpc_cidr_ipv6 : "",
+  ])
+  target_tags = ["nstance-server-${var.shard}"]
 }
 
 # ============================================================================
@@ -76,5 +82,8 @@ resource "google_compute_firewall" "internal" {
     protocol = "icmp"
   }
 
-  source_ranges = [var.network.vpc_cidr_ipv4]
+  source_ranges = compact([
+    var.network.vpc_cidr_ipv4,
+    var.network.ipv6_enabled ? var.network.vpc_cidr_ipv6 : "",
+  ])
 }

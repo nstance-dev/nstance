@@ -79,7 +79,9 @@ write_deployment_variables() {
   "region": "$AWS_REGION",
   "zone": "$AWS_ZONE",
   "cluster_id": "$TEST_CLUSTER_ID",
-  "use_provider_nat": false
+  "ipv4_enabled": true,
+  "ipv6_enabled": true,
+  "nat_mode": "nstance"
 }
 EOF
   else
@@ -89,7 +91,9 @@ EOF
   "region": "$GOOGLE_REGION",
   "zone": "$GOOGLE_ZONE",
   "cluster_id": "$TEST_CLUSTER_ID",
-  "use_provider_nat": false
+  "ipv4_enabled": true,
+  "ipv6_enabled": true,
+  "nat_mode": "nstance"
 }
 EOF
   fi
@@ -266,6 +270,9 @@ destroy_aws() {
     aws ec2 wait instance-terminated --profile "$AWS_PROFILE" --region "$AWS_REGION" --instance-ids $instance_ids
   fi
 
+  aws ssm delete-parameters --profile "$AWS_PROFILE" --region "$AWS_REGION" --names \
+    "/$TEST_CLUSTER_ID/ca.key" "/$TEST_CLUSTER_ID/registration-nonce.key" >/dev/null
+
   bucket_name=$(tofu -chdir="$WORK_DIR" state show 'module.cluster.aws_s3_bucket.nstance[0]' 2>/dev/null |
     awk -F'"' '/^[[:space:]]*bucket[[:space:]]*=/ { print $2 }')
   if [[ -n "$bucket_name" ]]; then
@@ -288,6 +295,15 @@ destroy_google() {
     --format='value(name,zone)' | while read -r name zone; do
       [[ -z "$name" ]] || gcloud compute instances delete "$name" --zone "$zone" \
         --project "$GOOGLE_PROJECT" --quiet
+    done
+
+  gcloud secrets list --project "$GOOGLE_PROJECT" --format='value(name)' |
+    while read -r secret; do
+      case "$secret" in
+        "$TEST_CLUSTER_ID-ca.key" | "$TEST_CLUSTER_ID-registration-nonce.key")
+          gcloud secrets delete "$secret" --project "$GOOGLE_PROJECT" --quiet
+          ;;
+      esac
     done
 
   local bucket_name

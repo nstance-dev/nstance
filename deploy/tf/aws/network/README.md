@@ -6,12 +6,14 @@ gateway endpoint is created automatically. Set `enable_interface_endpoints = tru
 to create billed PrivateLink endpoints for the configured AWS integrations;
 otherwise, AWS API traffic uses normal public service endpoints.
 
-Nstance NAT instances are the default. Set `use_provider_nat = true` to use AWS
-NAT Gateway instead.
+Nstance NAT instances are the default. Set `nat_mode = "provider"` to use AWS
+NAT Gateway, or `nat_mode = "none"` for native IPv6 egress without translation.
+Use `ipv4_enabled` and `ipv6_enabled` to select IPv4-only, dual-stack, or
+IPv6-only workload networking.
 Every subnet with `nat_subnet` keeps its own route table when switching between
 provider NAT and Nstance NAT instances, so the switch does not replace node subnets. Set
 `fixed_public_ipv4_count` when stable IPv4 egress is required and pass the
-appropriate `public_addresses` output directly into each tenant's NAT
+appropriate `nat_public_addresses` output directly into each tenant's NAT
 configuration. Replacements reassociate the same Elastic IP after the new VM is
 healthy, so no spare public IPv4 address is required.
 

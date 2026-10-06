@@ -29,10 +29,22 @@ variable "cluster_id" {
   type        = string
 }
 
-variable "use_provider_nat" {
-  description = "Use AWS NAT Gateway instead of Nstance NAT instances"
+variable "ipv4_enabled" {
+  description = "Enable IPv4 on workload subnets"
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "ipv6_enabled" {
+  description = "Enable IPv6 on workload subnets"
+  type        = bool
+  default     = true
+}
+
+variable "nat_mode" {
+  description = "NAT implementation: none, provider, or nstance"
+  type        = string
+  default     = "nstance"
 }
 
 variable "nstance_server_binary_url" {
@@ -68,9 +80,11 @@ module "account" {
 module "network" {
   source = "../../../aws/network"
 
-  cluster          = module.cluster
-  vpc_cidr_ipv4    = "172.18.0.0/16"
-  use_provider_nat = var.use_provider_nat
+  cluster       = module.cluster
+  vpc_cidr_ipv4 = "172.18.0.0/16"
+  ipv4_enabled  = var.ipv4_enabled
+  ipv6_enabled  = var.ipv6_enabled
+  nat_mode      = var.nat_mode
 
   # Define subnets by role and zone
   # ipv6_netnum (0-255) auto-computes /64 from VPC's AWS-assigned /56
@@ -112,18 +126,18 @@ module "shard" {
 
   shard         = var.zone
   zone          = var.zone
-  server_subnet = var.use_provider_nat ? "nstance" : "public"
+  server_subnet = var.nat_mode == "nstance" ? "public" : "nstance"
 
   nstance_server_binary_url = var.nstance_server_binary_url
   nstance_agent_binary_url  = var.nstance_agent_binary_url
 
-  nat = var.use_provider_nat ? {} : {
+  nat = var.nat_mode == "nstance" ? {
     default = {
       group                = "nat"
-      public_addresses     = try(module.network.public_addresses["public-${var.zone}"], [])
+      public_addresses     = try(module.network.nat_public_addresses["public-${var.zone}"], [])
       instance_type_ladder = ["t4g.nano"]
     }
-  }
+  } : {}
 
   templates = {
     default = { kind = "dft", arch = "arm64" }
@@ -136,13 +150,13 @@ module "shard" {
         size        = 1
         subnet_pool = "workers" # References key from subnets map
       }
-      }, var.use_provider_nat ? {} : {
+      }, var.nat_mode == "nstance" ? {
       nat = {
         subnet_pool   = "public"
         template      = "nat"
         instance_type = "t4g.nano"
       }
-    })
+    } : {})
   }
 }
 
@@ -156,12 +170,12 @@ output "config_key" {
   value       = module.shard.config_key
 }
 
-output "use_provider_nat" {
-  description = "Whether AWS NAT Gateway is used instead of Nstance NAT instances"
-  value       = module.network.use_provider_nat
+output "nat_mode" {
+  description = "Configured NAT implementation"
+  value       = module.network.nat_mode
 }
 
 output "nat_public_addresses" {
   description = "Fixed public IPv4 addresses allocated for Nstance NAT instances"
-  value       = module.network.public_addresses
+  value       = module.network.nat_public_addresses
 }

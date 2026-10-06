@@ -73,9 +73,9 @@ module "network_aws" {
     aws = aws
   }
 
-  cluster          = module.cluster
-  vpc_cidr_ipv4    = "172.18.0.0/16"
-  use_provider_nat = true
+  cluster       = module.cluster
+  vpc_cidr_ipv4 = "172.18.0.0/16"
+  nat_mode      = "provider"
 
   subnets = {
     "public" = {
@@ -109,9 +109,9 @@ module "network_google" {
     google = google
   }
 
-  cluster          = module.cluster
-  vpc_cidr_ipv4    = "172.19.0.0/16"
-  use_provider_nat = true
+  cluster       = module.cluster
+  vpc_cidr_ipv4 = "172.19.0.0/16"
+  nat_mode      = "provider"
 
   subnets = {
     "public" = {

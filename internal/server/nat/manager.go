@@ -200,8 +200,8 @@ func (m *Manager) startReplacement(ctx context.Context, cfg *config.Config, natC
 	return nil
 }
 
-// PrepareSubnet ensures a healthy dedicated NAT instance and owned IPv4 route
-// exist before a dependent instance is created.
+// PrepareSubnet ensures a healthy dedicated NAT instance and owned translation
+// route exist before a dependent instance is created.
 func (m *Manager) PrepareSubnet(ctx context.Context, tenant, subnetID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -409,6 +409,11 @@ func (m *Manager) routeRequest(cfg *config.Config, assignments map[string]Assign
 		ClusterID: cfg.Cluster.ID, Tenant: assignment.Tenant, InstanceSubnetID: assignment.InstanceSubnetID,
 		ProviderInstanceID: assignment.ProviderID,
 		InstanceTag:        provider.NATNetworkTag(cfg.Cluster.ID, assignment.Tenant, assignment.InstanceSubnetID),
+	}
+	if cfg.NAT[assignment.Tenant].Mode == "nat64" {
+		request.DestinationCIDR = "64:ff9b::/96"
+	} else {
+		request.DestinationCIDR = "0.0.0.0/0"
 	}
 	if assignment.PublicAddress != nil {
 		request.PublicAddress = &provider.PublicAddress{

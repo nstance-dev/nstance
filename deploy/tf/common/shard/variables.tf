@@ -84,12 +84,13 @@ variable "network" {
     vpc_id                  = string
     vpc_cidr_ipv4           = string
     vpc_cidr_ipv6           = optional(string, null)
-    enable_ipv6             = optional(bool, false)     # Known at plan time, use for count/for_each
+    ipv4_enabled            = optional(bool, true)      # Known at plan time, use for count/for_each
+    ipv6_enabled            = optional(bool, false)     # Known at plan time, use for count/for_each
     public_subnet_ids       = optional(map(string), {}) # zone -> subnet ID for NLB placement
     public_route_table_id   = optional(string, null)    # AWS only
     private_route_table_ids = optional(map(string), {}) # subnet key -> route table ID (AWS only)
     nat_gateway_ids         = optional(map(string), {}) # zone -> NAT gateway ID
-    use_provider_nat        = optional(bool, false)
+    nat_mode                = optional(string, "nstance")
     subnets                 = optional(any, {}) # role -> zone -> [{id, shards, public}]
     load_balancers = optional(map(object({
       dns_name          = optional(string, "")

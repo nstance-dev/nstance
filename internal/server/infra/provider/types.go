@@ -45,6 +45,7 @@ type NATRouteRequest struct {
 	ClusterID                  string         `json:"cluster_id"`
 	Tenant                     string         `json:"tenant"`
 	InstanceSubnetID           string         `json:"instance_subnet_id"`
+	DestinationCIDR            string         `json:"destination_cidr"`
 	ProviderInstanceID         string         `json:"provider_instance_id,omitempty"`
 	PreviousProviderInstanceID string         `json:"previous_provider_instance_id,omitempty"`
 	PublicAddress              *PublicAddress `json:"public_address,omitempty"`

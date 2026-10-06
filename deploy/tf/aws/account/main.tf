@@ -16,8 +16,8 @@ locals {
   uses_secrets_manager_key = var.cluster.secrets_provider == "object-storage" && var.cluster.encryption_key_provider == "aws-secrets-manager"
   parameter_store_key_arn  = startswith(var.cluster.encryption_key_source, "arn:") ? var.cluster.encryption_key_source : "arn:${data.aws_partition.current.partition}:ssm:${local.region}:${local.account_id}:parameter/${trimprefix(var.cluster.encryption_key_source, "/")}"
   secrets_manager_key_arn  = startswith(var.cluster.encryption_key_source, "arn:") ? var.cluster.encryption_key_source : "arn:${data.aws_partition.current.partition}:secretsmanager:${local.region}:${local.account_id}:secret:${var.cluster.encryption_key_source}*"
-  parameter_store_prefix   = var.cluster.secrets_prefix != "" ? trimprefix(var.cluster.secrets_prefix, "/") : "${var.cluster.name_prefix}/"
-  secrets_manager_prefix   = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.name_prefix}/"
+  parameter_store_prefix   = var.cluster.secrets_prefix != "" ? trimprefix(var.cluster.secrets_prefix, "/") : "${var.cluster.id}/"
+  secrets_manager_prefix   = var.cluster.secrets_prefix != "" ? var.cluster.secrets_prefix : "${var.cluster.id}/"
 }
 
 # ============================================================================

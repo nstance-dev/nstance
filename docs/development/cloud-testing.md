@@ -93,6 +93,7 @@ make google-destroy
 ```
 
 Destroy first stops nstance-server, removes Nstance-managed instances and the
-cluster state bucket, and then destroys the remaining OpenTofu resources. It
-also removes uploaded test artifacts and its generated local directory. The
-Google Cloud signing service account is retained for subsequent test runs.
+cluster's runtime-created secrets and state bucket, and then destroys the
+remaining OpenTofu resources. It also removes uploaded test artifacts and its
+generated local directory. The Google Cloud signing service account is
+retained for subsequent test runs.

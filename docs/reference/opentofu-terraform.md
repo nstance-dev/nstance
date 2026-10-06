@@ -125,9 +125,36 @@ deploy/tf/
 - S3 buckets are encrypted by default.
 - S3/GCS buckets have deletion protection by default.
 
-## IPv4+IPv6 Dual-Stack Support
+## IP and NAT Modes
 
-Both AWS and Google Cloud support IPv4+IPv6 dual-stack networking. IPv6 is enabled by default, but can be disabled by setting `enable_ipv6 = false` for the network module.
+AWS and Google Cloud support IPv4-only, dual-stack, and IPv6-only workloads.
+Configure the address families independently with `ipv4_enabled` and
+`ipv6_enabled`, then select `nat_mode = "none"`, `"provider"`, or
+`"nstance"`. At least one address family must be enabled. `none` is valid only
+for IPv6-only networks because IPv4 workloads otherwise have no internet
+egress.
+
+| IPv4 | IPv6 | NAT mode | Translation |
+|------|------|----------|-------------|
+| on | off | `provider` | Provider NAT44 |
+| on | off | `nstance` | Nstance NAT44 |
+| on | on | `provider` | Provider NAT44; IPv6 is untranslated |
+| on | on | `nstance` | Nstance NAT44; IPv6 is untranslated |
+| off | on | `none` | No address translation |
+| off | on | `provider` | Provider NAT64 |
+| off | on | `nstance` | Nstance NAT64 |
+
+Provider NAT64 uses AWS NAT Gateway or Google Cloud NAT with DNS64. The minimal
+Nstance NAT64 demonstration userdata installs Jool at boot; production images
+can provide Jool without boot-time package installation. On Google Cloud, the
+nstance-server service subnet remains dual-stack so a reserved internal IPv6
+range can move between IPv4-capable server instances; dynamically managed
+workload subnets remain IPv6-only. Select a dual-stack subnet for
+`server_subnet` when supplying a custom Google Cloud network object.
+
+See [Network Address Translation](../features/network-address-translation.md)
+for guidance on choosing a mode, Nstance NAT lifecycle and scaling behavior,
+NAT64 constraints, and stable egress addresses.
 
 ### Provider Differences
 
@@ -141,7 +168,7 @@ Both AWS and Google Cloud support IPv4+IPv6 dual-stack networking. IPv6 is enabl
 
 ### Using IPv6
 
-When `enable_ipv6 = true` (the default), each subnet needs an IPv6 CIDR. You can specify this in two ways:
+When `ipv6_enabled = true` (the default), each subnet needs an IPv6 CIDR. You can specify this in two ways:
 
 - **`ipv6_netnum`** (recommended) - Subnet number that auto-computes a /64 from the VPC's cloud-assigned block (AWS: 0-255 from /56, Google Cloud: 0-65535 from /48)
 - **`ipv6_cidr`** - Explicit IPv6 CIDR block
@@ -173,7 +200,7 @@ module "network" {
 }
 ```
 
-### Disabling IPv6
+### IPv4-only networking
 
 To disable IPv6 and use IPv4-only networking:
 
@@ -183,7 +210,9 @@ module "network" {
   version = "~> 2.0"
 
   vpc_cidr_ipv4 = "172.18.0.0/16"
-  enable_ipv6   = false
+  ipv4_enabled  = true
+  ipv6_enabled  = false
+  nat_mode      = "nstance"
 
   subnets = {
     "nstance" = {
@@ -512,12 +541,12 @@ Generates shared cluster resources:
 | `bucket` | Existing S3/GCS bucket (if empty, a new bucket is created) | `""` |
 | `versioning` | Enable object versioning on the bucket (increases storage costs) | `false` |
 | `secrets_provider` | Secrets storage provider: `aws-parameter-store`, `object-storage` (encrypted in bucket), `aws-secrets-manager`, or `google-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `google-secret-manager` on Google Cloud) |
-| `secrets_prefix` | Explicit prefix for direct cloud secret names; when empty, derived from `name_prefix` | `""` |
+| `secrets_prefix` | Explicit prefix for direct cloud secret names; when empty, derived from `cluster_id` | `""` |
 | `encryption_key_provider` | Key source for object storage: `aws-parameter-store`, `aws-secrets-manager`, or `google-secret-manager` | Cloud-specific (`aws-parameter-store` on AWS; `google-secret-manager` on Google Cloud) |
 | `encryption_key` | Existing encryption key source (AWS Parameter Store name or Secrets Manager ARN; Google Cloud secret name). Only used with `object-storage`; if empty, created. | `""` |
 | `server_config` | Server configuration (if specified, merged over defaults) | `{}` |
 
-Terraform always writes an effective `cluster.secrets.prefix` to generated shard configs. When `secrets_prefix` is empty, it derives `/<name_prefix>/` for AWS Parameter Store, `<name_prefix>/` for AWS Secrets Manager, or `<name_prefix>-` for Google Secret Manager. Explicit `secrets_prefix` and `encryption_key` values are passed through unchanged. When Terraform creates an object-storage encryption key, its name follows `name_prefix`.
+OpenTofu/Terraform always writes an effective `cluster.secrets.prefix` to generated shard configs. When `secrets_prefix` is empty, it derives `/<cluster_id>/` for AWS Parameter Store, `<cluster_id>/` for AWS Secrets Manager, or `<cluster_id>-` for Google Secret Manager. This keeps runtime-created secrets isolated when multiple clusters use the same resource-name prefix. Explicit `secrets_prefix` and `encryption_key` values are passed through unchanged. When OpenTofu/Terraform creates an object-storage encryption key, its name follows `name_prefix`.
 
 **Outputs:**
 | Name | Description |
@@ -569,10 +598,11 @@ Creates VPC/network infrastructure:
 | `cluster` | Cluster module output (required) | - |
 | `vpc_id` | Existing VPC ID (if set, skips VPC/IGW creation) | `""` |
 | `vpc_cidr_ipv4` | VPC IPv4 CIDR block (required when creating new VPC, must be empty when using existing) | `""` |
-| `enable_ipv6` | Enable IPv6 dual-stack support | `true` |
+| `ipv4_enabled` | Enable IPv4 on workload subnets | `true` |
+| `ipv6_enabled` | Enable IPv6 on workload subnets | `true` |
 | `enable_interface_endpoints` | Create billed AWS PrivateLink interface endpoints for configured services | `false` |
 | `enable_ssm` | Include Session Manager endpoints when interface endpoints are enabled | `true` |
-| `use_provider_nat` | Use AWS NAT Gateway or Google Cloud NAT instead of Nstance NAT instances | `false` |
+| `nat_mode` | NAT implementation: `none`, `provider`, or `nstance` | `"nstance"` |
 | `fixed_public_ipv4_count` | Optional fixed public IPv4 addresses per NAT service subnet | `0` |
 | `subnets` | Subnet definitions by role key and zone (see below) | `{}` |
 | `load_balancers` | Load balancer definitions (see below) | `{}` |
@@ -591,7 +621,7 @@ Each subnet definition supports the following attributes:
 | `existing` | Reference an existing subnet by ID (mutually exclusive with `ipv4_cidr`) |
 | `public` | (bool) Route via Internet Gateway, assign public IPs |
 | `nat_gateway` | (bool) Make this public subnet available for NAT |
-| `nat_subnet` | (string) Route IPv4 egress through NAT in this role (same zone) |
+| `nat_subnet` | (string) Route translated egress through NAT in this role (same zone) |
 | `shards` | (list) Restrict subnet to specific shard IDs |
 
 **Routing Behavior:**
@@ -696,16 +726,18 @@ share membership. For example, `["www"]` selects every `www` listener.
 | `public_subnet_ids` | Map of AZ/zone → subnet ID/name for public subnets |
 | `nat_gateway_ids` | Map of AZ → NAT gateway ID (AWS) or `{"regional": name}` (Google Cloud) |
 | `private_route_table_ids` | Map of subnet key → route table ID (AWS only) |
-| `public_addresses` | Optional fixed IPv4 attachments for Nstance NAT instances, keyed by service role and zone |
-| `use_provider_nat` | Whether provider NAT is used instead of Nstance NAT instances |
+| `nat_public_addresses` | Optional fixed IPv4 attachments for Nstance NAT instances, keyed by service role and zone |
+| `ipv4_enabled` | Whether IPv4 workload networking is enabled |
+| `ipv6_enabled` | Whether IPv6 workload networking is enabled |
+| `nat_mode` | Configured NAT implementation |
 | `subnet_ids` | Map of all managed subnet IDs by key (role key/zone/index) |
 | `subnets` | Subnet metadata by role/zone with {id, shards, public} for each subnet |
 | `load_balancers` | AWS target-group metadata or Google Cloud NEG/frontend metadata |
 
-Changing `use_provider_nat` preserves subnet resources. Switching to Nstance
-NAT instances temporarily interrupts general IPv4 egress while nstance-server
-establishes healthy next hops. Switching to provider NAT creates that path
-before nstance-server retires its NAT instances.
+Changing `nat_mode` between `provider` and `nstance` preserves subnet resources.
+Switching to Nstance NAT instances temporarily interrupts translated egress
+while nstance-server establishes healthy next hops. Switching to provider NAT
+creates that path before nstance-server retires its NAT instances.
 
 ### Shard Module
 
