@@ -43,6 +43,7 @@ type Config struct {
 	MetricsInterface string        `env:"METRICS_INTERFACE"`
 	EBPFCountersPath string        `env:"EBPF_COUNTERS_PATH"`
 	SpotPollInterval time.Duration `env:"SPOT_POLL_INTERVAL" envDefault:"2s" validate:"gte=0"`
+	HealthAddr       string        `env:"HEALTH_ADDR" validate:"omitempty,addr"`
 }
 
 // parseFileMode parses an octal string to os.FileMode

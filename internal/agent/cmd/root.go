@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,7 @@ import (
 	"log/slog"
 
 	"github.com/nstance-dev/nstance/v2/internal/agent/config"
+	agenthealth "github.com/nstance-dev/nstance/v2/internal/agent/health"
 	"github.com/nstance-dev/nstance/v2/internal/agent/keygen"
 	"github.com/nstance-dev/nstance/v2/internal/agent/receiver"
 	"github.com/nstance-dev/nstance/v2/internal/buildvars"
@@ -291,6 +293,24 @@ func NewRootCmd() *cobra.Command {
 			}()
 		} else {
 			logger.Info("health reporter disabled")
+		}
+
+		// Expose local liveness only after initialization; remote connectivity is not checked.
+		if cfg.HealthAddr != "" {
+			listener, err := net.Listen("tcp", cfg.HealthAddr)
+			if err != nil {
+				logger.Error("unable to bind health endpoint", "err", err)
+				os.Exit(1)
+			}
+			logger.Info("starting health endpoint", "addr", listener.Addr())
+			go func() {
+				if err := agenthealth.Serve(ctx, listener); err != nil {
+					select {
+					case shutdownErrsCh <- fmt.Errorf("health endpoint: %w", err):
+					default:
+					}
+				}
+			}()
 		}
 
 		// block until shutdown signal is received, then exit

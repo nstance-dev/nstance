@@ -43,6 +43,39 @@ All environment variables use the `NSTANCE_` prefix.
 | `NSTANCE_METRICS_INTERFACE` | *(optional)* | Network interface to collect rate and conntrack metrics for |
 | `NSTANCE_EBPF_COUNTERS_PATH` | *(optional)* | Directory containing the pinned active-connection link and map |
 | `NSTANCE_SPOT_POLL_INTERVAL` | `2s` | Spot termination polling interval |
+| `NSTANCE_HEALTH_ADDR` | *(disabled)* | Optional HTTP liveness listener (`host:port`); empty disables it |
+
+## Health Endpoint
+
+The agent can expose a small HTTP endpoint for local monitoring or load-balancer
+checks. It is disabled by default. To enable it for local checks, set:
+
+```bash
+export NSTANCE_HEALTH_ADDR=127.0.0.1:8080
+```
+
+After starting the agent, check it with:
+
+```bash
+curl --fail http://127.0.0.1:8080/healthz
+```
+
+`GET /healthz` returns `200 OK` with the body `OK` followed by a newline; `HEAD`
+is also supported. The listener starts after registration and local
+initialization, and closes when the agent shuts down. If the configured address
+cannot be bound, the agent exits with an error. Unset `NSTANCE_HEALTH_ADDR` or
+leave it empty to disable the listener.
+
+This is an agent liveness check, not an application readiness check. It does not
+test ongoing connectivity to nstance-server or the workloads on the instance,
+and it works independently of `NSTANCE_REPORT_INTERVAL`.
+
+The endpoint uses plain HTTP without authentication and exposes no metrics,
+credentials, or debug routes. Prefer a loopback address. For remote probes, use
+an instance address or `0.0.0.0:8080` and restrict access with firewall rules.
+IPv6 addresses must be bracketed, for example `[::1]:8080` for local checks or
+`[::]:8080` for a wildcard listener; IPv4 access through an IPv6 wildcard depends
+on the host's network configuration.
 
 ## Agent Lifecycle
 

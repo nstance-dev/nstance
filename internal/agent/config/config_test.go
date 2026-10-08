@@ -37,6 +37,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	t.Setenv("NSTANCE_KEYS_MODE", "")
 	t.Setenv("NSTANCE_RECV_MODE", "")
 	t.Setenv("NSTANCE_DEBUG", "")
+	t.Setenv("NSTANCE_HEALTH_ADDR", "")
 	t.Setenv("NSTANCE_IDENTITY_DIR", identityDir)
 	t.Setenv("NSTANCE_KEYS_DIR", keysDir)
 	t.Setenv("NSTANCE_RECV_DIR", recvDir)
@@ -54,6 +55,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.ReportInterval != 60*time.Second {
 		t.Errorf("ReportInterval = %v, want 60s", cfg.ReportInterval)
+	}
+	if cfg.HealthAddr != "" {
+		t.Errorf("HealthAddr = %q, want disabled", cfg.HealthAddr)
 	}
 
 	if cfg.IdentityDir != identityDir {
@@ -120,6 +124,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("NSTANCE_REPORT_INTERVAL", "0")
 	t.Setenv("NSTANCE_METRICS_INTERFACE", "eth0")
 	t.Setenv("NSTANCE_EBPF_COUNTERS_PATH", "/sys/fs/bpf/nstance/counters")
+	t.Setenv("NSTANCE_HEALTH_ADDR", "127.0.0.1:8080")
 
 	cfg, err := Load()
 	if err != nil {
@@ -140,6 +145,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.EBPFCountersPath != "/sys/fs/bpf/nstance/counters" {
 		t.Errorf("EBPFCountersPath = %q, want /sys/fs/bpf/nstance/counters", cfg.EBPFCountersPath)
+	}
+	if cfg.HealthAddr != "127.0.0.1:8080" {
+		t.Errorf("HealthAddr = %q, want 127.0.0.1:8080", cfg.HealthAddr)
 	}
 
 	if cfg.IdentityDir != identityDir {
@@ -217,5 +225,38 @@ func TestLoadInvalidValue(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ReportInterval") || !strings.Contains(err.Error(), "invalid duration") {
 		t.Errorf("error = %q, want duration parsing error", err)
+	}
+}
+
+// TestHealthAddr validates optional IPv4/IPv6 binds and rejects malformed addresses and ports.
+func TestHealthAddr(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NSTANCE_SERVER_REGISTRATION_ADDR", "localhost:8992")
+	t.Setenv("NSTANCE_SERVER_AGENT_ADDR", "localhost:8994")
+	t.Setenv("NSTANCE_INSTANCE_ID", "knc0000000001r010000000000002")
+	t.Setenv("NSTANCE_IDENTITY_DIR", dir)
+	t.Setenv("NSTANCE_KEYS_DIR", dir)
+	t.Setenv("NSTANCE_RECV_DIR", dir)
+	t.Setenv("NSTANCE_REPORT_INTERVAL", "0")
+	for _, tc := range []struct {
+		addr  string
+		valid bool
+	}{
+		{"", true}, {"127.0.0.1:1", true}, {"0.0.0.0:8080", true},
+		{"[::1]:65535", true}, {"[::]:8080", true},
+		{"8080", false}, {"::1:8080", false}, {"localhost:0", false},
+		{"localhost:65536", false}, {"localhost:http", false},
+	} {
+		t.Run(tc.addr, func(t *testing.T) {
+			t.Setenv("NSTANCE_HEALTH_ADDR", tc.addr)
+			cfg, err := Load()
+			if tc.valid {
+				if err != nil || cfg.HealthAddr != tc.addr {
+					t.Fatalf("address=%q config=%+v error=%v", tc.addr, cfg, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "HealthAddr") {
+				t.Fatalf("address %q: expected health address validation error, got %v", tc.addr, err)
+			}
+		})
 	}
 }
