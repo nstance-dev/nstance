@@ -28,6 +28,8 @@ The workflow requires Go, OpenTofu, Mise, `make`, `tar`, and the provider CLI.
 Mise installs the pinned Zig cross-compiler used to build the SQLite-enabled
 server against a glibc 2.36 baseline, independent of the host operating system.
 Each command reports any missing tool before making its relevant changes.
+Cleanup also requires `jq` to read resource ownership from OpenTofu state and
+Google Cloud route metadata.
 
 ## AWS
 
@@ -175,6 +177,21 @@ make google-destroy
 
 Destroy first stops nstance-server, removes Nstance-managed instances and the
 cluster's runtime-created secrets and state bucket, and then destroys the
-remaining OpenTofu resources. It also removes uploaded test artifacts and its
-generated local directory. The Google Cloud signing service account is
-retained for subsequent test runs.
+remaining OpenTofu resources. Google Cloud cleanup also deletes runtime-created
+NAT44 and NAT64 routes belonging to the cluster and its network before network
+deletion. It removes uploaded test artifacts, deleting an owned artifact bucket
+only after removing the cluster's object prefix; unrelated objects are never
+purged to force bucket deletion.
+
+Both providers verify that non-terminated instances, artifact objects, and
+managed OpenTofu resources are gone before removing their generated local
+directory. Google Cloud also verifies deletion of owned runtime NAT routes.
+AWS waits for runtime instances to finish terminating, including instances
+already shutting down, and ignores normal terminated EC2 records. If cleanup
+fails, the directory and remaining state are retained; resolve the reported
+error and rerun the same destroy command. Already-missing buckets and empty
+artifact prefixes are safe to retry, while permission and deletion errors
+remain visible.
+
+The reusable Google Cloud signing service account, its impersonation permission,
+and project APIs are retained for subsequent test runs.

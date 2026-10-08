@@ -424,13 +424,27 @@ portfwd_google() {
     --local-host-port="127.0.0.1:$local_port"
 }
 
+aws_bucket_exists() {
+  local output
+  if output=$(aws s3api head-bucket --bucket "$1" --profile "$AWS_PROFILE" --region "$AWS_REGION" 2>&1); then
+    return 0
+  elif [[ "$output" == *"(404) when calling the HeadBucket operation:"* ]]; then
+    return 1
+  fi
+  printf '%s\n' "$output" >&2
+  exit 1
+}
+
 destroy_aws() {
+  local state instance_ids bucket_name remaining
+  state=$(tofu -chdir="$WORK_DIR" state pull)
+  bucket_name=$(jq -r '[.resources[]? | select(.module == "module.cluster" and .type == "aws_s3_bucket" and .name == "nstance") | .instances[]?.attributes.bucket] | .[0] // ""' <<< "$state")
+
   tofu -chdir="$WORK_DIR" destroy -auto-approve -target=module.shard.aws_autoscaling_group.server
 
-  local instance_ids bucket_name
   instance_ids=$(aws ec2 describe-instances --profile "$AWS_PROFILE" --region "$AWS_REGION" \
     --filters "Name=tag:nstance:managed,Values=true" "Name=tag:nstance:cluster-id,Values=$TEST_CLUSTER_ID" \
-      "Name=instance-state-name,Values=running,stopped,pending,stopping" \
+      "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" \
     --query 'Reservations[].Instances[].InstanceId' --output text)
   if [[ -n "$instance_ids" ]]; then
     # shellcheck disable=SC2086
@@ -442,22 +456,81 @@ destroy_aws() {
   aws ssm delete-parameters --profile "$AWS_PROFILE" --region "$AWS_REGION" --names \
     "/$TEST_CLUSTER_ID/ca.key" "/$TEST_CLUSTER_ID/registration-nonce.key" >/dev/null
 
-  bucket_name=$(tofu -chdir="$WORK_DIR" state show 'module.cluster.aws_s3_bucket.nstance[0]' 2>/dev/null |
-    awk -F'"' '/^[[:space:]]*bucket[[:space:]]*=/ { print $2 }')
   if [[ -n "$bucket_name" ]]; then
-    aws s3 rb "s3://$bucket_name" --force --profile "$AWS_PROFILE"
+    if aws_bucket_exists "$bucket_name"; then
+      aws s3 rb "s3://$bucket_name" --force --profile "$AWS_PROFILE" --region "$AWS_REGION"
+    fi
+    if aws_bucket_exists "$bucket_name"; then
+      echo "Cluster bucket s3://$bucket_name remains after cleanup." >&2
+      exit 1
+    fi
     tofu -chdir="$WORK_DIR" state rm 'module.cluster.aws_s3_bucket.nstance[0]'
   fi
   tofu -chdir="$WORK_DIR" destroy
-  aws s3 rm "s3://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/" --recursive --profile "$AWS_PROFILE"
-  if [[ "$ARTIFACT_BUCKET_OWNED" == true ]]; then
-    aws s3 rb "s3://$ARTIFACT_BUCKET" --profile "$AWS_PROFILE"
+
+  if aws_bucket_exists "$ARTIFACT_BUCKET"; then
+    aws s3 rm "s3://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/" --recursive --profile "$AWS_PROFILE" --region "$AWS_REGION"
+    remaining=$(aws s3api list-objects-v2 --bucket "$ARTIFACT_BUCKET" --prefix "$TEST_CLUSTER_ID/" \
+      --max-keys 1 --no-paginate --query KeyCount --output text --profile "$AWS_PROFILE" --region "$AWS_REGION")
+    if [[ "$remaining" != 0 ]]; then
+      echo "Test artifacts remain after cleanup in s3://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/." >&2
+      exit 1
+    fi
+    if [[ "$ARTIFACT_BUCKET_OWNED" == true ]]; then
+      aws s3 rb "s3://$ARTIFACT_BUCKET" --profile "$AWS_PROFILE" --region "$AWS_REGION"
+      if aws_bucket_exists "$ARTIFACT_BUCKET"; then
+        echo "Artifact bucket s3://$ARTIFACT_BUCKET remains after cleanup." >&2
+        exit 1
+      fi
+    fi
+  fi
+
+  remaining=$(aws ec2 describe-instances --profile "$AWS_PROFILE" --region "$AWS_REGION" \
+    --filters "Name=tag:nstance:cluster-id,Values=$TEST_CLUSTER_ID" \
+      "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" \
+    --query 'Reservations[].Instances[].InstanceId' --output text)
+  if [[ -n "$remaining" ]]; then
+    echo "Nstance instances remain after cleanup: $remaining" >&2
+    exit 1
   fi
 }
 
+google_nat_routes() {
+  gcloud compute routes list --project "$GOOGLE_PROJECT" --format=json |
+    jq -r --arg network "$1" --arg prefix "nstance:$TEST_CLUSTER_ID:" \
+      '.[] | select(.network == $network and ((.description // "") | startswith($prefix))) | .name'
+}
+
+google_bucket_exists() {
+  local output
+  if output=$(gcloud storage buckets describe "gs://$1" --project "$GOOGLE_PROJECT" 2>&1); then
+    return 0
+  elif [[ "$output" == *"gs://$1 not found: 404."* ]]; then
+    return 1
+  fi
+  printf '%s\n' "$output" >&2
+  exit 1
+}
+
 destroy_google() {
+  local state network bucket_name routes remaining objects
+  state=$(tofu -chdir="$WORK_DIR" state pull)
+  network=$(jq -r '[.resources[]? | select(.module == "module.network" and .type == "google_compute_network" and .name == "main") | .instances[]?.attributes.self_link] | .[0] // ""' <<< "$state")
+  bucket_name=$(jq -r '[.resources[]? | select(.module == "module.cluster" and .type == "google_storage_bucket" and .name == "nstance") | .instances[]?.attributes.name] | .[0] // ""' <<< "$state")
+
   tofu -chdir="$WORK_DIR" destroy -auto-approve \
     -target=module.shard.google_compute_instance_group_manager.server
+
+  # Runtime routes outlive their NAT VMs and block Terraform's network deletion.
+  routes=$(google_nat_routes "$network")
+  while read -r name; do
+    [[ -z "$name" ]] || gcloud compute routes delete "$name" --project "$GOOGLE_PROJECT" --quiet
+  done <<< "$routes"
+  remaining=$(google_nat_routes "$network")
+  if [[ -n "$remaining" ]]; then
+    echo "Nstance NAT routes remain after cleanup: $remaining" >&2
+    exit 1
+  fi
 
   gcloud compute instances list --project "$GOOGLE_PROJECT" \
     --filter="labels.nstance-managed=true AND labels.nstance-cluster-id=$TEST_CLUSTER_ID" \
@@ -475,23 +548,50 @@ destroy_google() {
       esac
     done
 
-  local bucket_name
-  bucket_name=$(tofu -chdir="$WORK_DIR" state show 'module.cluster.google_storage_bucket.nstance[0]' 2>/dev/null |
-    awk -F'"' '/^[[:space:]]*name[[:space:]]*=/ { print $2 }')
   if [[ -n "$bucket_name" ]]; then
-    gcloud storage rm --recursive "gs://$bucket_name/**" --project "$GOOGLE_PROJECT" 2>/dev/null || true
-    gcloud storage buckets delete "gs://$bucket_name" --project "$GOOGLE_PROJECT" --quiet
+    if google_bucket_exists "$bucket_name"; then
+      gcloud storage rm --recursive "gs://$bucket_name/" --project "$GOOGLE_PROJECT" --quiet
+    fi
+    if google_bucket_exists "$bucket_name"; then
+      echo "Cluster bucket gs://$bucket_name remains after cleanup." >&2
+      exit 1
+    fi
     tofu -chdir="$WORK_DIR" state rm 'module.cluster.google_storage_bucket.nstance[0]'
   fi
   tofu -chdir="$WORK_DIR" destroy
-  gcloud storage rm --recursive "gs://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/**" \
-    --project "$GOOGLE_PROJECT" 2>/dev/null || true
-  if [[ "$ARTIFACT_BUCKET_OWNED" == true ]]; then
-    gcloud storage buckets delete "gs://$ARTIFACT_BUCKET" --project "$GOOGLE_PROJECT" --quiet
+
+  if google_bucket_exists "$ARTIFACT_BUCKET"; then
+    objects=$(gcloud storage objects list "gs://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/**" \
+      --project "$GOOGLE_PROJECT" --format='value(name)')
+    if [[ -n "$objects" ]]; then
+      gcloud storage rm --recursive "gs://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/" --project "$GOOGLE_PROJECT" --quiet
+    fi
+    remaining=$(gcloud storage objects list "gs://$ARTIFACT_BUCKET/$TEST_CLUSTER_ID/**" \
+      --project "$GOOGLE_PROJECT" --format='value(name)')
+    if [[ -n "$remaining" ]]; then
+      echo "Test artifacts remain after cleanup: $remaining" >&2
+      exit 1
+    fi
+    if [[ "$ARTIFACT_BUCKET_OWNED" == true ]]; then
+      gcloud storage buckets delete "gs://$ARTIFACT_BUCKET" --project "$GOOGLE_PROJECT" --quiet
+      if google_bucket_exists "$ARTIFACT_BUCKET"; then
+        echo "Artifact bucket gs://$ARTIFACT_BUCKET remains after cleanup." >&2
+        exit 1
+      fi
+    fi
+  fi
+
+  remaining=$(gcloud compute instances list --project "$GOOGLE_PROJECT" \
+    --filter="labels.nstance-cluster-id=$TEST_CLUSTER_ID" --format='value(name)')
+  if [[ -n "$remaining" ]]; then
+    echo "Nstance instances remain after cleanup: $remaining" >&2
+    exit 1
   fi
 }
 
 destroy() {
+  require_command tofu
+  require_command jq
   load_environment
   if [[ "$PROVIDER" == aws ]]; then
     require_command aws
@@ -499,6 +599,12 @@ destroy() {
   else
     require_command gcloud
     destroy_google
+  fi
+  local state
+  state=$(tofu -chdir="$WORK_DIR" state pull)
+  if ! jq -e 'all(.resources[]?; .mode != "managed")' <<< "$state" >/dev/null; then
+    echo "Managed resources remain in Terraform state after cleanup." >&2
+    exit 1
   fi
   rm -rf "$WORK_DIR"
 }
