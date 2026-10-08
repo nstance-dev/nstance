@@ -159,11 +159,17 @@ data "aws_iam_policy_document" "server" {
     actions = [
       "elasticloadbalancing:RegisterTargets",
       "elasticloadbalancing:DeregisterTargets",
-      "elasticloadbalancing:DescribeTargetHealth",
-      "elasticloadbalancing:DescribeTargetGroupAttributes",
       "elasticloadbalancing:ModifyTargetGroupAttributes"
     ]
     resources = ["arn:${data.aws_partition.current.partition}:elasticloadbalancing:${local.region}:${local.account_id}:targetgroup/${local.name_prefix}-*/*"]
+  }
+  statement {
+    sid = "ELBRead"
+    actions = [
+      "elasticloadbalancing:DescribeTargetHealth",
+      "elasticloadbalancing:DescribeTargetGroupAttributes"
+    ]
+    resources = ["*"]
   }
 
   # IAM PassRole for agent instances
