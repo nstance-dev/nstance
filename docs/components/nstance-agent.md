@@ -60,7 +60,7 @@ After starting the agent, check it with:
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
-`GET /healthz` returns `200 OK` with the body `OK` followed by a newline; `HEAD`
+`GET /healthz` returns `200 OK` with the plain-text body `ok` and no newline; `HEAD`
 is also supported. The listener starts after registration and local
 initialization, and closes when the agent shuts down. If the configured address
 cannot be bound, the agent exits with an error. Unset `NSTANCE_HEALTH_ADDR` or

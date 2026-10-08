@@ -93,7 +93,7 @@ func (s *Server) SetNotReady() {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.ready.Load() {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK\n"))
+		_, _ = w.Write([]byte("ok"))
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("Service Unavailable\n"))

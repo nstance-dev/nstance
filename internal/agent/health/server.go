@@ -12,13 +12,13 @@ import (
 	"time"
 )
 
-// Serve answers GET /healthz with OK without checking server connectivity or workloads.
+// Serve answers GET /healthz with ok without checking server connectivity or workloads.
 // It owns the listener, closes it on cancellation, and blocks until serving stops.
 func Serve(ctx context.Context, listener net.Listener) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("OK\n"))
+		_, _ = w.Write([]byte("ok"))
 	})
 	server := &http.Server{
 		Handler:           mux,

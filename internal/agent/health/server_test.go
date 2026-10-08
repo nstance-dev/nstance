@@ -68,7 +68,7 @@ func TestServe(t *testing.T) {
 					t.Fatalf("%s %s: got %d, want %d", req.method, req.path, response.StatusCode, req.status)
 				}
 				if req.status == http.StatusOK {
-					want := "OK\n"
+					want := "ok"
 					if req.method == http.MethodHead {
 						want = ""
 					}

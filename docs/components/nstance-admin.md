@@ -353,13 +353,13 @@ Note: `--shard` and `--all-shards` are mutually exclusive.
 
 ## HTTP API
 
-When running with `serve`, the following JSON endpoints are available:
+When running with `serve`, the following endpoints are available:
 
 ### `GET /health`
 
 Health check endpoint.
 
-**Response:** `200 OK` with body `OK\n`
+**Response:** `200 OK` with the plain-text body `ok` and no newline.
 
 ---
 

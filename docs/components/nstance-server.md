@@ -78,7 +78,7 @@ The server exposes an HTTP health endpoint for integration with load balancers a
 | **Paths** | `/health` and `/` |
 
 **Responses:**
-- `200 OK` — Server has successfully loaded configuration and is ready to serve.
+- `200 OK` — Server has successfully loaded configuration and is ready to serve. The plain-text body is `ok` with no newline.
 - `503 Service Unavailable` — Server is still initializing or unhealthy.
 
 The health endpoint starts listening immediately on boot but returns `503` until configuration loading completes. This allows auto-scaling groups to detect and replace instances that fail to initialize.
