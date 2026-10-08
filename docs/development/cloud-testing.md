@@ -83,8 +83,58 @@ The generated `deployment.auto.tfvars.json` and `main.tf` can be edited before
 applying to exercise other configurations. Running `prepare` again regenerates
 both files.
 
-Signed URLs expire. Run the provider's `upload` command again before applying
-or replacing instances after expiration.
+The binary download URLs expire. If you need to apply changes or replace
+instances after they expire, run the provider's `upload` command again first.
+
+### Test load balancer
+
+The test configuration includes a public TCP load balancer named `workers`:
+an AWS Network Load Balancer (NLB) or a Google Cloud regional passthrough load
+balancer. **This adds cloud charges.** Its purpose is to let you send requests to
+the example's worker instances and, with a wake proxy installed, test waking
+them through incoming traffic.
+
+Requests arrive on port `8080` and are forwarded to port `8080` on instances in
+the example's `workers` group. While those instances are asleep, a wake proxy
+receives requests instead. AWS uses a separate port for that proxy;
+Google Cloud's passthrough load balancer requires the same port throughout:
+
+| Provider | Public listening port | Worker port | Wake-proxy port |
+|----------|-----------------------|-------------|-----------------|
+| AWS | `8080` | `8080` | `18080` |
+| Google Cloud | `8080` | `8080` | `8080` |
+
+The public load balancer exposes only the test service. The Nstance admin APIs
+remain private.
+
+After applying, find the address and port to connect to with:
+
+```bash
+tofu -chdir=temp/aws-test output -json load_balancer_endpoints
+# or
+tofu -chdir=temp/google-test output -json load_balancer_endpoints
+```
+
+Look for the `workers` entry in the output. AWS returns a DNS name; Google Cloud
+returns an IP address.
+
+If you only want to test Nstance without a load balancer, set
+`"load_balancers": {}` in the generated `deployment.auto.tfvars.json` before
+applying. Only the disposable test workflow enables it by default; the
+single-shard examples and production network modules do not.
+
+If you customise the network, the load balancer uses the `public` subnet role,
+workers use `workers`, and the proxy is expected alongside the test server in
+`public`. If you move the server, change `proxy_subnets` to match. The Google
+Cloud example also lists its zone in `cluster.shards` to create the right
+load-balancer firewall rules; this is deployment configuration, not a list of
+shards for nstance-server to coordinate.
+
+For a test prepared before this load-balancer support was added, rerun
+`make aws-prepare` or `make google-prepare` before applying. Preparation
+regenerates `main.tf` and the deployment variables, restores the default load
+balancer, and overwrites custom settings in those files. Reapply any custom
+settings afterward.
 
 ## Local admin CLI
 
@@ -166,6 +216,24 @@ source temp/google-test/admin.env
 ./bin/nstance-admin group list
 ./bin/nstance-admin group scale workers 3
 ```
+
+### Tenant state
+
+After building `nstance-admin` and sourcing the provider's `admin.env`, inspect
+the test tenant with:
+
+```bash
+./bin/nstance-admin tenant status default
+```
+
+The corresponding `tenant sleep default` and `tenant wake default` commands
+are also available. Sleep checks activity by default; `--force` skips that
+check, and `--wake-at` accepts an RFC3339 wake deadline. These commands report
+durable tenant state, not completion of VM termination or startup.
+
+Before putting the tenant to sleep, make sure the worker backend and wake proxy
+are healthy. `--force` skips the activity check, but not the checks that ensure
+traffic can be routed safely.
 
 ## Cleanup
 

@@ -83,7 +83,16 @@ write_deployment_variables() {
   "cluster_id": "$TEST_CLUSTER_ID",
   "ipv4_enabled": true,
   "ipv6_enabled": true,
-  "nat_mode": "nstance"
+  "nat_mode": "nstance",
+  "load_balancers": {
+    "workers": {
+      "listeners": [{ "port": 8080, "target_port": 8080, "proxy_port": 18080 }],
+      "subnets": "public",
+      "backend_subnets": "workers",
+      "proxy_subnets": "public",
+      "public": true
+    }
+  }
 }
 EOF
   else
@@ -95,7 +104,16 @@ EOF
   "cluster_id": "$TEST_CLUSTER_ID",
   "ipv4_enabled": true,
   "ipv6_enabled": true,
-  "nat_mode": "nstance"
+  "nat_mode": "nstance",
+  "load_balancers": {
+    "workers": {
+      "listeners": [{ "port": 8080, "target_port": 8080, "proxy_port": 8080 }],
+      "subnets": "public",
+      "backend_subnets": "workers",
+      "proxy_subnets": "public",
+      "public": true
+    }
+  }
 }
 EOF
   fi

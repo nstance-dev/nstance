@@ -47,6 +47,22 @@ variable "nat_mode" {
   default     = "nstance"
 }
 
+variable "load_balancers" {
+  description = "Optional load balancers associated with the workers group"
+  type = map(object({
+    listeners = list(object({
+      port        = number
+      target_port = optional(number)
+      proxy_port  = optional(number)
+    }))
+    subnets         = string
+    backend_subnets = optional(string)
+    proxy_subnets   = optional(string)
+    public          = bool
+  }))
+  default = {}
+}
+
 variable "nstance_server_binary_url" {
   description = "Optional fixed URL for the nstance-server binary tarball"
   type        = string
@@ -68,6 +84,8 @@ module "cluster" {
   source = "../../../google/cluster"
 
   cluster_id = var.cluster_id
+  # Deployment-only enumeration for load-balancer firewall targeting.
+  shards = [var.zone]
 }
 
 module "account" {
@@ -79,11 +97,12 @@ module "account" {
 module "network" {
   source = "../../../google/network"
 
-  cluster       = module.cluster
-  vpc_cidr_ipv4 = "172.18.0.0/16"
-  ipv4_enabled  = var.ipv4_enabled
-  ipv6_enabled  = var.ipv6_enabled
-  nat_mode      = var.nat_mode
+  cluster        = module.cluster
+  vpc_cidr_ipv4  = "172.18.0.0/16"
+  ipv4_enabled   = var.ipv4_enabled
+  ipv6_enabled   = var.ipv6_enabled
+  nat_mode       = var.nat_mode
+  load_balancers = var.load_balancers
 
   # Define subnets by role and zone
   # ipv6_netnum (0-65535) auto-computes /64 from VPC's Google Cloud-assigned /48
@@ -146,8 +165,9 @@ module "shard" {
   groups = {
     "default" = merge({
       "workers" = {
-        size        = 1
-        subnet_pool = "workers" # References key from subnets map
+        size           = 1
+        subnet_pool    = "workers" # References key from subnets map
+        load_balancers = keys(var.load_balancers)
       }
       }, var.nat_mode == "nstance" ? {
       nat = {
@@ -177,4 +197,16 @@ output "nat_mode" {
 output "nat_public_addresses" {
   description = "Fixed public IPv4 addresses allocated for Nstance NAT instances"
   value       = module.network.nat_public_addresses
+}
+
+output "load_balancer_endpoints" {
+  description = "TCP frontend endpoints by load balancer name"
+  value = {
+    for name, lb in module.network.load_balancers : name => [
+      for frontend in lb.frontends : {
+        host = frontend.ip
+        port = frontend.port
+      }
+    ]
+  }
 }
