@@ -163,6 +163,18 @@ resource "aws_vpc_security_group_ingress_rule" "agent_load_balancer" {
   referenced_security_group_id = each.value.security_group_id
 }
 
+# Wake proxies and server readiness checks connect directly to backend instances.
+resource "aws_vpc_security_group_ingress_rule" "agent_wake_proxy" {
+  for_each = toset([for target in values(local.load_balancer_target_ports) : tostring(target.target_port)])
+
+  security_group_id            = aws_security_group.agent.id
+  description                  = "Wake proxy traffic on target port ${each.value}"
+  from_port                    = tonumber(each.value)
+  to_port                      = tonumber(each.value)
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.server.id
+}
+
 resource "aws_vpc_security_group_ingress_rule" "server_load_balancer_proxy" {
   for_each = local.load_balancer_proxy_ports
 

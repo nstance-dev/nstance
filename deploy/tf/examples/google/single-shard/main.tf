@@ -168,6 +168,10 @@ module "shard" {
         size           = 1
         subnet_pool    = "workers" # References key from subnets map
         load_balancers = keys(var.load_balancers)
+        # Use agent liveness as the example load balancer's HTTP backend.
+        vars = length(var.load_balancers) > 0 ? {
+          HEALTH_ADDR = var.ipv4_enabled ? "0.0.0.0:8080" : "[::]:8080"
+        } : {}
       }
       }, var.nat_mode == "nstance" ? {
       nat = {

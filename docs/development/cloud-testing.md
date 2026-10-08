@@ -91,8 +91,15 @@ instances after they expire, run the provider's `upload` command again first.
 The test configuration includes a public TCP load balancer named `workers`:
 an AWS Network Load Balancer (NLB) or a Google Cloud regional passthrough load
 balancer. **This adds cloud charges.** Its purpose is to let you send requests to
-the example's worker instances and, with a wake proxy installed, test waking
-them through incoming traffic.
+the example's worker instances and test waking them through incoming traffic.
+
+With a load balancer configured, the example enables the agent's `/healthz`
+endpoint on worker port `8080`; it returns the plain-text body `ok`. Other
+groups and deployments without `HEALTH_ADDR` configured keep agent health
+disabled. Demonstration server userdata also starts `nstance-proxy.service`,
+which runs `nstance-server proxy` as an unprivileged user. It receives listener
+configuration through the server's Unix control socket, cannot read server
+state or home directories, and is blocked from cloud metadata credentials.
 
 Requests arrive on port `8080` and are forwarded to port `8080` on instances in
 the example's `workers` group. While those instances are asleep, a wake proxy
@@ -130,11 +137,13 @@ Cloud example also lists its zone in `cluster.shards` to create the right
 load-balancer firewall rules; this is deployment configuration, not a list of
 shards for nstance-server to coordinate.
 
-For a test prepared before this load-balancer support was added, rerun
-`make aws-prepare` or `make google-prepare` before applying. Preparation
+For a test prepared before this load-balancer or health-endpoint support was
+added, rerun `make aws-prepare` or `make google-prepare` before applying. Preparation
 regenerates `main.tf` and the deployment variables, restores the default load
 balancer, and overwrites custom settings in those files. Reapply any custom
-settings afterward.
+settings afterward. Upload current binaries and apply. Existing workers need
+replacement to pick up the new userdata; scale `workers` to zero and back to
+one if their health endpoint is not enabled yet.
 
 ## Local admin CLI
 
@@ -234,6 +243,25 @@ durable tenant state, not completion of VM termination or startup.
 Before putting the tenant to sleep, make sure the worker backend and wake proxy
 are healthy. `--force` skips the activity check, but not the checks that ensure
 traffic can be routed safely.
+
+To test traffic-triggered wake, set `LB_ADDRESS` to the load-balancer DNS name
+or IP address from the output above, then run:
+
+```bash
+curl --fail "http://$LB_ADDRESS:8080/healthz"
+./bin/nstance-admin tenant sleep default --force
+./bin/nstance-admin tenant status default
+# Wait for the worker instances to terminate before sending another request.
+curl --fail --max-time 180 "http://$LB_ADDRESS:8080/healthz"
+./bin/nstance-admin tenant status default
+```
+
+The second request is held by the proxy while workers start. It should return
+`ok` once a worker is reachable. Confirm the tenant is awake and the provider's
+load-balancer targets have returned to healthy workers rather than the proxy.
+Load-balancer TCP health probes do not send a payload, so they do not trigger
+wake by themselves. Guarded sleep also requires activity-counter setup; this
+forced test does not.
 
 ## Cleanup
 

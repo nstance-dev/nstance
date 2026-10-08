@@ -230,6 +230,7 @@ NSTANCE_INSTANCE_KIND={{ .Instance.Kind }}
 NSTANCE_INSTANCE_ID={{ .Instance.ID }}
 NSTANCE_REPORT_INTERVAL=${agent_report_interval}
 NSTANCE_SPOT_POLL_INTERVAL=${agent_spot_poll}
+NSTANCE_HEALTH_ADDR={{ .Vars.HEALTH_ADDR }}
 %{ if configure_nat ~}
 NSTANCE_METRICS_INTERFACE=$NSTANCE_METRICS_INTERFACE
 %{ endif ~}

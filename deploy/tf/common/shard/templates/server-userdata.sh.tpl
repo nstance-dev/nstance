@@ -72,6 +72,11 @@ echo "Downloading from: $DOWNLOAD_URL"
 curl -fsSL "$DOWNLOAD_URL" | tar -xz -C /usr/local/bin nstance-server
 chmod +x /usr/local/bin/nstance-server
 
+# Create the shared socket group and unprivileged proxy user.
+getent group nstance >/dev/null || groupadd --system nstance
+id -u nstance-proxy >/dev/null 2>&1 ||
+  useradd --system --gid nstance --no-create-home --shell /usr/sbin/nologin nstance-proxy
+
 # Create systemd service
 cat > /etc/systemd/system/nstance-server.service <<SYSTEMD
 [Unit]
@@ -82,6 +87,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
+Group=nstance
 Environment=NSTANCE_PROVIDER=${provider}
 Environment=AWS_REGION=${aws_region}
 Environment=GOOGLE_PROJECT=${google_project}
@@ -97,15 +103,45 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 RuntimeDirectory=nstance
+RuntimeDirectoryMode=0750
 ReadWritePaths=/var/lib/nstance-server
 
 [Install]
 WantedBy=multi-user.target
 SYSTEMD
 
-# Enable and start nstance-server service
+# The proxy reads listener configuration only through the server's Unix socket.
+cat > /etc/systemd/system/nstance-proxy.service <<'SYSTEMD'
+[Unit]
+Description=Nstance Wake Proxy
+Requires=nstance-server.service
+After=nstance-server.service
+PartOf=nstance-server.service
+
+[Service]
+Type=simple
+User=nstance-proxy
+Group=nstance
+ExecStart=/usr/local/bin/nstance-server proxy
+Restart=always
+RestartSec=5
+TimeoutStopSec=35
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=/var/lib/nstance-server -/var/lib/cloud
+# Block AWS and Google metadata endpoints, including their IPv6 addresses.
+IPAddressDeny=169.254.169.254/32 fd00:ec2::254/128 fd20:ce::254/128
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD
+
+# Enable and start both services.
 systemctl daemon-reload
-systemctl enable nstance-server
-systemctl start nstance-server
+systemctl enable --now nstance-server nstance-proxy
 
 echo "=== Userdata Script Completed at $(date) ==="
