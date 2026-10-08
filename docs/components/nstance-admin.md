@@ -13,8 +13,8 @@ The `nstance-admin` tool provides command-line and HTTP API interfaces for manag
 The admin CLI has three modes of operation:
 
 1. **Cluster commands** (`nstance-admin cluster ...`): Direct access to cluster storage and secrets. Used for bootstrap operations or when leader election is disabled.
-2. **Shard commands** (`nstance-admin config ...`, `nstance-admin group ...`): Communicate with one or more nstance-servers via gRPC.
-3. **HTTP API** (`nstance-admin serve`): Exposes all Shard commands as HTTP endpoints.
+2. **Shard commands** (`nstance-admin config ...`, `nstance-admin group ...`, `nstance-admin tenant ...`): Communicate with one or more nstance-servers via gRPC.
+3. **HTTP API** (`nstance-admin serve`): Exposes configuration and group scaling commands as HTTP endpoints. Tenant commands are CLI-only.
 
 ## Authentication
 
@@ -188,7 +188,7 @@ nstance-admin cluster register-operator \
 
 ### Shard Command Flags
 
-All shard commands (`config`, `group`) and the `serve` command share these flags:
+All shard commands (`config`, `group`, `tenant`) and the `serve` command share these flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -196,7 +196,7 @@ All shard commands (`config`, `group`) and the `serve` command share these flags
 | `--identity-dir` | `<temp-dir>/cli-operator-identity/` | Directory containing identity files |
 | `--shard` | | Target a specific shard |
 | `--all-shards` | | Target all shards in the servers list |
-| `--timeout` | `30s` | Timeout for operations |
+| `--timeout` | `30s` (`10m` for `tenant`) | Timeout for operations (per shard for `tenant`) |
 
 `NSTANCE_ADMIN_SERVERS`, `NSTANCE_ADMIN_IDENTITY_DIR`, and
 `NSTANCE_ADMIN_SHARD` provide defaults for the corresponding flags. Explicit
@@ -252,6 +252,42 @@ SHARD         ETAG                              LAST_MODIFIED              SIZE
 us-west-2a    d41d8cd98f00b204e9800998ecf8427e  2024-01-15T10:30:00Z       4096
 us-west-2b    a1b2c3d4e5f6789012345678abcdef00  2024-01-15T09:15:00Z       4128
 ```
+
+---
+
+### `nstance-admin tenant status|sleep|wake <tenant>`
+
+Inspect or change a tenant's sleep state using the existing Operator gRPC API
+and operator identity. The tenant must match the operator certificate's tenant.
+Select `--shard` (or `NSTANCE_ADMIN_SHARD`) or explicitly use `--all-shards`;
+there is no implicit all-shards target. These options are mutually exclusive.
+
+```bash
+nstance-admin tenant status prod --servers "zone-a=172.16.0.1:8993" --shard zone-a
+nstance-admin tenant sleep prod --servers "zone-a=172.16.0.1:8993" --shard zone-a \
+  --wake-at 2026-10-09T12:00:00Z
+nstance-admin tenant wake prod --servers "zone-a=172.16.0.1:8993" --shard zone-a
+```
+
+- **status** prints awake/asleep, an optional wake deadline, and each listener's
+  availability and observed idle-since timestamp. Missing idle observations are
+  shown as `unknown`; unavailable listeners are not treated as idle.
+- **sleep** defaults to `IfNotBusy=true`. `--force` sends `IfNotBusy=false` and
+  warns that workloads and active connections may be interrupted. Force does
+  not bypass server restrictions such as non-deleted on-demand instances.
+  Optional `--wake-at` accepts an RFC3339 timestamp (including a timezone).
+- **wake** sends a tenant-wide wake request without a listener override.
+
+Each selected shard's result is printed. BUSY/rejected sleep, connection failures,
+and RPC errors return a nonzero exit status. Already-asleep/already-awake results
+are successful. The default tenant timeout is **10 minutes per shard**, allowing
+for the provider's 300-second drain; override it with a positive `--timeout`.
+Sleep/wake require the server's sleep/provider-cutover configuration to be ready.
+
+`--all-shards` runs independently and sequentially on the configured servers,
+continues after shard failures, and returns failure if any shard fails. It is
+**not atomic and has no rollback**: successful shards remain changed if another
+shard fails or the command times out. These commands add no HTTP endpoints.
 
 ---
 
