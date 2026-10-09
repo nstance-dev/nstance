@@ -98,7 +98,8 @@ resource "aws_launch_template" "server" {
   key_name = var.ssh_key_name != "" ? var.ssh_key_name : null
 
   # Create a launch-template version whenever the generated shard configuration changes.
-  user_data = base64encode("${local.server_userdata}\n# nstance-config-etag: ${aws_s3_object.shard_config.etag}\n")
+  # Hash the content so the marker is known during planning and stays stable during apply.
+  user_data = base64encode("${local.server_userdata}\n# nstance-config-sha256: ${sha256(aws_s3_object.shard_config.content)}\n")
 
   metadata_options {
     http_endpoint               = "enabled"
