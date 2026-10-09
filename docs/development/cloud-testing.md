@@ -247,6 +247,11 @@ the test tenant with:
 ./bin/nstance-admin tenant status default
 ```
 
+The demonstration userdata does not install eBPF activity counters, so listeners
+show `activity=unavailable, idle-since=unknown` even when their HTTP health checks
+pass. This means traffic monitoring is unavailable, not that the service is down.
+Use `--force` for the sleep/wake test below; guarded sleep requires those counters.
+
 The corresponding `tenant sleep default` and `tenant wake default` commands
 are also available. Sleep checks activity by default; `--force` skips that
 check, and `--wake-at` accepts an RFC3339 wake deadline. These commands report
@@ -255,6 +260,10 @@ durable tenant state, not completion of VM termination or startup.
 Before putting the tenant to sleep, make sure the worker backend and wake proxy
 are healthy. `--force` skips the activity check, but not the checks that ensure
 traffic can be routed safely.
+
+On AWS, sleep waits for the target group's 300-second drain before shutting down
+workers. They remain running during this wait. The CLI prints elapsed-time
+feedback until the server responds; it does not report individual cutover stages.
 
 To test traffic-triggered wake, set `LB_ADDRESS` to the load-balancer DNS name
 or IP address from the output above, then run:

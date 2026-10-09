@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"google.golang.org/grpc"
@@ -29,11 +30,19 @@ type tenantTestClient struct {
 	result         proto.SleepTenantResponse_Result
 	err            error
 	statusResponse *proto.GetTenantStatusResponse
+	sleepWait      <-chan struct{}
 }
 
 // SleepTenant records the guarded/forced mapping and echoes the wake deadline.
-func (c *tenantTestClient) SleepTenant(_ context.Context, req *proto.SleepTenantRequest, _ ...grpc.CallOption) (*proto.SleepTenantResponse, error) {
+func (c *tenantTestClient) SleepTenant(ctx context.Context, req *proto.SleepTenantRequest, _ ...grpc.CallOption) (*proto.SleepTenantResponse, error) {
 	c.sleep = req
+	if c.sleepWait != nil {
+		select {
+		case <-c.sleepWait:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	return &proto.SleepTenantResponse{Result: c.result, Status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_ASLEEP, WakeAt: req.WakeAt}, c.err
 }
 
@@ -130,7 +139,7 @@ func TestTenantRequests(t *testing.T) {
 					if !strings.Contains(out.String(), "asleep") || !strings.Contains(out.String(), "wake-at=2026-10-09T12:00:00Z") || !strings.Contains(stderr.String(), "interrupt workloads and active connections") {
 						t.Fatalf("output: %s %s", &out, &stderr)
 					}
-				} else if client.sleep.WakeAt != nil || stderr.Len() != 0 {
+				} else if client.sleep.WakeAt != nil || strings.Contains(stderr.String(), "Warning:") {
 					t.Fatal("guarded sleep gained deadline or warning")
 				}
 			case "wake":
@@ -141,7 +150,7 @@ func TestTenantRequests(t *testing.T) {
 				if client.status.Tenant != "prod" {
 					t.Fatal(client.status)
 				}
-				for _, expected := range []string{"asleep wake-at=2026-10-09T12:00:00Z", "http: available, idle-since=2026-10-09T12:00:00Z", "tcp: unavailable, idle-since=unknown"} {
+				for _, expected := range []string{"asleep wake-at=2026-10-09T12:00:00Z", "http: activity=available, idle-since=2026-10-09T12:00:00Z", "tcp: activity=unavailable, idle-since=unknown"} {
 					if !strings.Contains(out.String(), expected) {
 						t.Fatalf("missing %q in %s", expected, &out)
 					}
@@ -149,6 +158,43 @@ func TestTenantRequests(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTenantSleepProgress verifies feedback appears while the server has not replied.
+func TestTenantSleepProgress(t *testing.T) {
+	t.Setenv(envAdminShard, "a")
+	t.Setenv(envAdminServers, "a=localhost:1")
+	synctest.Test(t, func(t *testing.T) {
+		reply := make(chan struct{})
+		client := &tenantTestClient{result: proto.SleepTenantResponse_RESULT_SLEPT, sleepWait: reply}
+		connector := &tenantTestConnector{client: client}
+		cmd := newTenantCommand(func(string, string, time.Duration) (tenantConnector, error) { return connector, nil })
+		var out, stderr bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&stderr)
+		cmd.SetArgs([]string{"sleep", "prod", "--force"})
+		done := make(chan error, 1)
+		go func() { done <- cmd.Execute() }()
+		synctest.Wait()
+		time.Sleep(16 * time.Second)
+		synctest.Wait()
+		if !strings.Contains(stderr.String(), "Requesting sleep for tenant prod") || !strings.Contains(stderr.String(), "load-balancer draining") {
+			t.Errorf("missing immediate feedback: %s", &stderr)
+		}
+		if !strings.Contains(stderr.String(), "Still waiting for tenant prod sleep (15s elapsed); no completion response yet.") {
+			t.Errorf("missing waiting feedback: %s", &stderr)
+		}
+		if out.Len() != 0 {
+			t.Errorf("reported success before server replied: %s", &out)
+		}
+		close(reply)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), "asleep (RESULT_SLEPT)") {
+			t.Fatalf("missing completion: %s", &out)
+		}
+	})
 }
 
 // TestTenantFailures verifies failures propagate to Cobra (and thus the binary exit code).

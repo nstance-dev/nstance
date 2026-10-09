@@ -270,8 +270,11 @@ nstance-admin tenant wake prod --servers "zone-a=172.16.0.1:8993" --shard zone-a
 ```
 
 - **status** prints awake/asleep, an optional wake deadline, and each listener's
-  availability and observed idle-since timestamp. Missing idle observations are
-  shown as `unknown`; unavailable listeners are not treated as idle.
+  traffic-monitoring availability (`activity=available` or
+  `activity=unavailable`) and observed idle-since timestamp. This describes
+  activity counters, not listener health or reachability. Missing counters or
+  reports show `activity=unavailable, idle-since=unknown` and block guarded sleep;
+  they are not treated as idle.
 - **sleep** defaults to `IfNotBusy=true`. `--force` sends `IfNotBusy=false` and
   warns that workloads and active connections may be interrupted. Force does
   not bypass server restrictions such as non-deleted on-demand instances.
@@ -283,6 +286,13 @@ and RPC errors return a nonzero exit status. Already-asleep/already-awake result
 are successful. The default tenant timeout is **10 minutes per shard**, allowing
 for the provider's 300-second drain; override it with a positive `--timeout`.
 Sleep/wake require the server's sleep/provider-cutover configuration to be ready.
+
+Sleep and wake print an immediate request message and elapsed-time feedback every
+15 seconds to stderr while waiting for the server's response. This is a waiting
+indicator, not server-reported progress. Sleep first establishes a healthy wake
+path and drains instance targets from the load balancer. Instances remain running
+during that drain, even with `--force`. A successful sleep response confirms
+durable sleep state; instance termination follows through reconciliation.
 
 `--all-shards` runs independently and sequentially on the configured servers,
 continues after shard failures, and returns failure if any shard fails. It is

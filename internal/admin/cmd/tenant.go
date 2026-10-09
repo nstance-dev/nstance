@@ -81,13 +81,37 @@ func newTenantCommand(connect func(string, string, time.Duration) (tenantConnect
 				}
 				tenantService := service.NewTenantService(connector)
 				var results []service.TenantResult
-				switch operation.name {
-				case "status":
-					results, err = tenantService.Status(cmd.Context(), req)
-				case "sleep":
-					results, err = tenantService.Sleep(cmd.Context(), req)
-				case "wake":
-					results, err = tenantService.Wake(cmd.Context(), req)
+				if operation.name != "status" {
+					cmd.PrintErrf("Requesting %s for tenant %s (timeout %s per shard)...\n", operation.name, req.Tenant, req.Timeout)
+					if operation.name == "sleep" {
+						cmd.PrintErrln("Sleep waits for wake-proxy readiness and load-balancer draining before shutting down instances; draining can take several minutes.")
+					}
+				}
+				started := time.Now()
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					switch operation.name {
+					case "status":
+						results, err = tenantService.Status(cmd.Context(), req)
+					case "sleep":
+						results, err = tenantService.Sleep(cmd.Context(), req)
+					case "wake":
+						results, err = tenantService.Wake(cmd.Context(), req)
+					}
+				}()
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+			wait:
+				for {
+					select {
+					case <-done:
+						break wait
+					case <-ticker.C:
+						if operation.name != "status" {
+							cmd.PrintErrf("Still waiting for tenant %s %s (%s elapsed); no completion response yet.\n", req.Tenant, operation.name, time.Since(started).Truncate(time.Second))
+						}
+					}
 				}
 				if err != nil {
 					return err
@@ -127,7 +151,7 @@ func newTenantCommand(connect func(string, string, time.Duration) (tenantConnect
 						if listener.GetIdleSince() != nil {
 							idle = listener.GetIdleSince().AsTime().Format(time.RFC3339)
 						}
-						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s listener %s: %s, idle-since=%s\n", prefix, listener.GetListener(), availability, idle); err != nil {
+						if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s listener %s: activity=%s, idle-since=%s\n", prefix, listener.GetListener(), availability, idle); err != nil {
 							failures = append(failures, err)
 							break
 						}
