@@ -9,9 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/nstance-dev/nstance/v2/internal/admin/service"
 	"github.com/nstance-dev/nstance/v2/internal/proto"
@@ -71,6 +74,7 @@ func newTenantCommand(connect func(string, string, time.Duration) (tenantConnect
 				if err := req.Validate(parsedServers); err != nil {
 					return err
 				}
+				cmd.SilenceUsage = true
 				connector, err := connect(servers, identityDir, timeout)
 				if err != nil {
 					return err
@@ -123,7 +127,26 @@ func newTenantCommand(connect func(string, string, time.Duration) (tenantConnect
 				var failures []error
 				for _, result := range results {
 					if result.Error != nil {
-						cmd.PrintErrln(result.Error)
+						cmd.SilenceErrors = true // Each shard failure is printed here, not again by Cobra.
+						rpcStatus, ok := status.FromError(result.Error)
+						if ok && rpcStatus.Code() == codes.Unavailable && strings.Contains(rpcStatus.Message(), "connection error:") {
+							var address string
+							for _, server := range parsedServers {
+								if server.ShardID == result.Shard {
+									address = server.Address
+									break
+								}
+							}
+							cmd.PrintErrf("%s: Can't connect to server at %s.\n", result.Shard, address)
+							cmd.PrintErrln("Check the address and that the server is reachable. If you use port forwarding, start or restart the tunnel.")
+							if flagDebug {
+								cmd.PrintErrf("Details: %v\n", result.Error)
+							} else {
+								cmd.PrintErrln("Use --debug for connection details.")
+							}
+						} else {
+							cmd.PrintErrln(result.Error)
+						}
 						failures = append(failures, result.Error)
 						continue
 					}

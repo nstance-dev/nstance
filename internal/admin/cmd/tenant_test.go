@@ -14,7 +14,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/nstance-dev/nstance/v2/internal/admin/service"
@@ -256,6 +259,64 @@ func TestTenantPartialSleep(t *testing.T) {
 	}
 }
 
+// TestTenantConnectionErrors verifies concise transport diagnostics without
+// hiding debug details or mistaking server-side unavailability for dial failure.
+func TestTenantConnectionErrors(t *testing.T) {
+	previousDebug := flagDebug
+	t.Cleanup(func() { flagDebug = previousDebug })
+	for _, tc := range []struct {
+		name      string
+		message   string
+		transport bool
+	}{
+		{"refused", `connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:18993: connect: connection refused"`, true},
+		{"TLS", `connection error: desc = "transport: authentication handshake failed: tls: failed to verify certificate: x509: certificate signed by unknown authority"`, true},
+		{"handshake timeout", `connection error: desc = "transport: authentication handshake failed: context deadline exceeded"`, true},
+		{"leadership changed", "shard leadership changed", false},
+	} {
+		for _, debug := range []bool{false, true} {
+			name := tc.name
+			if debug {
+				name += " debug"
+			}
+			t.Run(name, func(t *testing.T) {
+				rpcErr := status.Error(codes.Unavailable, tc.message)
+				connector := &tenantTestConnector{client: &tenantTestClient{err: rpcErr}}
+				root := &cobra.Command{Use: "nstance-admin"}
+				root.PersistentFlags().BoolVar(&flagDebug, "debug", false, "Enable debug output")
+				root.AddCommand(newTenantCommand(func(string, string, time.Duration) (tenantConnector, error) {
+					return connector, nil
+				}))
+				var out, stderr bytes.Buffer
+				root.SetOut(&out)
+				root.SetErr(&stderr)
+				args := []string{"tenant", "status", "prod", "--servers", "a=127.0.0.1:18993", "--shard", "a"}
+				if debug {
+					args = append(args, "--debug")
+				}
+				root.SetArgs(args)
+				if err := root.Execute(); !errors.Is(err, rpcErr) {
+					t.Fatalf("connection error not preserved: %v", err)
+				}
+				output := out.String() + stderr.String()
+				if strings.Contains(output, "Usage:") {
+					t.Fatalf("runtime error printed usage: %s", output)
+				}
+				if tc.transport {
+					if strings.Count(output, "Can't connect to server at 127.0.0.1:18993.") != 1 || !strings.Contains(output, "start or restart the tunnel") {
+						t.Fatalf("missing concise connection guidance: %s", output)
+					}
+					if strings.Contains(output, "rpc error:") != debug || (debug && strings.Count(output, tc.message) != 1) {
+						t.Fatalf("incorrect debug details: %s", output)
+					}
+				} else if strings.Contains(output, "Can't connect") || strings.Count(output, tc.message) != 1 {
+					t.Fatalf("server rejection mislabeled or duplicated: %s", output)
+				}
+			})
+		}
+	}
+}
+
 // TestTenantValidation ensures invalid inputs fail before identity loading or RPCs.
 func TestTenantValidation(t *testing.T) {
 	t.Setenv(envAdminServers, "")
@@ -283,6 +344,9 @@ func TestTenantValidation(t *testing.T) {
 			cmd.SetArgs(args)
 			if err := cmd.Execute(); err == nil {
 				t.Fatal("invalid input succeeded")
+			}
+			if len(args) == 1 && !strings.Contains(output.String(), "Usage:") {
+				t.Fatalf("missing usage for an incomplete command: %s", &output)
 			}
 		})
 	}
