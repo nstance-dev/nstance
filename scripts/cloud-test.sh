@@ -84,6 +84,7 @@ write_deployment_variables() {
   "ipv4_enabled": true,
   "ipv6_enabled": true,
   "nat_mode": "nstance",
+  "fixed_public_ipv4_count": 1,
   "load_balancers": {
     "workers": {
       "listeners": [{ "port": 8080, "target_port": 8080, "proxy_port": 18080 }],
@@ -105,6 +106,7 @@ EOF
   "ipv4_enabled": true,
   "ipv6_enabled": true,
   "nat_mode": "nstance",
+  "fixed_public_ipv4_count": 1,
   "load_balancers": {
     "workers": {
       "listeners": [{ "port": 8080, "target_port": 8080, "proxy_port": 8080 }],

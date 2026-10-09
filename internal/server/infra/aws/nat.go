@@ -7,7 +7,6 @@ package aws
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -17,30 +16,26 @@ import (
 )
 
 // EnsureNATRoute activates the requested NAT interface and points the instance
-// subnet's owned IPv4 default or NAT64 prefix route at it.
+// subnet's owned IPv4 default or NAT64 prefix route at it, leaving other routes alone.
 func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
-	target, err := p.natTargetInterface(ctx, req)
-	if err != nil {
-		return err
-	}
-	managed, err := p.permittedNATInterfaces(ctx, req)
-	if err != nil {
-		return err
-	}
-	return p.ensureNATRoute(ctx, req, target, managed)
-}
-
-// ensureNATRoute creates or replaces an owned default route with the target ENI.
-func (p *Provider) ensureNATRoute(ctx context.Context, req provider.NATRouteRequest, target string, managed []string) error {
 	routeTable, route, err := p.natRoute(ctx, req)
 	if err != nil {
 		return err
 	}
+	target, err := p.primaryNetworkInterface(ctx, req.ProviderInstanceID)
+	if err != nil {
+		return err
+	}
+	if err := p.disableSourceDestinationCheck(ctx, target); err != nil {
+		return err
+	}
+	if req.PublicAddress != nil {
+		if err := p.assignPublicAddress(ctx, req.ProviderInstanceID, *req.PublicAddress); err != nil {
+			return err
+		}
+	}
 	if route != nil && aws.ToString(route.NetworkInterfaceId) == target {
 		return nil
-	}
-	if route != nil && !slices.Contains(managed, aws.ToString(route.NetworkInterfaceId)) {
-		return fmt.Errorf("subnet %s default route is not Nstance-managed", req.InstanceSubnetID)
 	}
 	if route == nil {
 		input := &ec2.CreateRouteInput{
@@ -63,17 +58,14 @@ func (p *Provider) ensureNATRoute(ctx context.Context, req provider.NATRouteRequ
 	return nil
 }
 
-// RemoveNATRoute deletes a subnet default route only while it targets a managed ENI.
+// RemoveNATRoute deletes only the translation route to an ENI in an owned route table.
+// Provider-managed gateways installed during a NAT mode change are left intact.
 func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
-	managed, err := p.permittedNATInterfaces(ctx, req)
-	if err != nil {
-		return err
-	}
 	routeTable, route, err := p.natRoute(ctx, req)
 	if err != nil || route == nil {
 		return err
 	}
-	if !slices.Contains(managed, aws.ToString(route.NetworkInterfaceId)) {
+	if aws.ToString(route.NetworkInterfaceId) == "" {
 		return nil
 	}
 	input := &ec2.DeleteRouteInput{RouteTableId: routeTable.RouteTableId}
@@ -83,40 +75,6 @@ func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequ
 		return fmt.Errorf("delete subnet %s default route: %w", req.InstanceSubnetID, err)
 	}
 	return nil
-}
-
-// natTargetInterface prepares an instance's primary ENI for NAT traffic.
-func (p *Provider) natTargetInterface(ctx context.Context, req provider.NATRouteRequest) (string, error) {
-	interfaceID, err := p.primaryNetworkInterface(ctx, req.ProviderInstanceID)
-	if err != nil {
-		return "", err
-	}
-	if err := p.disableSourceDestinationCheck(ctx, interfaceID); err != nil {
-		return "", err
-	}
-	if req.PublicAddress != nil {
-		if err := p.assignPublicAddress(ctx, req.ProviderInstanceID, *req.PublicAddress); err != nil {
-			return "", err
-		}
-	}
-	return interfaceID, nil
-}
-
-// permittedNATInterfaces resolves the current and previous NAT instances' primary ENIs.
-func (p *Provider) permittedNATInterfaces(ctx context.Context, req provider.NATRouteRequest) ([]string, error) {
-	instanceIDs := []string{req.ProviderInstanceID, req.PreviousProviderInstanceID}
-	managed := make([]string, 0, len(instanceIDs))
-	for i, instanceID := range instanceIDs {
-		if instanceID == "" || i == 1 && instanceID == req.ProviderInstanceID {
-			continue
-		}
-		interfaceID, err := p.primaryNetworkInterface(ctx, instanceID)
-		if err != nil {
-			return nil, fmt.Errorf("resolve managed NAT instance %s: %w", instanceID, err)
-		}
-		managed = append(managed, interfaceID)
-	}
-	return managed, nil
 }
 
 // primaryNetworkInterface returns an instance's device-index-zero ENI.

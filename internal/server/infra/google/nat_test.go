@@ -6,7 +6,9 @@ package google
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -20,41 +22,49 @@ import (
 )
 
 // TestNATRouteRefusesForeignRoute verifies neither ensure nor removal mutates
-// an owned route that points to an unrelated instance.
+// routes with another owner or an unrelated destination.
 func TestNATRouteRefusesForeignRoute(t *testing.T) {
-	mutations := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			mutations++
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"name":"route","description":"nstance:cluster:red:subnet-a","nextHopInstance":"zones/zone/instances/nat-other"}`)
-	}))
-	t.Cleanup(server.Close)
-	service, err := compute.NewService(context.Background(), option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL+"/"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := &Provider{computeService: service, options: ProviderOptions{ProjectID: "project"}}
-	req := provider.NATRouteRequest{
-		DestinationCIDR:            "0.0.0.0/0",
-		ClusterID:                  "cluster",
-		Tenant:                     "red",
-		InstanceSubnetID:           "subnet-a",
-		ProviderInstanceID:         "nat-new",
-		PreviousProviderInstanceID: "nat-old",
-	}
-	if err := p.EnsureNATRoute(context.Background(), req); err == nil {
-		t.Fatal("foreign route was accepted")
-	}
-	if err := p.RemoveNATRoute(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	if mutations != 0 {
-		t.Fatalf("foreign route received %d mutations", mutations)
+	for _, route := range []string{
+		`{"description":"nstance:other:red:subnet-a","destRange":"0.0.0.0/0"}`,
+		`{"description":"nstance:cluster:red:subnet-a","destRange":"10.43.0.0/16"}`,
+	} {
+		t.Run(route, func(t *testing.T) {
+			mutations := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					mutations++
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, route)
+			}))
+			t.Cleanup(server.Close)
+			service, err := compute.NewService(context.Background(), option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL+"/"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := &Provider{computeService: service, options: ProviderOptions{ProjectID: "project"}}
+			req := provider.NATRouteRequest{
+				DestinationCIDR:            "0.0.0.0/0",
+				ClusterID:                  "cluster",
+				Tenant:                     "red",
+				InstanceSubnetID:           "subnet-a",
+				ProviderInstanceID:         "nat-new",
+				PreviousProviderInstanceID: "nat-old",
+			}
+			if err := p.EnsureNATRoute(context.Background(), req); err == nil {
+				t.Fatal("foreign route was accepted")
+			}
+			if err := p.RemoveNATRoute(context.Background(), req); err != nil {
+				t.Fatal(err)
+			}
+			if mutations != 0 {
+				t.Fatalf("foreign route received %d mutations", mutations)
+			}
+		})
 	}
 }
 
+// TestEnsureNAT64RouteUsesRequestedDestination verifies only the translation prefix is created.
 func TestEnsureNAT64RouteUsesRequestedDestination(t *testing.T) {
 	var body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,8 +75,7 @@ func TestEnsureNAT64RouteUsesRequestedDestination(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/subnetworks/subnet-a"):
 			_, _ = fmt.Fprint(w, `{"network":"global/networks/vpc"}`)
 		case strings.HasSuffix(r.URL.Path, "/routes"):
-			data := make([]byte, r.ContentLength)
-			_, _ = r.Body.Read(data)
+			data, _ := io.ReadAll(r.Body)
 			body = string(data)
 			_, _ = fmt.Fprint(w, `{"name":"insert"}`)
 		case strings.HasSuffix(r.URL.Path, "/wait"):
@@ -96,69 +105,130 @@ func TestEnsureNAT64RouteUsesRequestedDestination(t *testing.T) {
 	}
 }
 
-// TestPermittedNATNextHop verifies route ownership is limited to one cutover pair.
-func TestPermittedNATNextHop(t *testing.T) {
-	req := provider.NATRouteRequest{
-		ProviderInstanceID:         "nat-new",
-		PreviousProviderInstanceID: "nat-old",
-	}
-	for _, test := range []struct {
-		instance string
-		want     bool
-	}{
-		{"nat-new", true},
-		{"nat-old", true},
-		{"nat-other", false},
-	} {
-		nextHop := "zones/zone/instances/" + test.instance
-		if got := permittedNATNextHop(req, nextHop); got != test.want {
-			t.Errorf("permittedNATNextHop(%q) = %t, want %t", test.instance, got, test.want)
-		}
+// TestNATRouteCorrectsUnexpectedTarget verifies owned translation routes are
+// corrected without touching peering or native IPv6 destinations.
+func TestNATRouteCorrectsUnexpectedTarget(t *testing.T) {
+	for _, destination := range []string{"0.0.0.0/0", "64:ff9b::/96"} {
+		t.Run(destination, func(t *testing.T) {
+			name := provider.NATNetworkTag("cluster", "red", "subnet-a")
+			description := "nstance:cluster:red:subnet-a"
+			if destination == "64:ff9b::/96" {
+				name += "-nat64"
+				description += ":nat64"
+			}
+			peering := &compute.Route{Name: "peering", DestRange: "10.43.0.0/16", NextHopPeering: "peer"}
+			native := &compute.Route{Name: "native", DestRange: "::/0", NextHopGateway: "global/gateways/default-internet-gateway"}
+			routes := map[string]*compute.Route{
+				name:      {Name: name, Description: description, DestRange: destination, NextHopInstance: "zones/zone/instances/nat-unexpected"},
+				"peering": peering, "native": native,
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.Contains(r.URL.Path, "/routes/"):
+					routeName := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+					if r.Method == http.MethodDelete {
+						delete(routes, routeName)
+						_, _ = fmt.Fprint(w, `{"name":"delete"}`)
+					} else if route := routes[routeName]; route != nil {
+						_ = json.NewEncoder(w).Encode(route)
+					} else {
+						http.NotFound(w, r)
+					}
+				case strings.HasSuffix(r.URL.Path, "/routes"):
+					route := &compute.Route{}
+					if err := json.NewDecoder(r.Body).Decode(route); err != nil {
+						t.Error(err)
+					}
+					routes[route.Name] = route
+					_, _ = fmt.Fprint(w, `{"name":"insert"}`)
+				case strings.HasSuffix(r.URL.Path, "/subnetworks/subnet-a"):
+					_, _ = fmt.Fprint(w, `{"network":"global/networks/vpc"}`)
+				case strings.HasSuffix(r.URL.Path, "/wait"):
+					_, _ = fmt.Fprint(w, `{"status":"DONE"}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+			service, err := compute.NewService(context.Background(), option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL+"/"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := &Provider{computeService: service, config: provider.ProviderConfig{Region: "region", Zone: "zone"}, options: ProviderOptions{ProjectID: "project"}}
+			req := provider.NATRouteRequest{
+				ClusterID: "cluster", Tenant: "red", InstanceSubnetID: "subnet-a",
+				ProviderInstanceID: "nat-new", DestinationCIDR: destination,
+			}
+			if err := p.EnsureNATRoute(context.Background(), req); err != nil {
+				t.Fatal(err)
+			}
+			if len(routes) != 3 || routes[name] == nil || routes[name].NextHopInstance != "zones/zone/instances/nat-new" || !reflect.DeepEqual(routes["peering"], peering) || !reflect.DeepEqual(routes["native"], native) {
+				t.Fatalf("unexpected routes after cutover: %#v", routes)
+			}
+			if err := p.RemoveNATRoute(context.Background(), req); err != nil {
+				t.Fatal(err)
+			}
+			if len(routes) != 2 || routes[name] != nil || !reflect.DeepEqual(routes["peering"], peering) || !reflect.DeepEqual(routes["native"], native) {
+				t.Fatalf("unexpected routes after cleanup: %#v", routes)
+			}
+		})
 	}
 }
 
 // TestMovePublicAddress verifies replacement removes the fixed address from
-// the old VM and the temporary address from the new VM before assigning it.
+// the old VM (if it still exists) and the temporary address from the new VM.
 func TestMovePublicAddress(t *testing.T) {
-	var mutations []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/instances/nat-old"):
-			_, _ = fmt.Fprint(w, `{"networkInterfaces":[{"name":"nic0","accessConfigs":[{"name":"External NAT","type":"ONE_TO_ONE_NAT","natIP":"192.0.2.1"}]}]}`)
-		case strings.HasSuffix(r.URL.Path, "/instances/nat-new"):
-			_, _ = fmt.Fprint(w, `{"networkInterfaces":[{"name":"nic0","accessConfigs":[{"name":"External NAT","type":"ONE_TO_ONE_NAT","natIP":"192.0.2.99"}]}]}`)
-		case strings.HasSuffix(r.URL.Path, "/instances/nat-old/deleteAccessConfig"):
-			mutations = append(mutations, "delete-old")
-			_, _ = fmt.Fprint(w, `{"name":"delete-old"}`)
-		case strings.HasSuffix(r.URL.Path, "/instances/nat-new/deleteAccessConfig"):
-			mutations = append(mutations, "delete-new")
-			_, _ = fmt.Fprint(w, `{"name":"delete-new"}`)
-		case strings.HasSuffix(r.URL.Path, "/instances/nat-new/addAccessConfig"):
-			mutations = append(mutations, "add-new")
-			_, _ = fmt.Fprint(w, `{"name":"add-new"}`)
-		case strings.HasSuffix(r.URL.Path, "/wait"):
-			_, _ = fmt.Fprint(w, `{"status":"DONE"}`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(server.Close)
-	service, err := compute.NewService(context.Background(), option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL+"/"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := &Provider{computeService: service, config: provider.ProviderConfig{Zone: "zone"}, options: ProviderOptions{ProjectID: "project"}}
-	err = p.movePublicAddress(context.Background(), provider.NATRouteRequest{
-		ProviderInstanceID:         "nat-new",
-		PreviousProviderInstanceID: "nat-old",
-		PublicAddress:              &provider.PublicAddress{IPv4: "192.0.2.1"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"delete-old", "delete-new", "add-new"}
-	if !reflect.DeepEqual(mutations, want) {
-		t.Fatalf("mutations = %v, want %v", mutations, want)
+	for _, state := range []string{"running", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			var mutations []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/instances/nat-old"):
+					if state == "deleted" {
+						http.NotFound(w, r)
+						return
+					}
+					_, _ = fmt.Fprint(w, `{"networkInterfaces":[{"name":"nic0","accessConfigs":[{"name":"External NAT","type":"ONE_TO_ONE_NAT","natIP":"192.0.2.1"}]}]}`)
+				case strings.HasSuffix(r.URL.Path, "/instances/nat-new"):
+					_, _ = fmt.Fprint(w, `{"networkInterfaces":[{"name":"nic0","accessConfigs":[{"name":"External NAT","type":"ONE_TO_ONE_NAT","natIP":"192.0.2.99"}]}]}`)
+				case strings.HasSuffix(r.URL.Path, "/instances/nat-old/deleteAccessConfig"):
+					mutations = append(mutations, "delete-old")
+					_, _ = fmt.Fprint(w, `{"name":"delete-old"}`)
+				case strings.HasSuffix(r.URL.Path, "/instances/nat-new/deleteAccessConfig"):
+					mutations = append(mutations, "delete-new")
+					_, _ = fmt.Fprint(w, `{"name":"delete-new"}`)
+				case strings.HasSuffix(r.URL.Path, "/instances/nat-new/addAccessConfig"):
+					mutations = append(mutations, "add-new")
+					_, _ = fmt.Fprint(w, `{"name":"add-new"}`)
+				case strings.HasSuffix(r.URL.Path, "/wait"):
+					_, _ = fmt.Fprint(w, `{"status":"DONE"}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+			service, err := compute.NewService(context.Background(), option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL+"/"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := &Provider{computeService: service, config: provider.ProviderConfig{Zone: "zone"}, options: ProviderOptions{ProjectID: "project"}}
+			err = p.movePublicAddress(context.Background(), provider.NATRouteRequest{
+				ProviderInstanceID:         "nat-new",
+				PreviousProviderInstanceID: "nat-old",
+				PublicAddress:              &provider.PublicAddress{IPv4: "192.0.2.1"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"delete-old", "delete-new", "add-new"}
+			if state == "deleted" {
+				want = []string{"delete-new", "add-new"}
+			}
+			if !reflect.DeepEqual(mutations, want) {
+				t.Fatalf("mutations = %v, want %v", mutations, want)
+			}
+		})
 	}
 }

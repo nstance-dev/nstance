@@ -85,7 +85,7 @@ func (s *AssignmentStore) Claim(ctx context.Context, addresses []config.PublicAd
 }
 
 // ClaimReplacement records a create-before-destroy replacement using the
-// current subnet's fixed address, if any.
+// current subnet's fixed address, if any, or returns its pending replacement.
 func (s *AssignmentStore) ClaimReplacement(ctx context.Context, current Assignment, instanceID, instanceType string, createdAt time.Time) (Assignment, error) {
 	var replacement Assignment
 	err := s.update(ctx, func(assignments map[string]Assignment) error {
@@ -95,7 +95,8 @@ func (s *AssignmentStore) ClaimReplacement(ctx context.Context, current Assignme
 		}
 		for _, assignment := range assignments {
 			if assignment.Replaces == current.InstanceID {
-				return fmt.Errorf("NAT instance %q already has a replacement", current.InstanceID)
+				replacement = assignment
+				return nil
 			}
 		}
 		if _, ok := assignments[current.InstanceID]; !ok {
@@ -196,12 +197,19 @@ func (s *AssignmentStore) update(ctx context.Context, apply func(map[string]Assi
 		if err != nil {
 			return err
 		}
+		before, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
 		if err := apply(state.Assignments); err != nil {
 			return err
 		}
 		data, err := json.Marshal(state)
 		if err != nil {
 			return err
+		}
+		if bytes.Equal(before, data) {
+			return nil
 		}
 		if err := s.storage.PutIfMatch(ctx, assignmentStateKey, data, etag); errors.Is(err, storage.ErrPrecondition) {
 			continue

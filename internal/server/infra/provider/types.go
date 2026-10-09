@@ -40,7 +40,7 @@ type PublicAddress struct {
 	AllocationID string `json:"allocation_id,omitempty"`
 }
 
-// NATRouteRequest identifies one tenant subnet route and its permitted next hops.
+// NATRouteRequest identifies a tenant subnet's translation route and desired NAT instance.
 type NATRouteRequest struct {
 	ClusterID                  string         `json:"cluster_id"`
 	Tenant                     string         `json:"tenant"`

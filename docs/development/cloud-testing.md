@@ -86,6 +86,18 @@ both files.
 The binary download URLs expire. If you need to apply changes or replace
 instances after they expire, run the provider's `upload` command again first.
 
+### Fixed NAT address
+
+The single-shard examples and generated cloud tests reserve one public IPv4
+address for Nstance NAT by default, so you can test that it stays the same when
+the NAT instance is replaced. The `nat_public_addresses` output shows the
+reserved address. Public IPv4 addresses incur cloud charges.
+
+To use instance-assigned addresses instead, set `"fixed_public_ipv4_count": 0`
+in `temp/aws-test/deployment.auto.tfvars.json` or
+`temp/google-test/deployment.auto.tfvars.json` before applying. NAT remains
+enabled. Production network modules still default to zero reserved addresses.
+
 ### Test load balancer
 
 The test configuration includes a public TCP load balancer named `workers`:

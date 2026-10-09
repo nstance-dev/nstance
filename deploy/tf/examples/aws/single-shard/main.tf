@@ -47,6 +47,12 @@ variable "nat_mode" {
   default     = "nstance"
 }
 
+variable "fixed_public_ipv4_count" {
+  description = "Reserved public IPv4 addresses per NAT service subnet; set to 0 for instance-assigned addresses"
+  type        = number
+  default     = 1
+}
+
 variable "load_balancers" {
   description = "Optional load balancers associated with the workers group"
   type = map(object({
@@ -96,12 +102,13 @@ module "account" {
 module "network" {
   source = "../../../aws/network"
 
-  cluster        = module.cluster
-  vpc_cidr_ipv4  = "172.18.0.0/16"
-  ipv4_enabled   = var.ipv4_enabled
-  ipv6_enabled   = var.ipv6_enabled
-  nat_mode       = var.nat_mode
-  load_balancers = var.load_balancers
+  cluster                 = module.cluster
+  vpc_cidr_ipv4           = "172.18.0.0/16"
+  ipv4_enabled            = var.ipv4_enabled
+  ipv6_enabled            = var.ipv6_enabled
+  nat_mode                = var.nat_mode
+  fixed_public_ipv4_count = var.fixed_public_ipv4_count
+  load_balancers          = var.load_balancers
 
   # Define subnets by role and zone
   # ipv6_netnum (0-255) auto-computes /64 from VPC's AWS-assigned /56

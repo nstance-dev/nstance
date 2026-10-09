@@ -54,6 +54,20 @@ report healthy before Nstance moves the route and optional fixed public IPv4
 address, then removes the old instance. Route cutover can interrupt existing
 translated connections, so this is not a stateful hot-standby design.
 
+If a NAT instance fails or is deleted outside Nstance, the server replaces it
+for the same workload subnet and restores the route after the replacement is
+ready. Translation is unavailable while the replacement boots. Nstance manages
+only the translation destination: `0.0.0.0/0` for IPv4 NAT or `64:ff9b::/96` for
+NAT64. It corrects that route's target even if it was changed manually, leaving
+peering routes and native IPv6 routes unchanged. Recovery after a restart does
+not require the deleted VM's network interface to remain discoverable. If a
+replacement fails during cutover and the previous NAT instance is still
+healthy, Nstance restores its route and fixed address before discarding the
+failed replacement. Missing or stale health leaves the existing route in
+place. When the surviving NAT reports healthy again, reconciliation restores
+its route and fixed address without waiting for another workload to be created,
+even if the server restarted during recovery.
+
 ## How IPv6-only workloads reach IPv4 services
 
 An IPv6-only workload cannot connect directly to an IPv4 address. NAT64 and

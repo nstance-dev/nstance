@@ -561,6 +561,7 @@ func NewRootCmd() *cobra.Command {
 		}
 		logger.Info("Instances manager ready")
 		var natManager *nat.Manager
+		var natReplacementHandler func(context.Context, string) error
 		if len(cfg.NAT) != 0 {
 			assignments, err := nat.NewAssignmentStore(shardStorage)
 			if err != nil {
@@ -580,6 +581,7 @@ func NewRootCmd() *cobra.Command {
 				os.Exit(1)
 			}
 			instancesManager.SetSubnetPreparer(natManager)
+			natReplacementHandler = natManager.ReplaceInstance
 			logger.Info("Managed NAT manager ready")
 		}
 
@@ -613,11 +615,12 @@ func NewRootCmd() *cobra.Command {
 
 		// create reconciler
 		rec, err := reconciler.New(reconciler.Options{
-			InstanceManager: instancesManager,
-			TenantState:     tenantState,
-			ConfigLoader:    configLoader,
-			LocalDB:         localDB,
-			Provider:        infraProvider,
+			InstanceManager:       instancesManager,
+			TenantState:           tenantState,
+			NATReplacementHandler: natReplacementHandler,
+			ConfigLoader:          configLoader,
+			LocalDB:               localDB,
+			Provider:              infraProvider,
 			NotifyDrain: func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time) {
 				if operatorService != nil {
 					operatorService.NotifyDrain(operator.DrainNotification{

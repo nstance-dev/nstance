@@ -26,6 +26,10 @@ func (r *Reconciler) handleSpotTerminating(instanceID string) error {
 		return nil
 	}
 
+	if handled, err := r.replaceNATInstance(instanceID, instance.Tenant, groupKey); handled {
+		return err
+	}
+
 	// Get group configuration
 	group, err := config.GetGroup(r.ctx, r.configLoader, instance.Tenant, groupKey)
 	if err != nil {

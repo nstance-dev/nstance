@@ -7,6 +7,7 @@ package nat
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -178,9 +179,12 @@ func (m *Manager) startReplacement(ctx context.Context, cfg *config.Config, natC
 	if err != nil {
 		return fmt.Errorf("generate replacement NAT instance ID: %w", err)
 	}
-	_, err = m.assignments.ClaimReplacement(ctx, current, instanceID, instanceType, now)
+	replacement, err := m.assignments.ClaimReplacement(ctx, current, instanceID, instanceType, now)
 	if err != nil {
 		return err
+	}
+	if replacement.InstanceID != instanceID {
+		return nil
 	}
 	if _, err := m.instances.CreateNATInstance(ctx, instances.CreateInstanceRequest{
 		InstanceID: instanceID, Tenant: current.Tenant, Group: natConfig.Group,
@@ -198,6 +202,27 @@ func (m *Manager) startReplacement(ctx context.Context, cfg *config.Config, natC
 	delete(m.scaleDownSince, current.InstanceID)
 	m.logger.Info("Started NAT instance replacement", "tenant", current.Tenant, "subnet_id", current.InstanceSubnetID, "instance_type", instanceType)
 	return nil
+}
+
+// ReplaceInstance starts a NAT replacement without changing its subnet or fixed address.
+// Repeated failure notifications leave an existing replacement in progress.
+func (m *Manager) ReplaceInstance(ctx context.Context, instanceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	assignments, err := m.assignments.Assignments(ctx)
+	if err != nil {
+		return err
+	}
+	assignment, ok := assignments[instanceID]
+	if !ok || assignment.Deleting || assignment.Retiring || assignment.Replaces != "" {
+		return nil
+	}
+	cfg := m.configLoader.GetCurrent()
+	natConfig, ok := cfg.NAT[assignment.Tenant]
+	if !ok || natConfig.Group == "" {
+		return nil
+	}
+	return m.startReplacement(ctx, cfg, natConfig, assignment, assignment.InstanceType, time.Now().UTC())
 }
 
 // PrepareSubnet ensures a healthy dedicated NAT instance and owned translation
@@ -237,7 +262,10 @@ func (m *Manager) PrepareSubnet(ctx context.Context, tenant, subnetID string) er
 		}
 	}
 	instance, err := m.localDB.GetInstance(assignment.InstanceID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read NAT instance: %w", err)
+	}
+	if instance == nil && !assignment.Routed && assignment.ProviderID == "" {
 		if _, err := m.instances.CreateNATInstance(ctx, instances.CreateInstanceRequest{
 			InstanceID: assignment.InstanceID,
 			Tenant:     tenant,
@@ -247,14 +275,23 @@ func (m *Manager) PrepareSubnet(ctx context.Context, tenant, subnetID string) er
 		}
 		return ErrNotReady
 	}
-	if err != nil {
-		return fmt.Errorf("read NAT instance: %w", err)
-	}
-	if instance.ProviderID == nil || instance.RegisteredAt == nil || instance.HealthAt == nil {
+	if instanceFailed(instance) {
+		if err := m.startReplacement(ctx, cfg, natConfig, assignment, assignment.InstanceType, time.Now().UTC()); err != nil {
+			return err
+		}
 		return ErrNotReady
 	}
+	if !instanceReady(instance, cfg.Shard.HealthCheckInterval.Duration(), time.Now().UTC()) {
+		return ErrNotReady
+	}
+	// Keep using the healthy active route while its replacement boots or cuts over.
+	for _, candidate := range assignments {
+		if assignment.Routed && candidate.Replaces == assignment.InstanceID && !candidate.Deleting {
+			return nil
+		}
+	}
 	assignment.ProviderID = *instance.ProviderID
-	if err := m.provider.EnsureNATRoute(ctx, m.routeRequest(cfg, assignments, assignment)); err != nil {
+	if err := m.ensureRoute(ctx, assignment.InstanceID, m.routeRequest(cfg, assignments, assignment)); err != nil {
 		return err
 	}
 	if assignment.InstanceType == "" {
@@ -262,7 +299,6 @@ func (m *Manager) PrepareSubnet(ctx context.Context, tenant, subnetID string) er
 	}
 	if err := m.assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) {
 		current.InstanceType = assignment.InstanceType
-		current.ProviderID = assignment.ProviderID
 		current.EmptySince = nil
 		current.Deleting = false
 		current.Routed = true
@@ -314,7 +350,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 		}
 		natConfig, configured := cfg.NAT[assignment.Tenant]
 		instance, instanceErr := m.localDB.GetInstance(assignment.InstanceID)
-		ready := instanceErr == nil && instance.ProviderID != nil && instance.RegisteredAt != nil && instance.HealthAt != nil
+		ready := instanceErr == nil && instanceReady(instance, cfg.Shard.HealthCheckInterval.Duration(), now)
 		if !configured || natConfig.Group == "" || !ready {
 			if !configured || natConfig.Group == "" || now.Sub(assignment.CreatedAt) >= natConfig.ReplacementTimeout.Duration() {
 				return m.deleteAssignment(ctx, cfg, assignments, assignment)
@@ -322,12 +358,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			continue
 		}
 		assignment.ProviderID = *instance.ProviderID
-		if err := m.assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) {
-			current.ProviderID = assignment.ProviderID
-		}); err != nil {
-			return err
-		}
-		if err := m.provider.EnsureNATRoute(ctx, m.routeRequest(cfg, assignments, assignment)); err != nil {
+		if err := m.ensureRoute(ctx, assignment.InstanceID, m.routeRequest(cfg, assignments, assignment)); err != nil {
 			return fmt.Errorf("switch NAT route to replacement: %w", err)
 		}
 		if err := m.assignments.Promote(ctx, assignment.InstanceID, now); err != nil {
@@ -356,6 +387,25 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 					return err
 				}
 			}
+			instance, err := m.localDB.GetInstance(assignment.InstanceID)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("read NAT instance: %w", err)
+			}
+			if instanceFailed(instance) {
+				if err := m.startReplacement(ctx, cfg, natConfig, assignment, assignment.InstanceType, now); err != nil {
+					return err
+				}
+			} else if !assignment.Routed && instanceReady(instance, cfg.Shard.HealthCheckInterval.Duration(), now) {
+				assignment.ProviderID = *instance.ProviderID
+				if err := m.ensureRoute(ctx, assignment.InstanceID, m.routeRequest(cfg, assignments, assignment)); err != nil {
+					return fmt.Errorf("restore active NAT route: %w", err)
+				}
+				if err := m.assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) {
+					current.Routed = true
+				}); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if !assignment.Deleting && dedicated && !assignment.Retiring {
@@ -378,10 +428,66 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+// instanceFailed reports a missing instance or a provider-confirmed failure.
+func instanceFailed(instance *localdb.Instance) bool {
+	if instance == nil {
+		return true
+	}
+	var status provider.InstanceStatus
+	return json.Unmarshal(instance.ProviderState, &status) == nil && provider.IsUnhealthy(status.Status)
+}
+
+// instanceReady requires registration and health within the reconciler's missed-report threshold.
+func instanceReady(instance *localdb.Instance, healthInterval time.Duration, now time.Time) bool {
+	if instanceFailed(instance) || instance.ProviderID == nil || instance.RegisteredAt == nil || instance.HealthAt == nil {
+		return false
+	}
+	return healthInterval <= 0 || now.Sub(*instance.HealthAt) < 3*healthInterval
+}
+
+// ensureRoute records the VM ID before cutover so Google fixed-IP rollback can
+// release the address from an interrupted replacement. No ENI state is persisted.
+func (m *Manager) ensureRoute(ctx context.Context, instanceID string, request provider.NATRouteRequest) error {
+	if err := m.assignments.Update(ctx, instanceID, func(current *Assignment) {
+		current.ProviderID = request.ProviderInstanceID
+	}); err != nil {
+		return fmt.Errorf("record NAT provider instance: %w", err)
+	}
+	return m.provider.EnsureNATRoute(ctx, request)
+}
+
 // deleteAssignment removes an unused NAT route and instance.
 func (m *Manager) deleteAssignment(ctx context.Context, cfg *config.Config, assignments map[string]Assignment, assignment Assignment) error {
 	if !assignment.Deleting {
-		if assignment.Routed {
+		// Retiring instances leave the replacement's route alone. A pending
+		// replacement may have changed the route only after recording its provider ID.
+		removeRoute := !assignment.Retiring && (assignment.Replaces == "" || assignment.ProviderID != "")
+		if removeRoute {
+			if previous, ok := assignments[assignment.Replaces]; ok && cfg.NAT[assignment.Tenant].Group != "" && !previous.Deleting && !previous.Retiring {
+				instance, err := m.localDB.GetInstance(previous.InstanceID)
+				if err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("read previous NAT instance: %w", err)
+				}
+				previous.Routed = instanceReady(instance, cfg.Shard.HealthCheckInterval.Duration(), time.Now().UTC())
+				if previous.Routed {
+					previous.ProviderID = *instance.ProviderID
+					request := m.routeRequest(cfg, assignments, previous)
+					request.PreviousProviderInstanceID = assignment.ProviderID
+					if err := m.ensureRoute(ctx, previous.InstanceID, request); err != nil {
+						return fmt.Errorf("restore previous NAT route: %w", err)
+					}
+				}
+				// Keep the route until a healthy NAT can take over. Persist the
+				// retry before releasing an interrupted replacement's assignment.
+				if err := m.assignments.Update(ctx, previous.InstanceID, func(current *Assignment) {
+					current.Routed = previous.Routed
+				}); err != nil {
+					return err
+				}
+				removeRoute = false
+			}
+		}
+		if removeRoute {
 			if err := m.provider.RemoveNATRoute(ctx, m.routeRequest(cfg, assignments, assignment)); err != nil {
 				return fmt.Errorf("remove NAT route: %w", err)
 			}

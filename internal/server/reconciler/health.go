@@ -67,7 +67,7 @@ func (r *Reconciler) handleCheckInstance(event ReconcileEvent) {
 		if errors.Is(err, provider.ErrInstanceNotFound) {
 			// Instance was deleted externally (e.g., terminated in cloud provider console)
 			// Mark instance as terminated in DB so it's excluded from instance counts
-			terminatedState := &provider.InstanceStatus{Status: "terminated"}
+			terminatedState := &provider.InstanceStatus{Status: provider.StatusDeleted}
 			if stateJSON, jsonErr := json.Marshal(terminatedState); jsonErr == nil {
 				if dbErr := r.localDB.UpdateInstanceProviderState(instanceID, stateJSON); dbErr != nil {
 					r.logger.Warn("Failed to update provider state for terminated instance",

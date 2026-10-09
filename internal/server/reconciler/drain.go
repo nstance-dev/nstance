@@ -19,6 +19,9 @@ import (
 // when the provider reports the instance as stopping/stopped/deleting/deleted/failed
 // or not found, since there is no running workload to drain.
 func (r *Reconciler) replaceAndDrain(instanceID, tenant, groupKey, reason string, group config.GroupConfig, skipDrain bool) {
+	if handled, _ := r.replaceNATInstance(instanceID, tenant, groupKey); handled {
+		return
+	}
 	cfg := r.configLoader.GetCurrent()
 	drainTimeout := cfg.Shard.DefaultDrainTimeout
 	if group.DrainTimeout != nil {
@@ -57,6 +60,25 @@ func (r *Reconciler) replaceAndDrain(instanceID, tenant, groupKey, reason string
 		InstanceID: instanceID,
 		Timestamp:  time.Now().UTC(),
 	})
+}
+
+// replaceNATInstance delegates replacement to the NAT manager when it owns the group.
+// It returns true even on failure so callers never fall back to ordinary creation.
+// Errors are logged and returned for callers that retry reconciliation events.
+func (r *Reconciler) replaceNATInstance(instanceID, tenant, groupKey string) (bool, error) {
+	cfg := r.configLoader.GetCurrent()
+	if natConfig, ok := cfg.NAT[tenant]; !ok || natConfig.Group != groupKey {
+		return false, nil
+	}
+	if r.natReplacementHandler == nil {
+		r.logger.Error("NAT replacement handler is not configured", "instance_id", instanceID)
+		return true, errors.New("NAT replacement handler is not configured")
+	}
+	err := r.natReplacementHandler(r.ctx, instanceID)
+	if err != nil {
+		r.logger.Error("Failed to replace NAT instance", "instance_id", instanceID, "error", err)
+	}
+	return true, err
 }
 
 // initiateInstanceDrain marks an instance for drain and notifies the operator.

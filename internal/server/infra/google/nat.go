@@ -16,25 +16,22 @@ import (
 
 // EnsureNATRoute points a tenant-tagged NAT44 or NAT64 route at the requested VM.
 func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
-	if req.PublicAddress != nil {
-		if err := p.movePublicAddress(ctx, req); err != nil {
-			return err
-		}
-	}
 	name, description := natRouteIdentity(req)
 	route, err := p.computeService.Routes.Get(p.options.ProjectID, name).Context(ctx).Do()
 	if err != nil && !isNotFound(err) {
 		return fmt.Errorf("get route %s: %w", name, err)
 	}
-	if route != nil {
-		if route.Description != description {
-			return fmt.Errorf("route %s is not owned by this tenant subnet", name)
+	if route != nil && (route.Description != description || route.DestRange != req.DestinationCIDR) {
+		return fmt.Errorf("route %s is not this tenant subnet's translation route", name)
+	}
+	if req.PublicAddress != nil {
+		if err := p.movePublicAddress(ctx, req); err != nil {
+			return err
 		}
+	}
+	if route != nil {
 		if strings.HasSuffix(route.NextHopInstance, "/instances/"+req.ProviderInstanceID) {
 			return nil
-		}
-		if !permittedNATNextHop(req, route.NextHopInstance) {
-			return fmt.Errorf("route %s next hop is not Nstance-managed", name)
 		}
 		operation, err := p.computeService.Routes.Delete(p.options.ProjectID, name).Context(ctx).Do()
 		if err != nil {
@@ -69,7 +66,7 @@ func (p *Provider) EnsureNATRoute(ctx context.Context, req provider.NATRouteRequ
 	return nil
 }
 
-// RemoveNATRoute removes a route only while its current next hop remains managed.
+// RemoveNATRoute removes only the named tenant translation route, leaving other destinations alone.
 func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequest) error {
 	name, description := natRouteIdentity(req)
 	route, err := p.computeService.Routes.Get(p.options.ProjectID, name).Context(ctx).Do()
@@ -79,10 +76,7 @@ func (p *Provider) RemoveNATRoute(ctx context.Context, req provider.NATRouteRequ
 	if err != nil {
 		return fmt.Errorf("get route %s: %w", name, err)
 	}
-	if route.Description != description {
-		return nil
-	}
-	if !permittedNATNextHop(req, route.NextHopInstance) {
+	if route.Description != description || route.DestRange != req.DestinationCIDR {
 		return nil
 	}
 	operation, err := p.computeService.Routes.Delete(p.options.ProjectID, name).Context(ctx).Do()
@@ -103,13 +97,6 @@ func natRouteIdentity(req provider.NATRouteRequest) (string, string) {
 		return name + "-nat64", description + ":nat64"
 	}
 	return name, description
-}
-
-// permittedNATNextHop reports whether a route targets the current or previous NAT instance.
-func permittedNATNextHop(req provider.NATRouteRequest, nextHop string) bool {
-	current := req.ProviderInstanceID != "" && strings.HasSuffix(nextHop, "/instances/"+req.ProviderInstanceID)
-	previous := req.PreviousProviderInstanceID != "" && strings.HasSuffix(nextHop, "/instances/"+req.PreviousProviderInstanceID)
-	return current || previous
 }
 
 // movePublicAddress moves a reserved external address to the target instance.
@@ -152,6 +139,9 @@ func (p *Provider) movePublicAddress(ctx context.Context, req provider.NATRouteR
 // removeAccessConfig removes a matching or arbitrary external IPv4 configuration.
 func (p *Provider) removeAccessConfig(ctx context.Context, instanceID, address string, any bool) error {
 	instance, err := p.computeService.Instances.Get(p.options.ProjectID, p.config.Zone, instanceID).Context(ctx).Do()
+	if isNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("get instance %s: %w", instanceID, err)
 	}

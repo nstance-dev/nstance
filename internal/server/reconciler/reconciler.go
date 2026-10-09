@@ -70,16 +70,17 @@ type groupIdentity struct {
 
 // Reconciler handles instance reconciliation (matching actual instance count to desired group size)
 type Reconciler struct {
-	queue           chan queuedEvent
-	instanceManager InstanceManager
-	tenantState     TenantState
-	configLoader    *config.Loader
-	localDB         *localdb.DB
-	provider        infra.Provider
-	notifyDrain     func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time)
-	notifyError     func(tenant, group, instanceID, errMsg string)
-	isLeader        func() bool
-	logger          *slog.Logger
+	queue                 chan queuedEvent
+	instanceManager       InstanceManager
+	tenantState           TenantState
+	natReplacementHandler func(context.Context, string) error
+	configLoader          *config.Loader
+	localDB               *localdb.DB
+	provider              infra.Provider
+	notifyDrain           func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time)
+	notifyError           func(tenant, group, instanceID, errMsg string)
+	isLeader              func() bool
+	logger                *slog.Logger
 
 	// Rate limiting and instance creation serialization
 	createRateLimit time.Duration
@@ -107,16 +108,17 @@ type Reconciler struct {
 
 // Options contains options for creating a Reconciler
 type Options struct {
-	InstanceManager InstanceManager
-	TenantState     TenantState
-	ConfigLoader    *config.Loader
-	LocalDB         *localdb.DB
-	Provider        infra.Provider
-	NotifyDrain     func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time)
-	NotifyError     func(tenant, group, instanceID, errMsg string)
-	IsLeader        func() bool
-	CreateRateLimit time.Duration
-	Logger          *slog.Logger
+	InstanceManager       InstanceManager
+	TenantState           TenantState
+	NATReplacementHandler func(context.Context, string) error
+	ConfigLoader          *config.Loader
+	LocalDB               *localdb.DB
+	Provider              infra.Provider
+	NotifyDrain           func(instanceID, group, reason string, unhealthyAt, deleteAt time.Time)
+	NotifyError           func(tenant, group, instanceID, errMsg string)
+	IsLeader              func() bool
+	CreateRateLimit       time.Duration
+	Logger                *slog.Logger
 }
 
 // New creates a new Reconciler
@@ -146,21 +148,22 @@ func New(opts Options) (*Reconciler, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Reconciler{
-		queue:           make(chan queuedEvent, 1000),
-		instanceManager: opts.InstanceManager,
-		tenantState:     opts.TenantState,
-		configLoader:    opts.ConfigLoader,
-		localDB:         opts.LocalDB,
-		provider:        opts.Provider,
-		notifyDrain:     opts.NotifyDrain,
-		notifyError:     opts.NotifyError,
-		isLeader:        opts.IsLeader,
-		createRateLimit: opts.CreateRateLimit,
-		recentEvents:    make(map[string]time.Time),
-		expiryTimers:    make(map[groupIdentity]*time.Timer),
-		logger:          opts.Logger,
-		ctx:             ctx,
-		cancel:          cancel,
+		queue:                 make(chan queuedEvent, 1000),
+		instanceManager:       opts.InstanceManager,
+		tenantState:           opts.TenantState,
+		natReplacementHandler: opts.NATReplacementHandler,
+		configLoader:          opts.ConfigLoader,
+		localDB:               opts.LocalDB,
+		provider:              opts.Provider,
+		notifyDrain:           opts.NotifyDrain,
+		notifyError:           opts.NotifyError,
+		isLeader:              opts.IsLeader,
+		createRateLimit:       opts.CreateRateLimit,
+		recentEvents:          make(map[string]time.Time),
+		expiryTimers:          make(map[groupIdentity]*time.Timer),
+		logger:                opts.Logger,
+		ctx:                   ctx,
+		cancel:                cancel,
 	}, nil
 }
 
