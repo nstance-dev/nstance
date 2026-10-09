@@ -46,6 +46,7 @@ type ManagerOptions struct {
 	Assignments  *AssignmentStore
 	Instances    InstanceCreator
 	Logger       *slog.Logger
+	TenantAsleep func(string) bool
 }
 
 // Manager prepares dedicated NAT instances and routes before instance creation.
@@ -56,6 +57,7 @@ type Manager struct {
 	assignments    *AssignmentStore
 	instances      InstanceCreator
 	logger         *slog.Logger
+	tenantAsleep   func(string) bool
 	mu             sync.Mutex
 	metrics        map[string]metricSample
 	scaleUpSince   map[string]time.Time
@@ -85,6 +87,7 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		assignments:    opts.Assignments,
 		instances:      opts.Instances,
 		logger:         opts.Logger,
+		tenantAsleep:   opts.TenantAsleep,
 		metrics:        make(map[string]metricSample),
 		scaleUpSince:   make(map[string]time.Time),
 		scaleDownSince: make(map[string]time.Time),
@@ -408,7 +411,8 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 			}
 			continue
 		}
-		if !assignment.Deleting && dedicated && !assignment.Retiring {
+		asleep := m.tenantAsleep != nil && m.tenantAsleep(assignment.Tenant)
+		if !assignment.Deleting && dedicated && !assignment.Retiring && !asleep {
 			if assignment.EmptySince == nil {
 				if err := m.assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) {
 					current.EmptySince = &now

@@ -119,6 +119,83 @@ func TestReconcileLoadBalancersHonorsWithdrawalBoundary(t *testing.T) {
 	}
 }
 
+// targetStateProvider holds a target's reported state while delegating VM lifecycle.
+type targetStateProvider struct {
+	infra.Provider
+	state infra.LBTargetState
+}
+
+// GetLBTargetState reports the target state selected by the test.
+func (p *targetStateProvider) GetLBTargetState(context.Context, infra.RegisterLBRequest) (infra.LBTargetState, error) {
+	return p.state, nil
+}
+
+// TestDeleteInstanceDrainBarrier verifies only committed sleep permits VM
+// termination during draining, and unknown or still-routable targets block it.
+func TestDeleteInstanceDrainBarrier(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		asleep bool
+		state  infra.LBTargetState
+		delete bool
+	}{
+		{"awake-draining", false, infra.LBTargetDraining, false},
+		{"asleep-draining", true, infra.LBTargetDraining, true},
+		{"asleep-healthy", true, infra.LBTargetHealthy, false},
+		{"asleep-partial", true, infra.LBTargetPartial, false},
+		{"asleep-unknown", true, "", false},
+		{"awake-deregistered", false, infra.LBTargetDeregistered, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db, err := localdb.Open(filepath.Join(t.TempDir(), "instances.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			store := storage.NewMock()
+			loader, err := config.NewLoader(config.LoaderOptions{Storage: store, CacheStorage: storage.NewMock(), LocalDB: db, Logger: slog.Default()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			loader.SetConfig(&config.Config{LoadBalancers: map[string]config.LoadBalancerConfig{
+				"public": {Provider: "aws", TargetGroups: []config.AWSTargetGroupConfig{{ARN: "target-group", TargetPort: 443}}},
+			}})
+			delegate := mock.NewProvider(mock.Options{Config: infra.ProviderConfig{Kind: "mock"}, Logger: slog.Default()})
+			id, err := puidv7.New("dft")
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := delegate.CreateInstance(ctx, infra.CreateInstanceRequest{InstanceID: id})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.CreateInstance(&localdb.Instance{ID: id, Tenant: "red", Group: "web", ProviderID: &created.ProviderInstanceID, CreatedAt: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.UpsertLBInstance("public", id, localdb.LBStatusRegistered); err != nil {
+				t.Fatal(err)
+			}
+			manager := &Manager{
+				configLoader: loader, localDB: db, storage: store, logger: slog.Default(),
+				provider:     &targetStateProvider{Provider: delegate, state: tc.state},
+				tenantAsleep: func(tenant string) bool { return tc.asleep && tenant == "red" },
+			}
+			if err := manager.DeleteInstance(ctx, "red", id); (err == nil) != tc.delete {
+				t.Fatalf("DeleteInstance error=%v, want deletion=%t", err, tc.delete)
+			}
+			status, err := delegate.GetInstanceStatus(ctx, id, created.ProviderInstanceID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			deleted := status.Status == infra.StatusDeleting || status.Status == infra.StatusDeleted
+			if deleted != tc.delete {
+				t.Fatalf("provider status=%s, want deletion=%t", status.Status, tc.delete)
+			}
+		})
+	}
+}
+
 // TestSelectSubnetFillsThenBalances verifies the /26 placement boundary and
 // the post-boundary balancing rule use durable instance placement.
 func TestSelectSubnetFillsThenBalances(t *testing.T) {

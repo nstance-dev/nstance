@@ -152,6 +152,18 @@ variable "server_count" {
   default     = 1
 }
 
+variable "server_instance_warmup_seconds" {
+  description = "Seconds to wait after a server enters InService during an AWS rolling refresh; not an application-readiness check. Ignored on Google Cloud."
+  type        = number
+  default     = 60
+  nullable    = false
+
+  validation {
+    condition     = var.server_instance_warmup_seconds >= 0 && floor(var.server_instance_warmup_seconds) == var.server_instance_warmup_seconds
+    error_message = "server_instance_warmup_seconds must be a non-negative integer."
+  }
+}
+
 variable "server_arch" {
   description = "CPU architecture for server instances: arm64 or amd64. Defaults to arm64 on AWS (Graviton) and amd64 on Google Cloud."
   type        = string

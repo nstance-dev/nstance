@@ -261,9 +261,10 @@ Before putting the tenant to sleep, make sure the worker backend and wake proxy
 are healthy. `--force` skips the activity check, but not the checks that ensure
 traffic can be routed safely.
 
-On AWS, sleep waits for the target group's 300-second drain before shutting down
-workers. They remain running during this wait. The CLI prints elapsed-time
-feedback until the server responds; it does not report individual cutover stages.
+On AWS, normal sleep waits for the target group's 300-second drain before shutting
+down workers. `--force` skips that grace period after the wake proxy is healthy
+and workers stop receiving new connections. The CLI prints elapsed-time feedback
+until the server responds; it does not report individual cutover stages.
 
 To test traffic-triggered wake, set `LB_ADDRESS` to the load-balancer DNS name
 or IP address from the output above, then run:

@@ -59,6 +59,7 @@ type Manager struct {
 	subnetPreparer            SubnetPreparer
 	lbMu                      sync.Mutex
 	targetRegistrationBlocked func(string) bool
+	tenantAsleep              func(string) bool
 }
 
 // ManagerOptions contains options for creating an instance manager
@@ -72,6 +73,7 @@ type ManagerOptions struct {
 	CACert                    []byte      // PEM-encoded CA certificate
 	Logger                    *slog.Logger
 	TargetRegistrationBlocked func(string) bool
+	TenantAsleep              func(string) bool // Committed sleep permits terminating draining targets.
 }
 
 // NewManager creates a new instance manager
@@ -108,6 +110,7 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		caCert:                    opts.CACert,
 		logger:                    opts.Logger,
 		targetRegistrationBlocked: opts.TargetRegistrationBlocked,
+		tenantAsleep:              opts.TenantAsleep,
 	}
 
 	// Initialize JWT signer for registration nonces
@@ -525,10 +528,10 @@ func (m *Manager) DeleteInstance(ctx context.Context, tenant, instanceID string)
 	m.lbMu.Lock()
 	defer m.lbMu.Unlock()
 
-	// Step 1: Fully deregister from load balancers. A draining or unknown
-	// target is a retryable deletion barrier, never permission to delete the VM.
+	// Step 1: Withdraw load-balancer targets. Outside committed sleep,
+	// targets must finish draining before the VM can be deleted.
 	if err := m.deregisterInstanceFromLB(ctx, instance); err != nil {
-		return fmt.Errorf("failed to fully deregister instance from load balancers: %w", err)
+		return fmt.Errorf("failed to withdraw instance from load balancers: %w", err)
 	}
 
 	// Step 2: Delete via provider (drain happens before this in reconciler)
@@ -943,6 +946,11 @@ func (m *Manager) deregisterInstanceFromLB(ctx context.Context, instance *locald
 			if err != nil {
 				return fmt.Errorf("confirming instance %s deregistration from load balancer %s: %w", instance.ID, lbInstance.LBKey, err)
 			}
+		}
+		// Sleep commits only after the wake path is ready and targets stop
+		// receiving new connections. Forced sleep need not wait for old ones.
+		if state == infra.LBTargetDraining && m.tenantAsleep != nil && m.tenantAsleep(instance.Tenant) {
+			continue
 		}
 		if state != infra.LBTargetDeregistered {
 			return fmt.Errorf("instance %s target is still %s in load balancer %s", instance.ID, state, lbInstance.LBKey)

@@ -54,6 +54,21 @@ Each cloud provider has its own published module repository:
 
 Region and project are inferred from the provider configuration via data sources (`data.aws_region.current` or `data.google_client_config.current`), to minimise the number of required variables per module.
 
+### AWS Server Updates
+
+Rolling updates wait 60 seconds after each replacement server enters
+`InService` before continuing. Override this on the shard module when your
+userdata needs more time:
+
+```hcl
+server_instance_warmup_seconds = 300
+```
+
+Set it to `0` to skip the warm-up delay. This timer is not an application
+readiness check; EC2 health alone does not mean Nstance has finished starting.
+The separate EC2 health-check grace period remains 300 seconds. Google Cloud
+ignores this setting.
+
 ## Development Structure
 
 Module source code lives in the main `github.com/nstance-dev/nstance` repository under `deploy/tf/`. Modules share a unified variable interface — common variable definitions live in `deploy/tf/common/` and are symlinked into each cloud module. During release, the cloud-specific modules are synced to their respective repositories with symlinks replaced by actual files.

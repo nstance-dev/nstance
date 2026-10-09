@@ -191,6 +191,7 @@ func networkEndpointHealthState(item *compute.NetworkEndpointWithHealthStatus, e
 		return provider.LBTargetRegistered
 	}
 	healthy := make(map[string]struct{}, len(expectedPairs))
+	draining := make(map[string]struct{}, len(expectedPairs))
 	for _, health := range item.Healths {
 		if health.BackendService == nil || health.ForwardingRule == nil {
 			continue
@@ -201,10 +202,13 @@ func networkEndpointHealthState(item *compute.NetworkEndpointWithHealthStatus, e
 		}
 		switch health.HealthState {
 		case "DRAINING":
-			return provider.LBTargetDraining
+			draining[pair] = struct{}{}
 		case "HEALTHY":
 			healthy[pair] = struct{}{}
 		}
+	}
+	if len(draining) == len(expectedPairs) {
+		return provider.LBTargetDraining
 	}
 	if len(healthy) == len(expectedPairs) {
 		return provider.LBTargetHealthy

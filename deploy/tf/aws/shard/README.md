@@ -6,6 +6,12 @@ Set `server_userdata` to use a complete external server image configuration,
 including optional proxy and tunnel services. When omitted, the module
 uses its built-in nstance-server installer.
 
+Rolling server updates wait 60 seconds after each replacement enters
+`InService`. Set `server_instance_warmup_seconds = 300` on the shard module
+for a longer wait, or `0` to skip it. This is a fixed delay, not a Nstance
+readiness check; allow enough time for your userdata script to finish. The 
+separate EC2 health-check grace period remains 300 seconds.
+
 ## Usage
 
 ```hcl

@@ -276,8 +276,10 @@ nstance-admin tenant wake prod --servers "zone-a=172.16.0.1:8993" --shard zone-a
   reports show `activity=unavailable, idle-since=unknown` and block guarded sleep;
   they are not treated as idle.
 - **sleep** defaults to `IfNotBusy=true`. `--force` sends `IfNotBusy=false` and
-  warns that workloads and active connections may be interrupted. Force does
-  not bypass server restrictions such as non-deleted on-demand instances.
+  skips activity checks and the remaining load-balancer drain period. It still
+  waits for a healthy wake path and confirmation that production targets no
+  longer receive new connections. Existing connections may be interrupted;
+  non-deleted on-demand instances still block sleep.
   Optional `--wake-at` accepts an RFC3339 timestamp (including a timezone).
 - **wake** sends a tenant-wide wake request without a listener override.
 
@@ -290,9 +292,10 @@ Sleep/wake require the server's sleep/provider-cutover configuration to be ready
 Sleep and wake print an immediate request message and elapsed-time feedback every
 15 seconds to stderr while waiting for the server's response. This is a waiting
 indicator, not server-reported progress. Sleep first establishes a healthy wake
-path and drains instance targets from the load balancer. Instances remain running
-during that drain, even with `--force`. A successful sleep response confirms
-durable sleep state; instance termination follows through reconciliation.
+path and withdraws instance targets from the load balancer. Normal sleep keeps
+instances running until draining finishes; forced sleep does not wait for that
+grace period. A successful sleep response confirms durable sleep state; instance
+termination follows through reconciliation.
 
 `--all-shards` runs independently and sequentially on the configured servers,
 continues after shard failures, and returns failure if any shard fails. It is

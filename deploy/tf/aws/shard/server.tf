@@ -161,6 +161,7 @@ resource "aws_autoscaling_group" "server" {
     strategy = "Rolling"
     preferences {
       min_healthy_percentage = 50
+      instance_warmup        = var.server_instance_warmup_seconds
     }
   }
 

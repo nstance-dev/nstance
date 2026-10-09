@@ -178,7 +178,7 @@ func TestTenantSleepProgress(t *testing.T) {
 		synctest.Wait()
 		time.Sleep(16 * time.Second)
 		synctest.Wait()
-		if !strings.Contains(stderr.String(), "Requesting sleep for tenant prod") || !strings.Contains(stderr.String(), "load-balancer draining") {
+		if !strings.Contains(stderr.String(), "Requesting sleep for tenant prod") || !strings.Contains(stderr.String(), "does not wait for existing connections to drain") {
 			t.Errorf("missing immediate feedback: %s", &stderr)
 		}
 		if !strings.Contains(stderr.String(), "Still waiting for tenant prod sleep (15s elapsed); no completion response yet.") {

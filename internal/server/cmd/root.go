@@ -550,6 +550,7 @@ func NewRootCmd() *cobra.Command {
 			CACert:                    caCertData,
 			Logger:                    logger,
 			TargetRegistrationBlocked: tenantState.TargetRegistrationBlocked,
+			TenantAsleep:              tenantState.IsAsleep,
 		}
 		if imageService != nil {
 			instancesManagerOptions.ImageGetter = imageService
@@ -575,6 +576,7 @@ func NewRootCmd() *cobra.Command {
 				Assignments:  assignments,
 				Instances:    instancesManager,
 				Logger:       logger,
+				TenantAsleep: tenantState.IsAsleep,
 			})
 			if err != nil {
 				logger.Error("Failed to create managed NAT manager", "error", err)

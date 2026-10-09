@@ -84,7 +84,11 @@ func newTenantCommand(connect func(string, string, time.Duration) (tenantConnect
 				if operation.name != "status" {
 					cmd.PrintErrf("Requesting %s for tenant %s (timeout %s per shard)...\n", operation.name, req.Tenant, req.Timeout)
 					if operation.name == "sleep" {
-						cmd.PrintErrln("Sleep waits for wake-proxy readiness and load-balancer draining before shutting down instances; draining can take several minutes.")
+						if force {
+							cmd.PrintErrln("Forced sleep waits for wake-proxy readiness and withdrawal from new traffic, but does not wait for existing connections to drain.")
+						} else {
+							cmd.PrintErrln("Sleep waits for wake-proxy readiness and load-balancer draining before shutting down instances; draining can take several minutes.")
+						}
 					}
 				}
 				started := time.Now()
@@ -161,7 +165,7 @@ func newTenantCommand(connect func(string, string, time.Duration) (tenantConnect
 			},
 		}
 		if operation.name == "sleep" {
-			sub.Flags().BoolVar(&force, "force", false, "Skip busy guard; may interrupt workloads and active connections")
+			sub.Flags().BoolVar(&force, "force", false, "Skip activity guard and remaining load-balancer drain; may interrupt workloads and active connections")
 			sub.Flags().StringVar(&wakeAt, "wake-at", "", "Optional wake deadline (RFC3339)")
 		}
 		cmd.AddCommand(sub)

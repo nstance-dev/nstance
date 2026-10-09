@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -577,6 +578,56 @@ func TestManagerOrdersSleepWakeCutovers(t *testing.T) {
 	want := []string{"install", "wake-ready", "drain", "check", "removed", "restore", "targets-ready", "remove-wake"}
 	if got := cutover.snapshot(); !slices.Equal(got, want) {
 		t.Fatalf("calls = %v, want %v", got, want)
+	}
+}
+
+// TestManagerForcedSleepSkipsDrainWait verifies forced sleep skips only the
+// remaining drain period, not wake readiness or withdrawal from new traffic.
+func TestManagerForcedSleepSkipsDrainWait(t *testing.T) {
+	for _, guarded := range []bool{false, true} {
+		for _, failure := range []string{"install", "wake-ready", "drain", "removed"} {
+			t.Run(fmt.Sprintf("guarded=%t/failure=%s", guarded, failure), func(t *testing.T) {
+				manager, err := New(storage.NewMock(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				manager.SetCutover(&recordingCutover{failAt: failure})
+				if err := manager.Start(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				defer manager.Stop()
+				_, _, err = manager.Sleep(context.Background(), "red", nil, guarded, nil)
+				wantAsleep := !guarded && failure == "removed"
+				if (err == nil) != wantAsleep || manager.IsAsleep("red") != wantAsleep {
+					t.Fatalf("sleep: asleep=%t error=%v, want asleep=%t", manager.IsAsleep("red"), err, wantAsleep)
+				}
+			})
+		}
+	}
+}
+
+// TestManagerForcedSleepResumesGuardedTransition verifies a forced retry can
+// replace an interrupted guarded request without retaining its drain wait.
+func TestManagerForcedSleepResumesGuardedTransition(t *testing.T) {
+	manager, err := New(storage.NewMock(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutover := &recordingCutover{failAt: "wake-ready"}
+	manager.SetCutover(cutover)
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Stop()
+	if _, _, err := manager.Sleep(context.Background(), "red", nil, true, nil); err == nil {
+		t.Fatal("sleep succeeded without a ready wake path")
+	}
+	cutover.failAt = "removed"
+	if _, _, err := manager.Sleep(context.Background(), "red", nil, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !manager.IsAsleep("red") {
+		t.Fatal("forced retry did not commit sleep")
 	}
 }
 

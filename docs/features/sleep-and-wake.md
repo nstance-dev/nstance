@@ -24,9 +24,18 @@ For guarded sleep, Nstance:
 2. Stops the production path from receiving new connections.
 3. Waits for fresh port-activity reports from the remaining relevant instances.
 4. Refuses sleep on active connections, missing counters, stale reports, or collection errors.
-5. Records the tenant as asleep and terminates its managed instances only after the guard passes.
+5. Waits for load-balancer draining to finish, then records the tenant as asleep and terminates its managed instances.
 
 If any step fails, Nstance restores production routing before withdrawing the proxy path.
+
+Forced sleep still establishes a healthy wake path and stops production targets
+from receiving new connections. It skips the activity check and remaining drain
+period, so existing connections may be interrupted when instances terminate.
+
+For both normal and forced sleep, Nstance keeps NAT running until its last
+dependent workload is removed. It then removes the NAT instance on the next
+reconciliation, without the grace period used for awake tenants. Any fixed
+public IP stays reserved for reuse when workloads return.
 
 ## Waking
 

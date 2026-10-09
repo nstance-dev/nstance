@@ -112,6 +112,7 @@ func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLB
 	}
 	healthy := 0
 	registered := 0
+	draining := 0
 	for _, targetGroup := range req.LBConfig.TargetGroups {
 		result, err := p.elbv2Client.DescribeTargetHealth(ctx, &elasticloadbalancingv2.DescribeTargetHealthInput{
 			TargetGroupArn: aws.String(targetGroup.ARN),
@@ -128,6 +129,7 @@ func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLB
 		}
 		state := result.TargetHealthDescriptions[0].TargetHealth
 		if state == nil {
+			registered++
 			continue
 		}
 		if state.Reason == types.TargetHealthReasonEnumNotRegistered {
@@ -136,13 +138,16 @@ func (p *Provider) GetLBTargetState(ctx context.Context, req provider.RegisterLB
 		registered++
 		switch state.State {
 		case types.TargetHealthStateEnumDraining:
-			return provider.LBTargetDraining, nil
+			draining++
 		case types.TargetHealthStateEnumHealthy:
 			healthy++
 		}
 	}
 	if registered == 0 {
 		return provider.LBTargetDeregistered, nil
+	}
+	if draining == registered {
+		return provider.LBTargetDraining, nil
 	}
 	if registered < len(req.LBConfig.TargetGroups) {
 		return provider.LBTargetPartial, nil

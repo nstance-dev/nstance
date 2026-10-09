@@ -478,84 +478,104 @@ func TestRouteRequestSelectsTranslationPrefix(t *testing.T) {
 	}
 }
 
-// TestManagerRemovesUnusedNATAfterGrace verifies the route and VM are removed
-// before an identity becomes reusable.
-func TestManagerRemovesUnusedNATAfterGrace(t *testing.T) {
-	db, err := localdb.Open(filepath.Join(t.TempDir(), "nat.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	loader, err := config.NewLoader(config.LoaderOptions{
-		Storage: storage.NewMock(), CacheStorage: storage.NewMock(), LocalDB: db, Logger: slog.Default(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	loader.SetConfig(&config.Config{
-		Cluster:   config.ClusterConfig{ID: "cluster"},
-		Templates: map[string]config.TemplateConfig{"nat": {Kind: "nat"}},
-		Groups:    map[string]map[string]config.GroupConfig{"red": {"nat": {Template: "nat", InstanceType: "small"}}},
-		NAT: map[string]config.NATConfig{"red": {
-			Group: "nat", PublicAddresses: []config.PublicAddress{{IPv4: "192.0.2.1", AllocationID: "eipalloc-1"}}, LastInstanceGracePeriod: config.Duration(time.Minute),
-		}},
-	})
-	store := storage.NewMock()
-	assignments, err := NewAssignmentStore(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	routes := &testRouteProvider{}
-	creator := &testInstanceCreator{db: db}
-	manager, err := NewManager(ManagerOptions{
-		ConfigLoader: loader, LocalDB: db, Provider: routes, Assignments: assignments, Instances: creator,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	if err := manager.PrepareSubnet(ctx, "red", "instance-subnet"); !errors.Is(err, ErrNotReady) {
-		t.Fatalf("first preparation error = %v, want not ready", err)
-	}
-	if err := manager.PrepareSubnet(ctx, "red", "instance-subnet"); err != nil {
-		t.Fatal(err)
-	}
-	current, err := assignments.Assignments(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var assignment Assignment
-	for _, assignment = range current {
-	}
-	emptySince := time.Now().UTC().Add(-2 * time.Minute)
-	if err := assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) { current.EmptySince = &emptySince }); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.CreateInstance(&localdb.Instance{
-		ID: "instance", Tenant: "red", Group: "workers", SubnetID: "instance-subnet", Nonce: "instance", CreatedAt: time.Now().UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.Reconcile(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(routes.removed) != 0 || len(creator.deleted) != 0 {
-		t.Fatal("NAT was removed before its final dependent instance")
-	}
-	if err := db.DeleteInstance("instance"); err != nil {
-		t.Fatal(err)
-	}
-	if err := assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) { current.EmptySince = &emptySince }); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.Reconcile(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(routes.removed) != 1 || len(creator.deleted) != 1 {
-		t.Fatalf("removed routes=%d deleted instances=%d, want 1 each", len(routes.removed), len(creator.deleted))
-	}
-	if remaining, err := assignments.Assignments(ctx); err != nil || len(remaining) != 0 {
-		t.Fatalf("assignments after release=%d err=%v, want zero", len(remaining), err)
+// TestManagerRemovesUnusedNAT verifies sleep bypasses the grace period only
+// after the final dependent workload is removed.
+func TestManagerRemovesUnusedNAT(t *testing.T) {
+	for _, asleep := range []bool{false, true} {
+		name := "awake"
+		if asleep {
+			name = "asleep"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, err := localdb.Open(filepath.Join(t.TempDir(), "nat.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			loader, err := config.NewLoader(config.LoaderOptions{
+				Storage: storage.NewMock(), CacheStorage: storage.NewMock(), LocalDB: db, Logger: slog.Default(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			loader.SetConfig(&config.Config{
+				Cluster:   config.ClusterConfig{ID: "cluster"},
+				Templates: map[string]config.TemplateConfig{"nat": {Kind: "nat"}},
+				Groups:    map[string]map[string]config.GroupConfig{"red": {"nat": {Template: "nat", InstanceType: "small"}}},
+				NAT: map[string]config.NATConfig{"red": {
+					Group: "nat", PublicAddresses: []config.PublicAddress{{IPv4: "192.0.2.1", AllocationID: "eipalloc-1"}}, LastInstanceGracePeriod: config.Duration(time.Minute),
+				}},
+			})
+			store := storage.NewMock()
+			assignments, err := NewAssignmentStore(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			routes := &testRouteProvider{}
+			creator := &testInstanceCreator{db: db}
+			manager, err := NewManager(ManagerOptions{
+				ConfigLoader: loader, LocalDB: db, Provider: routes, Assignments: assignments, Instances: creator,
+				TenantAsleep: func(tenant string) bool { return tenant == "red" && asleep },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			if err := manager.PrepareSubnet(ctx, "red", "instance-subnet"); !errors.Is(err, ErrNotReady) {
+				t.Fatalf("first preparation error = %v, want not ready", err)
+			}
+			if err := manager.PrepareSubnet(ctx, "red", "instance-subnet"); err != nil {
+				t.Fatal(err)
+			}
+			current, err := assignments.Assignments(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var assignment Assignment
+			for _, assignment = range current {
+			}
+			emptySince := time.Now().UTC().Add(-2 * time.Minute)
+			if err := assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) { current.EmptySince = &emptySince }); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.CreateInstance(&localdb.Instance{
+				ID: "instance", Tenant: "red", Group: "workers", SubnetID: "instance-subnet", Nonce: "instance", CreatedAt: time.Now().UTC(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if len(routes.removed) != 0 || len(creator.deleted) != 0 {
+				t.Fatal("NAT was removed before its final dependent instance")
+			}
+			if err := db.DeleteInstance("instance"); err != nil {
+				t.Fatal(err)
+			}
+			if err := manager.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if !asleep {
+				if _, err := db.GetInstance(assignment.InstanceID); err != nil {
+					t.Fatalf("awake tenant lost NAT before the grace period elapsed: %v", err)
+				}
+				if routes.targets["instance-subnet"] != "target-"+assignment.ProviderID {
+					t.Fatal("awake tenant lost its NAT route before the grace period elapsed")
+				}
+				if err := assignments.Update(ctx, assignment.InstanceID, func(current *Assignment) { current.EmptySince = &emptySince }); err != nil {
+					t.Fatal(err)
+				}
+				if err := manager.Reconcile(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(routes.removed) != 1 || len(creator.deleted) != 1 {
+				t.Fatalf("removed routes=%d deleted instances=%d, want 1 each", len(routes.removed), len(creator.deleted))
+			}
+			if remaining, err := assignments.Assignments(ctx); err != nil || len(remaining) != 0 {
+				t.Fatalf("assignments after release=%d err=%v, want zero", len(remaining), err)
+			}
+		})
 	}
 }
 

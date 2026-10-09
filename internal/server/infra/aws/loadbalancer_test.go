@@ -22,6 +22,7 @@ type fakeELBv2 struct {
 	register   []int32
 	deregister []int32
 	describe   []int32
+	health     map[string]*types.TargetHealth
 }
 
 // RegisterTargets records the registered target port.
@@ -36,12 +37,51 @@ func (f *fakeELBv2) DeregisterTargets(_ context.Context, input *elasticloadbalan
 	return &elasticloadbalancingv2.DeregisterTargetsOutput{}, nil
 }
 
-// DescribeTargetHealth records the queried target port and reports it healthy.
+// DescribeTargetHealth records the port and returns configured health or healthy by default.
 func (f *fakeELBv2) DescribeTargetHealth(_ context.Context, input *elasticloadbalancingv2.DescribeTargetHealthInput, _ ...func(*elasticloadbalancingv2.Options)) (*elasticloadbalancingv2.DescribeTargetHealthOutput, error) {
 	f.describe = append(f.describe, awsSDK.ToInt32(input.Targets[0].Port))
+	health := &types.TargetHealth{State: types.TargetHealthStateEnumHealthy}
+	if f.health != nil {
+		health = f.health[awsSDK.ToString(input.TargetGroupArn)]
+	}
 	return &elasticloadbalancingv2.DescribeTargetHealthOutput{TargetHealthDescriptions: []types.TargetHealthDescription{{
-		TargetHealth: &types.TargetHealth{State: types.TargetHealthStateEnumHealthy},
+		TargetHealth: health,
 	}}}, nil
+}
+
+// TestTargetWithdrawalRequiresEveryListener verifies one draining target group
+// cannot authorize termination while another listener still selects the instance.
+func TestTargetWithdrawalRequiresEveryListener(t *testing.T) {
+	draining := &types.TargetHealth{State: types.TargetHealthStateEnumDraining}
+	healthy := &types.TargetHealth{State: types.TargetHealthStateEnumHealthy}
+	absent := &types.TargetHealth{State: types.TargetHealthStateEnumUnused, Reason: types.TargetHealthReasonEnumNotRegistered}
+	for _, tc := range []struct {
+		name   string
+		first  *types.TargetHealth
+		second *types.TargetHealth
+		want   provider.LBTargetState
+	}{
+		{"mixed-draining-healthy", draining, healthy, provider.LBTargetRegistered},
+		{"mixed-draining-unknown", draining, nil, provider.LBTargetRegistered},
+		{"all-draining", draining, draining, provider.LBTargetDraining},
+		{"draining-and-absent", draining, absent, provider.LBTargetDraining},
+		{"all-absent", absent, absent, provider.LBTargetDeregistered},
+		{"all-healthy", healthy, healthy, provider.LBTargetHealthy},
+		{"healthy-and-absent", healthy, absent, provider.LBTargetPartial},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Provider{elbv2Client: &fakeELBv2{health: map[string]*types.TargetHealth{"first": tc.first, "second": tc.second}}}
+			state, err := p.GetLBTargetState(context.Background(), provider.RegisterLBRequest{
+				ProviderInstanceID: "i-1",
+				LBConfig: provider.LoadBalancerConfig{TargetGroups: []provider.AWSTargetGroupConfig{
+					{ARN: "first", TargetPort: 443}, {ARN: "second", TargetPort: 6443},
+				}},
+			})
+			if err != nil || state != tc.want {
+				t.Fatalf("state=%s error=%v, want %s", state, err, tc.want)
+			}
+		})
+	}
 }
 
 // TestWakeProxySelectsPort verifies direct and wake-proxy port selection.

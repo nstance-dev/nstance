@@ -34,8 +34,16 @@ func TestNetworkEndpointHealthStateRequiresEveryExpectedBackend(t *testing.T) {
 		t.Fatalf("state = %s, want healthy", state)
 	}
 	item.Healths[2].HealthState = "DRAINING"
+	if state := networkEndpointHealthState(item, expected); state != provider.LBTargetRegistered {
+		t.Fatalf("state = %s, want registered while another frontend is still healthy", state)
+	}
+	item.Healths[1].HealthState = "DRAINING"
 	if state := networkEndpointHealthState(item, expected); state != provider.LBTargetDraining {
 		t.Fatalf("state = %s, want draining", state)
+	}
+	item.Healths = item.Healths[:2]
+	if state := networkEndpointHealthState(item, expected); state != provider.LBTargetRegistered {
+		t.Fatalf("state = %s, want registered while an expected frontend is missing", state)
 	}
 }
 

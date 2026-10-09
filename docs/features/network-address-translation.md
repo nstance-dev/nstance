@@ -42,9 +42,12 @@ IPv6 routes and cannot reach IPv4-only destinations through translation.
 
 Nstance Server creates one active NAT instance for each tenant and populated
 workload subnet. It creates the instance before the first dependent workload
-and removes it only after the subnet has remained empty for the configured
-grace period. The workload subnet route targets that instance's primary
-network interface.
+and keeps it running until the last dependent workload is removed. While the
+tenant is awake, Nstance then waits for the configured grace period before
+removing NAT, avoiding unnecessary replacement during brief gaps between
+workloads. When the tenant is asleep, it removes unused NAT on the next
+reconciliation without that extra wait. This applies to normal and forced sleep.
+The workload subnet route targets the NAT instance's primary network interface.
 
 The NAT instance scales vertically through a configured instance-type ladder.
 Nstance uses CPU utilization, conntrack utilization, and packet drops for

@@ -264,7 +264,7 @@ func (m *Manager) Sleep(ctx context.Context, tenant string, wakeAt *time.Time, g
 				entry.Transition = &TransitionProgress{WakeAt: cloneTime(wakeAt), Guarded: guarded}
 			} else {
 				entry.Transition.WakeAt = cloneTime(wakeAt)
-				entry.Transition.Guarded = entry.Transition.Guarded || guarded
+				entry.Transition.Guarded = guarded
 			}
 			state[tenant] = entry
 			effectiveWakeAt = cloneTime(wakeAt)
@@ -434,12 +434,12 @@ func (m *Manager) continueSleep(ctx context.Context, tenant string, cutover Cuto
 			}
 			return err
 		}
-	}
-	if err := cutover.FinishTargetWithdrawal(ctx, tenant); err != nil {
-		if restoreErr := m.restore(ctx, tenant, cutover); restoreErr != nil {
-			return errors.Join(err, restoreErr)
+		if err := cutover.FinishTargetWithdrawal(ctx, tenant); err != nil {
+			if restoreErr := m.restore(ctx, tenant, cutover); restoreErr != nil {
+				return errors.Join(err, restoreErr)
+			}
+			return err
 		}
-		return err
 	}
 	return nil
 }

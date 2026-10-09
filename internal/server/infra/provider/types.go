@@ -177,6 +177,8 @@ type DeregisterLBRequest struct {
 
 // LBTargetState is the provider-observed lifecycle state of one logical target
 // across every listener in a load balancer configuration.
+// Draining means no listener selects the target for new connections, although
+// existing connections may remain; some listeners may already be deregistered.
 type LBTargetState string
 
 const (
