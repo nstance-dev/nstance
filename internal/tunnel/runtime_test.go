@@ -10,7 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,8 +43,25 @@ func TestStaticPodIsHardened(t *testing.T) {
 	if security.SeccompProfile == nil || security.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault || len(security.Capabilities.Drop) != 1 || security.Capabilities.Drop[0] != "ALL" {
 		t.Fatalf("container security context = %#v", security)
 	}
+	if security.RunAsUser != nil || security.RunAsGroup != nil {
+		t.Fatalf("container must preserve the image user/group: %#v", security)
+	}
+	if pod.Spec.SecurityContext != nil && (pod.Spec.SecurityContext.RunAsUser != nil || pod.Spec.SecurityContext.RunAsGroup != nil || pod.Spec.SecurityContext.FSGroup != nil || len(pod.Spec.SecurityContext.SupplementalGroups) != 0) {
+		t.Fatalf("Pod must not override or supplement the image identity: %#v", pod.Spec.SecurityContext)
+	}
 	if len(container.VolumeMounts) != 1 || !container.VolumeMounts[0].ReadOnly || container.VolumeMounts[0].MountPath != "/run/tunnel/token" {
 		t.Fatalf("volume mounts = %#v", container.VolumeMounts)
+	}
+	data, err = staticPod("api", config.TunnelPodConfig{Image: testImage()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod = corev1.Pod{}
+	if err := json.Unmarshal(data, &pod); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.SecurityContext != nil || pod.Spec.Containers[0].SecurityContext.RunAsUser != nil || pod.Spec.Containers[0].SecurityContext.RunAsGroup != nil {
+		t.Fatalf("fileless tunnel must not receive a default identity/group: %#v", pod.Spec)
 	}
 }
 
@@ -48,39 +69,162 @@ func TestStaticPodIsHardened(t *testing.T) {
 func TestDedicatedTunnelPublishesAndRemovesManifest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusNoContent) }))
 	defer server.Close()
-	runtime := newTestRuntime(t, map[string]config.TunnelPodConfig{
-		"api": {Image: testImage(), ReadinessURL: server.URL, Files: map[string]config.FileConfig{
-			"/run/tunnel/secret": {Kind: "secret", Source: "credential"},
-			"/run/tunnel/config": {Kind: "storage", Source: "tunnel.json"},
-		}},
-	})
-	if err := runtime.options.Secrets.Set(context.Background(), "credential", []byte("secret")); err != nil {
-		t.Fatal(err)
+	for _, test := range []struct {
+		name string
+		mode *os.FileMode
+		want os.FileMode
+	}{
+		{"default", nil, 0600},
+		{"private", new(os.FileMode(0600)), 0600},
+		{"container-readable", new(os.FileMode(0644)), 0644},
+		{"group-readable", new(os.FileMode(0640)), 0640},
+		{"read-only", new(os.FileMode(0444)), 0444},
+		{"no-access", new(os.FileMode(0000)), 0000},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objectStorage, err := storage.NewMockStorage(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime, err := NewRuntime(RuntimeOptions{Tunnels: map[string]config.TunnelPodConfig{
+				"api": {Image: testImage(), ReadinessURL: server.URL, Files: map[string]config.FileConfig{
+					"/run/tunnel/secret": {Kind: "secret", Source: "credential"},
+					"/run/tunnel/config": {Kind: "storage", Source: "tunnel.json"},
+				}},
+			}, Storage: objectStorage, Secrets: secrets.NewMemoryStore(),
+				ManifestDir: t.TempDir(), FilesDir: t.TempDir(), FilesMode: test.mode,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(runtime.Close)
+			if err := runtime.options.Secrets.Set(context.Background(), "credential", []byte("secret")); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.options.Storage.Put(context.Background(), "tunnel.json", []byte("config")); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ready := make(chan struct{})
+			done := make(chan error, 1)
+			go func() { done <- runtime.Run(ctx, "api", func() { close(ready) }) }()
+			select {
+			case <-ready:
+			case err := <-done:
+				t.Fatalf("Run failed before readiness: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("Run did not become ready")
+			}
+			manifest := runtime.manifestPath("tunnel-api")
+			manifestInfo, err := os.Stat(manifest)
+			if err != nil {
+				t.Fatalf("static Pod manifest: %v", err)
+			}
+			manifestOwner := manifestInfo.Sys().(*syscall.Stat_t)
+			if manifestInfo.Mode().Perm() != 0600 || int(manifestOwner.Uid) != os.Geteuid() || int(manifestOwner.Gid) != os.Getegid() {
+				t.Fatalf("manifest must retain process ownership and mode 0600: %v, %#v", manifestInfo.Mode(), manifestOwner)
+			}
+			for name, want := range map[string]string{"000": "config", "001": "secret"} {
+				path := filepath.Join(runtime.options.FilesDir, "tunnel-api", name)
+				if test.want&0400 != 0 {
+					content, err := os.ReadFile(path)
+					if err != nil || string(content) != want {
+						t.Fatalf("resolved file %s = %q, %v", name, content, err)
+					}
+				}
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				owner := info.Sys().(*syscall.Stat_t)
+				if info.Mode().Perm() != test.want || int(owner.Uid) != os.Geteuid() || int(owner.Gid) != os.Getegid() {
+					t.Fatalf("resolved file must retain process ownership and mode %04o: %v, %#v", test.want, info.Mode(), owner)
+				}
+			}
+			if info, err := os.Stat(filepath.Join(runtime.options.FilesDir, "tunnel-api")); err != nil || info.Mode().Perm() != 0700 {
+				t.Fatalf("resolved directory must remain private: %v, %v", info, err)
+			}
+			t.Run("mounted files", func(t *testing.T) { testMountedFiles(t, manifest, test.want) })
+			cancel()
+			if err := <-done; err != context.Canceled {
+				t.Fatalf("Run error = %v", err)
+			}
+			if _, err := os.Stat(manifest); !os.IsNotExist(err) {
+				t.Fatalf("manifest remains after stop: %v", err)
+			}
+		})
 	}
-	if err := runtime.options.Storage.Put(context.Background(), "tunnel.json", []byte("config")); err != nil {
-		t.Fatal(err)
+}
+
+// testMountedFiles verifies mounted reads and host-path isolation for unrelated identities.
+func testMountedFiles(t *testing.T, manifestPath string, mode os.FileMode) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("read-only bind-mount access requires Linux")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	ready := make(chan struct{})
-	done := make(chan error, 1)
-	go func() { done <- runtime.Run(ctx, "api", func() { close(ready) }) }()
-	<-ready
-	manifest := runtime.manifestPath("tunnel-api")
-	if _, err := os.Stat(manifest); err != nil {
-		t.Fatalf("static Pod manifest: %v", err)
-	}
-	for name, want := range map[string]string{"000": "config", "001": "secret"} {
-		content, err := os.ReadFile(filepath.Join(runtime.options.FilesDir, "tunnel-api", name))
-		if err != nil || string(content) != want {
-			t.Fatalf("resolved file %s = %q, %v", name, content, err)
+	for _, tool := range []string{"unshare", "mount", "setpriv"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("mounted-file test requires %s", tool)
 		}
 	}
-	cancel()
-	if err := <-done; err != context.Canceled {
-		t.Fatalf("Run error = %v", err)
+	if output, err := exec.Command("unshare", "--mount", "true").CombinedOutput(); err != nil {
+		t.Skipf("mount namespaces unavailable: %s", output)
 	}
-	if _, err := os.Stat(manifest); !os.IsNotExist(err) {
-		t.Fatalf("manifest remains after stop: %v", err)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pod corev1.Pod
+	if err := json.Unmarshal(data, &pod); err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.Containers[0].SecurityContext.RunAsUser != nil || pod.Spec.Containers[0].SecurityContext.RunAsGroup != nil {
+		t.Fatal("runtime overrides the image identity")
+	}
+	directory, err := os.MkdirTemp("", "tunnel-mount-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(directory) }()
+	if err := os.Chmod(directory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for index, volume := range pod.Spec.Volumes {
+		t.Run(strconv.Itoa(index), func(t *testing.T) {
+			path := volume.HostPath.Path
+			info, err := os.Stat(filepath.Dir(path))
+			if err != nil || info.Mode().Perm() != 0700 {
+				t.Fatalf("resolved directory must remain private: %v, %v", info, err)
+			}
+			// Neither simulated image identity matches the writer's credentials.
+			command := exec.Command("unshare", "--mount", "--fork", "sh", "-ec", `
+mount --make-rprivate /
+touch "$2/file"
+mount --bind "$1" "$2/file"
+if [ "$6" = true ]; then
+setpriv --reuid="$3" --regid="$4" --clear-groups --bounding-set=-all --no-new-privs sh -c ': >> "$1"' sh "$2/file"
+fi
+mount -o remount,bind,ro "$2/file"
+if [ "$5" = true ]; then
+setpriv --reuid=10001 --regid=10002 --clear-groups --bounding-set=-all --no-new-privs cat "$2/file"
+setpriv --reuid=65532 --regid=65532 --clear-groups --bounding-set=-all --no-new-privs cat "$2/file"
+else
+if setpriv --reuid=10001 --regid=10002 --clear-groups --bounding-set=-all --no-new-privs cat "$2/file" 2>/dev/null; then exit 13; fi
+if setpriv --reuid=65532 --regid=65532 --clear-groups --bounding-set=-all --no-new-privs cat "$2/file" 2>/dev/null; then exit 14; fi
+fi
+if setpriv --reuid=10001 --regid=10002 --clear-groups --bounding-set=-all --no-new-privs cat "$1" 2>/dev/null; then exit 11; fi
+if setpriv --reuid="$3" --regid="$4" --clear-groups --bounding-set=-all --no-new-privs sh -c 'echo changed > "$1"' sh "$2/file" 2>/dev/null; then exit 12; fi
+`, "sh", path, directory, strconv.Itoa(os.Geteuid()), strconv.Itoa(os.Getegid()), strconv.FormatBool(mode&0004 != 0), strconv.FormatBool(mode&0200 != 0))
+			output, err := command.CombinedOutput()
+			want := []string{"configconfig", "secretsecret"}[index]
+			if mode&0004 == 0 {
+				want = ""
+			}
+			if err != nil || string(output) != want {
+				t.Fatalf("mounted file access = %q, %v; want %q", output, err, want)
+			}
+		})
 	}
 }
 
@@ -119,25 +263,6 @@ func TestNewRuntimeRemovesStaleState(t *testing.T) {
 			t.Fatalf("stale entries remain in %s: %v", directory, entries)
 		}
 	}
-}
-
-// newTestRuntime creates a runtime with local test providers.
-func newTestRuntime(t *testing.T, tunnels map[string]config.TunnelPodConfig) *Runtime {
-	t.Helper()
-	objectStorage, err := storage.NewMockStorage(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := NewRuntime(RuntimeOptions{
-		Tunnels: tunnels, Storage: objectStorage, Secrets: secrets.NewMemoryStore(),
-		ManifestDir: filepath.Join(t.TempDir(), "manifests"), FilesDir: filepath.Join(t.TempDir(), "files"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime.poll = time.Millisecond
-	t.Cleanup(runtime.Close)
-	return runtime
 }
 
 // testImage returns one immutable fixture image.

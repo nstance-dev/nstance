@@ -30,6 +30,7 @@ type RuntimeOptions struct {
 	Secrets     secrets.Store
 	ManifestDir string
 	FilesDir    string
+	FilesMode   *os.FileMode // Nil defaults to 0600.
 }
 
 // Runtime manages tunnel static Pods.
@@ -46,6 +47,9 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	}
 	if options.ManifestDir == "" || options.FilesDir == "" {
 		return nil, fmt.Errorf("manifest and files directories are required")
+	}
+	if options.FilesMode == nil {
+		options.FilesMode = new(os.FileMode(0600))
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -166,7 +170,7 @@ func (r *Runtime) resolveFiles(ctx context.Context, runtimeName string, files ma
 		}
 		directory := filepath.Join(r.options.FilesDir, runtimeName)
 		filename := fmt.Sprintf("%03d", index)
-		if err := writeAtomic(directory, filename, content, 0600); err != nil {
+		if err := writeAtomic(directory, filename, content, *r.options.FilesMode); err != nil {
 			_ = os.RemoveAll(directory)
 			return nil, err
 		}

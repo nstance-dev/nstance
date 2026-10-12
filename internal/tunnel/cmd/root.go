@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -27,6 +28,7 @@ var (
 	serverSocket   string
 	manifestDir    string
 	filesDir       string
+	filesMode      string
 )
 
 // NewCommand creates the nstance-server tunnel command.
@@ -39,6 +41,7 @@ func NewCommand() *cobra.Command {
 	command.Flags().StringVar(&serverSocket, "server-socket", "/run/nstance/nstance-tunnel.sock", "Nstance server tunnel-control socket")
 	command.Flags().StringVar(&manifestDir, "manifest-dir", "/etc/kubernetes/manifests", "Kubelet static Pod manifest directory")
 	command.Flags().StringVar(&filesDir, "files-dir", "/var/lib/nstance/tunnel", "Resolved tunnel files directory")
+	command.Flags().StringVar(&filesMode, "files-mode", "0600", "Resolved tunnel file permissions in octal")
 	return command
 }
 
@@ -52,6 +55,11 @@ func run(command *cobra.Command, _ []string) error {
 		fmt.Printf("nstance-server tunnel %s\n", buildvars.BuildVersion())
 		return nil
 	}
+	permissions, err := strconv.ParseUint(filesMode, 8, 9)
+	if err != nil {
+		return fmt.Errorf("invalid files-mode %q: %w", filesMode, err)
+	}
+	mode := os.FileMode(permissions)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -65,7 +73,7 @@ func run(command *cobra.Command, _ []string) error {
 	defer cleanup()
 	runtime, err := tunnel.NewRuntime(tunnel.RuntimeOptions{
 		Tunnels: cfg.Tunnels, Storage: cfg.Storage, Secrets: cfg.Secrets,
-		ManifestDir: manifestDir, FilesDir: filesDir,
+		ManifestDir: manifestDir, FilesDir: filesDir, FilesMode: &mode,
 	})
 	if err != nil {
 		return err

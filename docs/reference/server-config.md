@@ -532,7 +532,18 @@ Each tunnel uses one digest-pinned image:
 }
 ```
 
-Tunnel files support only `secret` and `storage`. The supervisor writes root-only files, mounts them read-only, and generates hardened kubelet static Pods. Readiness URLs must be explicit loopback HTTP addresses. Provider-specific images, arguments, and files belong in deployment configuration, not Nstance code or control messages.
+Tunnel files support `secret` and `storage`. The supervisor owns these files and
+mounts them read-only. Permissions default to `0600`; `--files-mode` sets them for
+all tunnel files. Use `--files-mode=0644` to let containers read files owned by
+another user. Host directories use `0700` and manifests use `--files-mode`; keep 
+access to host directories and Pod definitions restricted to protect file contents.
+
+Images must declare a numeric, nonroot `USER`. Containers use that UID/GID,
+with a read-only root filesystem, no capabilities, and no privilege escalation.
+
+Readiness URLs must be explicit loopback HTTP addresses. Provider-specific
+images, arguments, and files belong in deployment configuration, not Nstance
+code or control messages.
 
 ## `certificates` and template files
 
