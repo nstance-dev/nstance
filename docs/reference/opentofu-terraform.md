@@ -71,7 +71,7 @@ ignores this setting.
 
 ## Development Structure
 
-Module source code lives in the main `github.com/nstance-dev/nstance` repository under `deploy/tf/`. Modules share a unified variable interface — common variable definitions live in `deploy/tf/common/` and are symlinked into each cloud module. During release, the cloud-specific modules are synced to their respective repositories with symlinks replaced by actual files.
+Module source code lives in the main `github.com/nstance-dev/nstance` repository under `deploy/tf/`. Modules share a unified variable interface — common variable definitions live in `deploy/tf/common/` and are symlinked into each cloud module.
 
 ```
 deploy/tf/
@@ -114,6 +114,23 @@ deploy/tf/
     │   └── multi-az/
     └── multi-cloud/
 ```
+
+## Module Publishing
+
+The Terraform Module Sync workflow exports the cloud-specific modules to their respective repositories with symlinks replaced by actual files, alongside documentation and examples.
+
+Relevant pushes to Nstance's `main` branch update the distribution repositories'
+`main` branches. After GoReleaser successfully publishes a Nstance release, the
+release workflow exports modules from that exact Nstance commit and publishes
+the same Git tag in both distribution repositories. Terraform Registry uses
+these tags to publish module versions.
+
+Release exports do not update the distribution repositories' `main` branches,
+so publishing an older release cannot overwrite newer development modules.
+A matching tag is published even when module contents have not changed.
+Rerunning a failed Terraform publishing job skips existing tags with matching
+contents and completes any missing tags. An existing tag with different
+contents causes the job to fail; published tags are never moved or overwritten.
 
 ## Prerequisites
 

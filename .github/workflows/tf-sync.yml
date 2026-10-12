@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # This workflow syncs Terraform modules to distribution repos on every push
-# to main that touches deploy/tf/ or the module documentation.
+# to main that touches deploy/tf/ or the module documentation, and publishes
+# matching module tags when called by the release workflow.
 
 name: Terraform Module Sync
 
@@ -15,16 +16,39 @@ on:
       - 'deploy/tf/**'
       - 'docs/reference/opentofu-terraform.md'
   workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Nstance commit to export
+        required: true
+        type: string
+      release_tag:
+        description: Module tag to publish without updating distribution main
+        required: true
+        type: string
+    secrets:
+      AWS_REPO_DEPLOY_KEY:
+        required: true
+      GOOGLE_REPO_DEPLOY_KEY:
+        required: true
+
+permissions:
+  contents: read
 
 concurrency:
-  group: terraform-module-sync
+  group: terraform-module-sync-${{ inputs.release_tag || 'main' }}
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
 
       - name: Resolve symlinks and prepare AWS modules
         run: |
@@ -94,54 +118,55 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-      - name: Push to terraform-aws-nstance
+      - name: Publish Terraform modules
         env:
-          SSH_KEY: ${{ secrets.AWS_REPO_DEPLOY_KEY }}
+          AWS_SSH_KEY: ${{ secrets.AWS_REPO_DEPLOY_KEY }}
+          GOOGLE_SSH_KEY: ${{ secrets.GOOGLE_REPO_DEPLOY_KEY }}
         run: |
-          echo "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          trap 'rm -f ~/.ssh/id_ed25519' EXIT
+          for provider in aws google; do
+            if [[ "$provider" == aws ]]; then
+              echo "$AWS_SSH_KEY" > ~/.ssh/id_ed25519
+            else
+              echo "$GOOGLE_SSH_KEY" > ~/.ssh/id_ed25519
+            fi
+            chmod 600 ~/.ssh/id_ed25519
 
-          git clone --branch main --single-branch git@github.com:nstance-dev/terraform-aws-nstance.git /tmp/aws-repo
-          rsync -a --delete --exclude .git /tmp/aws/ /tmp/aws-repo/
+            repo="terraform-${provider}-nstance"
+            git clone --branch main --single-branch --no-tags "git@github.com:nstance-dev/${repo}.git" "/tmp/${provider}-repo"
+            rsync -a --delete --exclude .git "/tmp/${provider}/" "/tmp/${provider}-repo/"
 
-          cd /tmp/aws-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes to sync to terraform-aws-nstance"
-            rm ~/.ssh/id_ed25519
-            exit 0
-          fi
+            cd "/tmp/${provider}-repo"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .
 
-          git add .
-          git commit -m "Sync from nstance-dev/nstance@${GITHUB_SHA::8}"
-          git push origin main
+            if [[ -n "$RELEASE_TAG" ]]; then
+              git fetch origin 'refs/tags/*:refs/tags/*'
+              if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}"; then
+                if [[ "$(git rev-parse "refs/tags/${RELEASE_TAG}^{tree}")" != "$(git write-tree)" ]]; then
+                  echo "::error::${repo} tag ${RELEASE_TAG} already exists with different contents"
+                  exit 1
+                fi
+                echo "${repo} tag ${RELEASE_TAG} already matches ${SOURCE_SHA}"
+                continue
+              fi
+            elif git diff --cached --quiet; then
+              echo "No changes to sync to ${repo}"
+              continue
+            fi
 
-          rm ~/.ssh/id_ed25519
-          echo "Synced terraform-aws-nstance"
+            if ! git diff --cached --quiet; then
+              git commit -m "Sync from nstance-dev/nstance@${SOURCE_SHA::8}"
+            fi
 
-      - name: Push to terraform-google-nstance
-        env:
-          SSH_KEY: ${{ secrets.GOOGLE_REPO_DEPLOY_KEY }}
-        run: |
-          echo "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-          git clone --branch main --single-branch git@github.com:nstance-dev/terraform-google-nstance.git /tmp/google-repo
-          rsync -a --delete --exclude .git /tmp/google/ /tmp/google-repo/
-
-          cd /tmp/google-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes to sync to terraform-google-nstance"
-            rm ~/.ssh/id_ed25519
-            exit 0
-          fi
-
-          git add .
-          git commit -m "Sync from nstance-dev/nstance@${GITHUB_SHA::8}"
-          git push origin main
-
-          rm ~/.ssh/id_ed25519
-          echo "Synced terraform-google-nstance"
+            if [[ -n "$RELEASE_TAG" ]]; then
+              # Publish the exact release export, never rewind development main.
+              git tag -a "$RELEASE_TAG" -m "Terraform modules for nstance-dev/nstance@${SOURCE_SHA}"
+              git push origin "refs/tags/${RELEASE_TAG}"
+              echo "Published ${repo} tag ${RELEASE_TAG}"
+            else
+              git push origin main
+              echo "Synced ${repo}"
+            fi
+          done
