@@ -62,11 +62,13 @@ func validateTunnelPod(owner string, pod TunnelPodConfig) error {
 		if !strings.HasPrefix(destination, "/") || path.Clean(destination) != destination || destination == "/" {
 			return fmt.Errorf("%s file destination %q must be a clean absolute file path", owner, destination)
 		}
-		if file.Kind != "secret" && file.Kind != "storage" {
-			return fmt.Errorf("%s file %s must use kind secret or storage", owner, destination)
-		}
-		if file.Source == "" {
-			return fmt.Errorf("%s file %s requires a source", owner, destination)
+		switch file.Kind {
+		case "secret", "storage", "json":
+			if err := validateGeneratedFile(owner, destination, file); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%s file %s must use kind secret, storage or json", owner, destination)
 		}
 	}
 	return nil

@@ -21,8 +21,22 @@ func TestTunnelValidation(t *testing.T) {
 			name: "dedicated",
 			config: Config{
 				LoadBalancers: map[string]LoadBalancerConfig{"api": {Provider: "tunnel"}},
-				Tunnels:       map[string]TunnelPodConfig{"api": {Image: digest, ReadinessURL: "http://127.0.0.1:2000/ready"}},
+				Tunnels: map[string]TunnelPodConfig{"api": {Image: digest, ReadinessURL: "http://127.0.0.1:2000/ready", Files: map[string]FileConfig{
+					"/run/tunnel/config.json": {Kind: "json", Template: map[string]interface{}{"upstream": "https://127.0.0.1:16443"}},
+					"/run/tunnel/credential":  {Kind: "secret", Source: "credential"},
+					"/run/tunnel/ca.crt":      {Kind: "storage", Source: "ca.crt"},
+				}}},
 			},
+		},
+		{
+			name: "JSON without an object",
+			config: Config{
+				LoadBalancers: map[string]LoadBalancerConfig{"api": {Provider: "tunnel"}},
+				Tunnels: map[string]TunnelPodConfig{"api": {Image: digest, ReadinessURL: "http://127.0.0.1:2000/ready", Files: map[string]FileConfig{
+					"/run/tunnel/config.json": {Kind: "json", Template: `{"upstream":"https://127.0.0.1:16443"}`},
+				}}},
+			},
+			wantErr: "must have object template",
 		},
 		{
 			name: "mutable image",

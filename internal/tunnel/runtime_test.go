@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -154,6 +155,84 @@ func TestDedicatedTunnelPublishesAndRemovesManifest(t *testing.T) {
 				t.Fatalf("manifest remains after stop: %v", err)
 			}
 		})
+	}
+}
+
+// TestTunnelInlineJSONFile verifies literal JSON reaches the Pod's mounted file.
+func TestTunnelInlineJSONFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	objectStorage, err := storage.NewMockStorage(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDir := t.TempDir()
+	runtime, err := NewRuntime(RuntimeOptions{
+		Tunnels: map[string]config.TunnelPodConfig{"api": {
+			Image: testImage(), ReadinessURL: server.URL,
+			Files: map[string]config.FileConfig{"/run/tunnel/config.json": {
+				Kind: "json", Template: map[string]interface{}{
+					"tunnel": "existing-tunnel", "literal": "{{ .Vars.KEY }}",
+					"ingress": []interface{}{map[string]interface{}{
+						"service": "https://127.0.0.1:16443", "verify": true, "retries": 2,
+					}},
+				},
+			}},
+		}},
+		Storage: objectStorage, Secrets: secrets.NewMemoryStore(), ManifestDir: manifestDir, FilesDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx, "api", func() { close(ready) }) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != context.Canceled {
+				t.Errorf("Run error = %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Run did not stop")
+		}
+	})
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not become ready")
+	}
+	entries, err := os.ReadDir(manifestDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected one manifest: %v, %v", entries, err)
+	}
+	data, err := os.ReadFile(filepath.Join(manifestDir, entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pod corev1.Pod
+	if err := json.Unmarshal(data, &pod); err != nil {
+		t.Fatal(err)
+	}
+	if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].HostPath == nil {
+		t.Fatalf("expected a mounted JSON file: %#v", pod.Spec.Volumes)
+	}
+	data, err = os.ReadFile(pod.Spec.Volumes[0].HostPath.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"tunnel":"existing-tunnel","literal":"{{ .Vars.KEY }}","ingress":[{"service":"https://127.0.0.1:16443","verify":true,"retries":2}]}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mounted JSON = %s, want %#v", data, want)
 	}
 }
 

@@ -514,7 +514,10 @@ Tunnel load balancers use `listeners` entries containing `target_port` and `prox
 
 ## `tunnels`
 
-Each tunnel load balancer requires a same-named `tunnels` entry. `nstance-server tunnel` independently loads this configuration and its referenced files; the server process sends only the tunnel name, desired state, revision, and renewable lease.
+Each tunnel load balancer requires a same-named `tunnels` entry.
+`nstance-server tunnel` independently loads this configuration and its referenced
+files; the server process sends only the tunnel name, desired state, revision,
+and renewable lease.
 
 Each tunnel uses one digest-pinned image:
 
@@ -524,7 +527,11 @@ Each tunnel uses one digest-pinned image:
     "image": "registry.example/tunnel@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "args": ["tunnel", "--config", "/run/tunnel/config.json"],
     "files": {
-      "/run/tunnel/config.json": {"kind": "secret", "source": "cluster-api-tunnel"}
+      "/run/tunnel/config.json": {
+        "kind": "json",
+        "template": {"some-key": "some-value"}
+      },
+      "/run/tunnel/credentials.json": {"kind": "secret", "source": "cluster-api-tunnel"}
     },
     "readiness_url": "http://127.0.0.1:2000/ready",
     "readiness_timeout": "30s"
@@ -532,8 +539,12 @@ Each tunnel uses one digest-pinned image:
 }
 ```
 
-Tunnel files support `secret` and `storage`. The supervisor owns these files and
-mounts them read-only. Permissions default to `0600`; `--files-mode` sets them for
+`files` maps absolute container paths to `secret`, `storage`, or `json` files.
+For `json`, `template` must be an object and is written literally, without
+interpolation. Keep credentials in `secret` files.
+
+The supervisor owns these files and mounts them read-only. Permissions default
+to `0600`; `--files-mode` sets them for
 all tunnel files. Use `--files-mode=0644` to let containers read files owned by
 another user. Host directories use `0700` and manifests use `--files-mode`; keep 
 access to host directories and Pod definitions restricted to protect file contents.

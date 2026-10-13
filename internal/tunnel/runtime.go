@@ -146,7 +146,7 @@ func (r *Runtime) startPod(ctx context.Context, name string, pod config.TunnelPo
 	return nil
 }
 
-// resolveFiles fetches one runtime's files and returns destination-to-host paths.
+// resolveFiles materializes one runtime's files and returns destination-to-host paths.
 func (r *Runtime) resolveFiles(ctx context.Context, runtimeName string, files map[string]config.FileConfig) (map[string]string, error) {
 	result := make(map[string]string, len(files))
 	destinations := make([]string, 0, len(files))
@@ -163,6 +163,10 @@ func (r *Runtime) resolveFiles(ctx context.Context, runtimeName string, files ma
 			content, err = r.options.Secrets.Get(ctx, file.Source)
 		case "storage":
 			content, _, err = r.options.Storage.Get(ctx, file.Source)
+		case "json":
+			content, err = json.MarshalIndent(file.Template, "", "  ")
+		default:
+			err = fmt.Errorf("unsupported file kind %q", file.Kind)
 		}
 		if err != nil {
 			_ = os.RemoveAll(filepath.Join(r.options.FilesDir, runtimeName))
