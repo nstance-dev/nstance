@@ -21,14 +21,15 @@ import (
 )
 
 var (
-	storageBackend string
-	bucket         string
-	shard          string
-	prefix         string
-	serverSocket   string
-	manifestDir    string
-	filesDir       string
-	filesMode      string
+	storageBackend  string
+	bucket          string
+	shard           string
+	prefix          string
+	serverSocket    string
+	manifestDir     string
+	filesDir        string
+	filesMode       string
+	runtimeEndpoint string
 )
 
 // NewCommand creates the nstance-server tunnel command.
@@ -42,6 +43,7 @@ func NewCommand() *cobra.Command {
 	command.Flags().StringVar(&manifestDir, "manifest-dir", "/etc/kubernetes/manifests", "Kubelet static Pod manifest directory")
 	command.Flags().StringVar(&filesDir, "files-dir", "/var/lib/nstance/tunnel", "Resolved tunnel files directory")
 	command.Flags().StringVar(&filesMode, "files-mode", "0600", "Resolved tunnel file permissions in octal")
+	command.Flags().StringVar(&runtimeEndpoint, "runtime-endpoint", tunnel.DefaultRuntimeEndpoint, "Container runtime CRI endpoint")
 	return command
 }
 
@@ -73,12 +75,18 @@ func run(command *cobra.Command, _ []string) error {
 	defer cleanup()
 	runtime, err := tunnel.NewRuntime(tunnel.RuntimeOptions{
 		Tunnels: cfg.Tunnels, Storage: cfg.Storage, Secrets: cfg.Secrets,
-		ManifestDir: manifestDir, FilesDir: filesDir, FilesMode: &mode,
+		ManifestDir: manifestDir, FilesDir: filesDir, FilesMode: &mode, RuntimeEndpoint: runtimeEndpoint,
 	})
 	if err != nil {
 		return err
 	}
 	defer runtime.Close()
+	// Host-level recovery owns process shutdown, which may follow kubelet shutdown.
+	// Interrupt CRI waits without acknowledging STOP or deleting undrained files.
+	go func() {
+		<-ctx.Done()
+		runtime.Close()
+	}()
 	tunnelNames := make([]string, 0, len(cfg.Tunnels))
 	for tunnelName := range cfg.Tunnels {
 		tunnelNames = append(tunnelNames, tunnelName)

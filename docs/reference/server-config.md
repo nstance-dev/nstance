@@ -573,6 +573,14 @@ Readiness URLs must be explicit loopback HTTP addresses. Provider-specific
 images, arguments, and files belong in deployment configuration, not Nstance
 code or control messages.
 
+The supervisor checks container state through the runtime's CRI API
+(`--runtime-endpoint`, default `unix:///run/containerd/containerd.sock`). Each
+start uses a new Pod UID and fresh files, so old containers cannot count as ready.
+To stop, it uses a temporary replacement Pod that cannot run the tunnel to
+confirm kubelet has stopped the old Pod before deleting files or reporting
+STOPPED. If cleanup fails or exceeds 60 seconds, the supervisor exits without
+reporting success. Host services still handle process shutdown and crash recovery.
+
 ## `certificates` and template files
 
 `certificates` defines reusable TLS certificate templates. Templates can be referenced by template `files` entries with `kind: "certificate"`.

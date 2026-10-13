@@ -23,20 +23,27 @@ import (
 
 // fakeRunner records starts and exits when its context is canceled.
 type fakeRunner struct {
-	mu      sync.Mutex
-	runs    int
-	started chan context.Context
+	mu        sync.Mutex
+	runs      int
+	started   chan context.Context
+	unhealthy chan struct{}
+	stopErr   error
 }
 
 // Run reports readiness and waits for cancellation.
-func (r *fakeRunner) Run(ctx context.Context, _ string, ready func()) error {
+func (r *fakeRunner) Run(ctx context.Context, _ string, ready func(bool)) error {
 	r.mu.Lock()
 	r.runs++
 	r.mu.Unlock()
 	r.started <- ctx
-	ready()
+	ready(true)
+	select {
+	case <-r.unhealthy:
+		ready(false)
+	case <-ctx.Done():
+	}
 	<-ctx.Done()
-	return ctx.Err()
+	return errors.Join(ctx.Err(), r.stopErr)
 }
 
 // streamServer exposes supervisor connections to a test.
@@ -70,9 +77,10 @@ func TestServiceInitiatesConnection(t *testing.T) {
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 
-	runner := &fakeRunner{started: make(chan context.Context, 1)}
+	runner := &fakeRunner{started: make(chan context.Context, 1), unhealthy: make(chan struct{})}
 	service := newTestService(t, path, runner)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- service.Run(ctx) }()
 	stream := <-fixture.connected
@@ -84,6 +92,16 @@ func TestServiceInitiatesConnection(t *testing.T) {
 	}
 	if status := receiveStatus(t, stream); status.State != proto.TunnelStatus_TUNNEL_STATUS_STATE_READY {
 		t.Fatalf("second state = %s", status.State)
+	}
+	close(runner.unhealthy)
+	if status := receiveStatus(t, stream); status.State != proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING {
+		t.Fatalf("draining state = %s", status.State)
+	}
+	if err := stream.Send(runningState(2, 5)); err != nil {
+		t.Fatal(err)
+	}
+	if status := receiveStatus(t, stream); status.Revision != 2 || status.State != proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING {
+		t.Fatalf("renewal received stale readiness: %v", status)
 	}
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
@@ -158,7 +176,9 @@ func TestNewLeaderRevisionKeepsRunning(t *testing.T) {
 		t.Fatal("new leader revision stopped the tunnel")
 	default:
 	}
-	service.stopAll()
+	if err := service.stopAll(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestServiceRejectsUnknownTunnel verifies the local allowlist.
@@ -167,6 +187,62 @@ func TestServiceRejectsUnknownTunnel(t *testing.T) {
 	err := service.apply(&proto.TunnelDesiredState{TunnelName: "unknown", Revision: 1, State: proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING, LeaseSeconds: 1})
 	if err == nil {
 		t.Fatal("unknown tunnel was accepted")
+	}
+}
+
+// TestServiceReportsDrainFailure verifies stop and expiry fail closed over the
+// wire instead of acknowledging STOPPED or starting another generation.
+func TestServiceReportsDrainFailure(t *testing.T) {
+	for _, expiry := range []bool{false, true} {
+		t.Run(map[bool]string{false: "stop", true: "expiry"}[expiry], func(t *testing.T) {
+			dir, err := os.MkdirTemp("/tmp", "nstance-drain-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Error(err)
+				}
+			})
+			listener, err := net.Listen("unix", filepath.Join(dir, "control.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := grpc.NewServer()
+			peer := &streamServer{connected: make(chan grpc.BidiStreamingServer[proto.TunnelStatus, proto.TunnelDesiredState], 1)}
+			proto.RegisterTunnelServiceServer(server, peer)
+			go func() { _ = server.Serve(listener) }()
+			defer server.Stop()
+			runner := &fakeRunner{started: make(chan context.Context, 1), stopErr: ErrDrain}
+			service := newTestService(t, listener.Addr().String(), runner)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- service.Run(ctx) }()
+			stream := <-peer.connected
+			if err := stream.Send(runningState(1, 1)); err != nil {
+				t.Fatal(err)
+			}
+			for receiveStatus(t, stream).State != proto.TunnelStatus_TUNNEL_STATUS_STATE_READY {
+			}
+			if !expiry {
+				if err := stream.Send(&proto.TunnelDesiredState{TunnelName: "known", Revision: 2, State: proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			status := receiveStatus(t, stream)
+			if status.State != proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED || status.GetError() == "" || (!expiry && status.Revision != 2) {
+				t.Fatalf("drain failure status = %v", status)
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, ErrDrain) {
+					t.Fatalf("service error = %v", err)
+				}
+			case <-ctx.Done():
+				t.Fatal("supervisor retried after drain failure")
+			}
+		})
 	}
 }
 

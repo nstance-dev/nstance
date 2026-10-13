@@ -6,7 +6,9 @@ package tunnel
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,29 +17,43 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/nstance-dev/nstance/v2/internal/server/config"
 	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
 	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
+// DefaultRuntimeEndpoint is the local containerd CRI socket.
+const DefaultRuntimeEndpoint = "unix:///run/containerd/containerd.sock"
+
+// ErrDrain means kubelet did not confirm revocation; the supervisor must exit.
+var ErrDrain = errors.New("tunnel Pod drain failed")
+
 // RuntimeOptions contains the local paths and providers owned by the tunnel command.
 type RuntimeOptions struct {
-	Tunnels     map[string]config.TunnelPodConfig
-	Storage     storage.Storage
-	Secrets     secrets.Store
-	ManifestDir string
-	FilesDir    string
-	FilesMode   *os.FileMode // Nil defaults to 0600.
+	Tunnels         map[string]config.TunnelPodConfig
+	Storage         storage.Storage
+	Secrets         secrets.Store
+	ManifestDir     string
+	FilesDir        string
+	FilesMode       *os.FileMode // Nil defaults to 0600.
+	RuntimeEndpoint string
 }
 
 // Runtime manages tunnel static Pods.
 type Runtime struct {
-	options RuntimeOptions
-	client  *http.Client
-	poll    time.Duration
+	options      RuntimeOptions
+	client       *http.Client
+	connection   *grpc.ClientConn
+	cri          runtimeapi.RuntimeServiceClient
+	poll         time.Duration
+	drainTimeout time.Duration
 }
 
 // NewRuntime creates a provider-neutral tunnel runtime.
@@ -51,10 +67,22 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	if options.FilesMode == nil {
 		options.FilesMode = new(os.FileMode(0600))
 	}
+	if options.RuntimeEndpoint == "" {
+		options.RuntimeEndpoint = DefaultRuntimeEndpoint
+	}
+	if err := CleanRuntime(options.ManifestDir, options.FilesDir); err != nil {
+		return nil, err
+	}
+	connection, err := grpc.NewClient(options.RuntimeEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("connect to container runtime: %w", err)
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	runtime := &Runtime{
-		options: options,
+		options:    options,
+		connection: connection,
+		cri:        runtimeapi.NewRuntimeServiceClient(connection),
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   time.Second,
@@ -62,17 +90,16 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 				return http.ErrUseLastResponse
 			},
 		},
-		poll: 200 * time.Millisecond,
-	}
-	if err := CleanRuntime(options.ManifestDir, options.FilesDir); err != nil {
-		return nil, err
+		poll:         200 * time.Millisecond,
+		drainTimeout: time.Minute,
 	}
 	return runtime, nil
 }
 
-// Close removes supervisor-owned manifests and resolved files.
+// Close releases the runtime connection. Run owns Pod cleanup; failed drains
+// retain their inert manifest and files for host-level recovery.
 func (r *Runtime) Close() {
-	_ = CleanRuntime(r.options.ManifestDir, r.options.FilesDir)
+	_ = r.connection.Close()
 }
 
 // CleanRuntime removes static-Pod state that could survive a supervisor restart.
@@ -102,48 +129,130 @@ func CleanRuntime(manifestDir, filesDir string) error {
 	return nil
 }
 
-// Run realizes one logical tunnel until ctx is canceled.
-func (r *Runtime) Run(ctx context.Context, tunnelName string, ready func()) error {
+// Run reports readiness changes and waits for kubelet to revoke the Pod on exit.
+func (r *Runtime) Run(ctx context.Context, tunnelName string, ready func(bool)) (err error) {
 	tunnel, ok := r.options.Tunnels[tunnelName]
 	if !ok {
 		return fmt.Errorf("unknown tunnel %q", tunnelName)
 	}
-	if err := r.startPod(ctx, "tunnel-"+tunnelName, tunnel); err != nil {
+	name := "tunnel-" + tunnelName
+	uid := types.UID(rand.Text())
+	filesName := filepath.Join(name, string(uid))
+	files, err := r.resolveFiles(ctx, filesName, tunnel.Files)
+	if err != nil {
 		return err
 	}
+	// Publication may succeed even if syncing the directory fails. Always fence
+	// this generation before returning, including canceled or failed startup.
 	defer func() {
-		_ = os.Remove(r.manifestPath("tunnel-" + tunnelName))
-		_ = os.RemoveAll(filepath.Join(r.options.FilesDir, "tunnel-"+tunnelName))
+		ready(false)
+		if drainErr := r.drain(name, uid, tunnel.Image); drainErr != nil {
+			err = errors.Join(err, fmt.Errorf("%w: %s: %w", ErrDrain, tunnelName, drainErr))
+		}
 	}()
-	ready()
-	return r.monitorReady(ctx, tunnel.ReadinessURL)
-}
-
-// startPod resolves files, publishes a hardened static Pod, and waits for readiness.
-func (r *Runtime) startPod(ctx context.Context, name string, pod config.TunnelPodConfig) error {
-	files, err := r.resolveFiles(ctx, name, pod.Files)
-	if err != nil {
+	if err := r.publishPod(staticPod(name, uid, tunnel, files)); err != nil {
 		return err
 	}
-	manifest, err := staticPod(name, pod, files)
-	if err != nil {
-		_ = os.RemoveAll(filepath.Join(r.options.FilesDir, name))
-		return err
-	}
-	if err := writeAtomic(r.options.ManifestDir, filepath.Base(r.manifestPath(name)), manifest, 0600); err != nil {
-		_ = os.RemoveAll(filepath.Join(r.options.FilesDir, name))
-		return err
-	}
-	timeout := pod.ReadinessTimeout.Duration()
+	timeout := tunnel.ReadinessTimeout.Duration()
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	if err := r.waitReady(ctx, pod.ReadinessURL, timeout); err != nil {
-		_ = os.Remove(r.manifestPath(name))
-		_ = os.RemoveAll(filepath.Join(r.options.FilesDir, name))
+	if err := r.waitReady(ctx, uid, tunnel.ReadinessURL, timeout); err != nil {
 		return err
 	}
-	return nil
+	ready(true)
+	return r.monitorReady(ctx, uid, tunnel.ReadinessURL)
+}
+
+// drain positively confirms kubelet has replaced the revoked generation. Merely
+// finding no live containers is insufficient: an in-flight SyncPod can recreate
+// them. A same-name, fresh-UID sandbox cannot start until the old worker retires.
+func (r *Runtime) drain(name string, uid types.UID, image string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), r.drainTimeout)
+	defer cancel()
+	barrierUID := types.UID(rand.Text())
+	barrier := staticPod(name, barrierUID, config.TunnelPodConfig{Image: image}, nil)
+	// Never run the image's entrypoint or mount tunnel files. Executing a directory
+	// always fails; only the sandbox is needed, without another image or CNI.
+	barrier.Spec.Containers[0].Command = []string{"/"}
+	barrier.Spec.Containers[0].ImagePullPolicy = corev1.PullNever
+	barrier.Spec.TerminationGracePeriodSeconds = new(int64)
+	if err := r.publishPod(barrier); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(r.poll)
+	defer ticker.Stop()
+	for {
+		barrierReady, _, _, err := r.podState(ctx, barrierUID)
+		if err != nil {
+			return err
+		}
+		if barrierReady {
+			_, _, stopped, err := r.podState(ctx, uid)
+			if err != nil {
+				return err
+			}
+			if stopped {
+				if err := os.Remove(r.manifestPath(name)); err != nil {
+					return err
+				}
+				return os.RemoveAll(filepath.Join(r.options.FilesDir, name))
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for kubelet revocation: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// podState observes only this generation, never a previous run or another Pod.
+func (r *Runtime) podState(ctx context.Context, uid types.UID) (ready, running, stopped bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	labels := map[string]string{"io.kubernetes.pod.uid": string(uid)}
+	sandboxes, err := r.cri.ListPodSandbox(ctx, &runtimeapi.ListPodSandboxRequest{Filter: &runtimeapi.PodSandboxFilter{LabelSelector: labels}})
+	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return false, false, false, fmt.Errorf("observe tunnel sandbox: %w", err)
+	}
+	containers, err := r.cri.ListContainers(ctx, &runtimeapi.ListContainersRequest{Filter: &runtimeapi.ContainerFilter{LabelSelector: labels}})
+	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return false, false, false, fmt.Errorf("observe tunnel containers: %w", err)
+	}
+	stopped = true
+	for _, sandbox := range sandboxes.Items {
+		if sandbox.State != runtimeapi.PodSandboxState_SANDBOX_READY {
+			continue
+		}
+		ready, stopped = true, false
+		for _, container := range containers.Containers {
+			if container.PodSandboxId == sandbox.Id && container.Metadata.Name == "tunnel" && container.State == runtimeapi.ContainerState_CONTAINER_RUNNING {
+				running = true
+			}
+		}
+	}
+	for _, container := range containers.Containers {
+		if container.State != runtimeapi.ContainerState_CONTAINER_EXITED {
+			stopped = false
+		}
+	}
+	return ready, running, stopped, nil
+}
+
+// publishPod atomically writes a private static Pod manifest for kubelet.
+func (r *Runtime) publishPod(pod corev1.Pod) error {
+	data, err := json.MarshalIndent(pod, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(r.options.ManifestDir, pod.Name+".json", data, 0600)
 }
 
 // resolveFiles materializes one runtime's files and returns destination-to-host paths.
@@ -183,14 +292,21 @@ func (r *Runtime) resolveFiles(ctx context.Context, runtimeName string, files ma
 	return result, nil
 }
 
-// waitReady polls a fixed loopback endpoint until success or timeout.
-func (r *Runtime) waitReady(ctx context.Context, rawURL string, timeout time.Duration) error {
+// waitReady requires this generation's running container before probing HTTP.
+func (r *Runtime) waitReady(ctx context.Context, uid types.UID, rawURL string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
 	for {
-		if r.isReady(ctx, rawURL) {
+		podReady, running, _, err := r.podState(ctx, uid)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		if podReady && running && r.isReady(ctx, rawURL) {
 			return nil
 		}
 		select {
@@ -202,7 +318,7 @@ func (r *Runtime) waitReady(ctx context.Context, rawURL string, timeout time.Dur
 }
 
 // monitorReady reports a running tunnel that loses readiness.
-func (r *Runtime) monitorReady(ctx context.Context, rawURL string) error {
+func (r *Runtime) monitorReady(ctx context.Context, uid types.UID, rawURL string) error {
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
 	for {
@@ -210,7 +326,11 @@ func (r *Runtime) monitorReady(ctx context.Context, rawURL string) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if !r.isReady(ctx, rawURL) {
+			podReady, running, _, err := r.podState(ctx, uid)
+			if err != nil && ctx.Err() == nil {
+				return err
+			}
+			if !podReady || !running || !r.isReady(ctx, rawURL) {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
@@ -240,7 +360,7 @@ func (r *Runtime) manifestPath(name string) string {
 }
 
 // staticPod renders one fixed, hardened kubelet static Pod.
-func staticPod(name string, pod config.TunnelPodConfig, files map[string]string) ([]byte, error) {
+func staticPod(name string, uid types.UID, pod config.TunnelPodConfig, files map[string]string) corev1.Pod {
 	trueValue := true
 	falseValue := false
 	container := corev1.Container{
@@ -264,16 +384,15 @@ func staticPod(name string, pod config.TunnelPodConfig, files map[string]string)
 		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: volumeName, MountPath: destination, ReadOnly: true})
 		volumes = append(volumes, corev1.Volume{Name: volumeName, VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: hostPath, Type: &fileType}}})
 	}
-	manifest := corev1.Pod{
+	return corev1.Pod{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
-		ObjectMeta: metav1.ObjectMeta{Name: "nstance-" + name, Namespace: "kube-system", Labels: map[string]string{"app.kubernetes.io/managed-by": "nstance-server-tunnel"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "nstance-" + name, Namespace: "kube-system", UID: uid, Labels: map[string]string{"app.kubernetes.io/managed-by": "nstance-server-tunnel"}},
 		Spec: corev1.PodSpec{
 			AutomountServiceAccountToken: &falseValue, EnableServiceLinks: &falseValue,
 			HostNetwork: true, DNSPolicy: corev1.DNSClusterFirstWithHostNet, RestartPolicy: corev1.RestartPolicyAlways,
 			Containers: []corev1.Container{container}, Volumes: volumes,
 		},
 	}
-	return json.MarshalIndent(manifest, "", "  ")
 }
 
 // writeAtomic securely replaces one supervisor-owned file.

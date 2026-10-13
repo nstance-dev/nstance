@@ -24,9 +24,9 @@ const (
 	maxBackoff = 30 * time.Second
 )
 
-// Runner runs one locally configured tunnel and calls ready once it is usable.
+// Runner reports readiness changes and returns only after the Pod is revoked.
 type Runner interface {
-	Run(context.Context, string, func()) error
+	Run(context.Context, string, func(bool)) error
 }
 
 // ownedTunnel records one running tunnel and its renewable lease.
@@ -46,10 +46,11 @@ type Service struct {
 	allowed map[string]struct{}
 	logger  *slog.Logger
 
-	mu      sync.Mutex
-	applyMu sync.Mutex
-	owned   map[string]*ownedTunnel
-	updates chan *proto.TunnelStatus
+	mu       sync.Mutex
+	applyMu  sync.Mutex
+	owned    map[string]*ownedTunnel
+	updates  chan *proto.TunnelStatus
+	failures chan error
 }
 
 // NewService creates a reconnecting service restricted to configured tunnel names.
@@ -76,25 +77,34 @@ func NewService(socket string, tunnelNames []string, runner Runner, logger *slog
 	return &Service{
 		socket: socket, runner: runner, allowed: allowed, logger: logger,
 		owned: make(map[string]*ownedTunnel), updates: make(chan *proto.TunnelStatus, 64),
+		failures: make(chan error, 1),
 	}, nil
 }
 
 // Run reconnects to the local server until ctx is canceled.
 func (s *Service) Run(ctx context.Context) error {
 	backoff := minBackoff
+	var fatal error
 	for ctx.Err() == nil {
 		err := s.session(ctx)
+		if errors.Is(err, ErrDrain) {
+			fatal = err
+			break
+		}
 		if ctx.Err() != nil {
 			break
 		}
 		s.logger.Warn("tunnel control session lost", "error", err, "backoff", backoff)
-		if !wait(ctx, backoff) {
-			break
+		select {
+		case <-ctx.Done():
+		case fatal = <-s.failures:
+		case <-time.After(backoff):
+			backoff = min(backoff*2, maxBackoff)
+			continue
 		}
-		backoff = min(backoff*2, maxBackoff)
+		break
 	}
-	s.stopAll()
-	return ctx.Err()
+	return errors.Join(fatal, s.stopAll(), ctx.Err())
 }
 
 // session exchanges status and leased desired state over one connection.
@@ -132,6 +142,18 @@ func (s *Service) session(ctx context.Context) error {
 	seen := make(map[string]uint64)
 	for {
 		select {
+		case err := <-s.failures:
+			// Deliver terminal failures before closing the control connection.
+			for {
+				select {
+				case update := <-s.updates:
+					if update.State == proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED {
+						_ = stream.Send(update)
+					}
+				default:
+					return err
+				}
+			}
 		case <-ctx.Done():
 			_ = stream.CloseSend()
 			return ctx.Err()
@@ -145,6 +167,10 @@ func (s *Service) session(ctx context.Context) error {
 			first := seen[item.state.GetTunnelName()] != item.state.GetRevision()
 			existing := s.currentStatus(item.state.GetTunnelName()) != nil
 			if err := s.apply(item.state); err != nil {
+				if errors.Is(err, ErrDrain) {
+					message := err.Error()
+					_ = stream.Send(&proto.TunnelStatus{TunnelName: item.state.TunnelName, Revision: item.state.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED, Error: &message})
+				}
 				return err
 			}
 			seen[item.state.GetTunnelName()] = item.state.GetRevision()
@@ -196,7 +222,11 @@ func (s *Service) apply(request *proto.TunnelDesiredState) error {
 	s.mu.Unlock()
 
 	if current != nil {
-		s.stop(request.TunnelName, current)
+		if err := s.stop(request.TunnelName, current); err != nil {
+			message := err.Error()
+			s.emit(&proto.TunnelStatus{TunnelName: request.TunnelName, Revision: request.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED, Error: &message})
+			return err
+		}
 	}
 	if request.State == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED {
 		s.emit(&proto.TunnelStatus{TunnelName: request.TunnelName, Revision: request.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED})
@@ -219,9 +249,21 @@ func (s *Service) run(ctx context.Context, tunnelName string, owned *ownedTunnel
 	backoff := minBackoff
 	for {
 		ready := sync.Once{}
-		err := s.runner.Run(ctx, tunnelName, func() {
-			ready.Do(func() { s.setStatus(tunnelName, owned, proto.TunnelStatus_TUNNEL_STATUS_STATE_READY, nil) })
+		err := s.runner.Run(ctx, tunnelName, func(healthy bool) {
+			if healthy {
+				ready.Do(func() { s.setStatus(tunnelName, owned, proto.TunnelStatus_TUNNEL_STATUS_STATE_READY, nil) })
+			} else {
+				s.setStatus(tunnelName, owned, proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING, nil)
+			}
 		})
+		if errors.Is(err, ErrDrain) {
+			s.setStatus(tunnelName, owned, proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED, err)
+			select {
+			case s.failures <- err:
+			default:
+			}
+			return
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -247,33 +289,39 @@ func (s *Service) expire(tunnelName string, owned *ownedTunnel, generation uint6
 		expired := current == owned && current.generation == generation
 		s.mu.Unlock()
 		if expired {
-			s.stop(tunnelName, owned)
+			_ = s.stop(tunnelName, owned)
 		}
 	}()
 }
 
-// stop cancels one current tunnel and waits for its runner to exit.
-func (s *Service) stop(tunnelName string, owned *ownedTunnel) {
+// stop waits for revocation, retaining ownership if the drain fails.
+func (s *Service) stop(tunnelName string, owned *ownedTunnel) error {
 	owned.cancel()
 	<-owned.done
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if errors.Is(owned.runErr, ErrDrain) {
+		return owned.runErr
+	}
 	if s.owned[tunnelName] == owned {
 		delete(s.owned, tunnelName)
 	}
-	s.mu.Unlock()
+	return nil
 }
 
 // stopAll stops all tunnels during supervisor shutdown.
-func (s *Service) stopAll() {
+func (s *Service) stopAll() error {
 	s.mu.Lock()
 	owned := make(map[string]*ownedTunnel, len(s.owned))
 	for name, tunnel := range s.owned {
 		owned[name] = tunnel
 	}
 	s.mu.Unlock()
+	var err error
 	for name, tunnel := range owned {
-		s.stop(name, tunnel)
+		err = errors.Join(err, s.stop(name, tunnel))
 	}
+	return err
 }
 
 // setStatus stores and emits a current tunnel status.
