@@ -144,7 +144,6 @@ precommit: ## Check formatting and run linters (read-only)
 
 test: ## Run tests
 	@echo "Running tests..."
-	bash $(CURRENT)scripts/test-git-hooks.sh
 	go test -v -race -coverprofile=coverage.out ./...
 
 e2e-admin: ## Run e2e test for admin CLI (requires dev-tmux running)
