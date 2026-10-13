@@ -37,6 +37,9 @@ type ownedTunnel struct {
 	generation uint64
 	state      proto.TunnelStatus_State
 	runErr     error
+	wantRun    bool
+	stopping   bool
+	expires    time.Time
 }
 
 // Service follows leased tunnel intent from the local shard leader.
@@ -47,7 +50,6 @@ type Service struct {
 	logger  *slog.Logger
 
 	mu       sync.Mutex
-	applyMu  sync.Mutex
 	owned    map[string]*ownedTunnel
 	updates  chan *proto.TunnelStatus
 	failures chan error
@@ -139,7 +141,6 @@ func (s *Service) session(ctx context.Context) error {
 			}
 		}
 	}()
-	seen := make(map[string]uint64)
 	for {
 		select {
 		case err := <-s.failures:
@@ -164,22 +165,12 @@ func (s *Service) session(ctx context.Context) error {
 				}
 				return item.err
 			}
-			first := seen[item.state.GetTunnelName()] != item.state.GetRevision()
-			existing := s.currentStatus(item.state.GetTunnelName()) != nil
 			if err := s.apply(item.state); err != nil {
 				if errors.Is(err, ErrDrain) {
 					message := err.Error()
 					_ = stream.Send(&proto.TunnelStatus{TunnelName: item.state.TunnelName, Revision: item.state.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED, Error: &message})
 				}
 				return err
-			}
-			seen[item.state.GetTunnelName()] = item.state.GetRevision()
-			if first && existing {
-				if status := s.currentStatus(item.state.GetTunnelName()); status != nil {
-					if err := stream.Send(status); err != nil {
-						return err
-					}
-				}
 			}
 		case update := <-s.updates:
 			if err := stream.Send(update); err != nil {
@@ -191,8 +182,6 @@ func (s *Service) session(ctx context.Context) error {
 
 // apply validates and applies one leased desired state.
 func (s *Service) apply(request *proto.TunnelDesiredState) error {
-	s.applyMu.Lock()
-	defer s.applyMu.Unlock()
 	if request == nil || request.TunnelName == "" {
 		return fmt.Errorf("tunnel name is required")
 	}
@@ -210,37 +199,46 @@ func (s *Service) apply(request *proto.TunnelDesiredState) error {
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	wantRun := request.State == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING
+	expires := time.Now().Add(time.Duration(request.LeaseSeconds) * time.Second)
 	current := s.owned[request.TunnelName]
-	if current != nil && request.State == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
+	if current != nil {
+		if errors.Is(current.runErr, ErrDrain) {
+			return current.runErr
+		}
 		current.revision = request.Revision
 		current.generation++
-		generation := current.generation
-		s.mu.Unlock()
-		s.expire(request.TunnelName, current, generation, time.Duration(request.LeaseSeconds)*time.Second)
+		current.wantRun = wantRun
+		current.expires = expires
+		if wantRun {
+			s.expire(request.TunnelName, current, current.generation, time.Until(expires))
+		} else {
+			s.stopLocked(request.TunnelName, current)
+		}
+		s.emit(statusMessage(request.TunnelName, current))
 		return nil
 	}
-	s.mu.Unlock()
 
-	if current != nil {
-		if err := s.stop(request.TunnelName, current); err != nil {
-			message := err.Error()
-			s.emit(&proto.TunnelStatus{TunnelName: request.TunnelName, Revision: request.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED, Error: &message})
-			return err
-		}
-	}
-	if request.State == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED {
+	if !wantRun {
 		s.emit(&proto.TunnelStatus{TunnelName: request.TunnelName, Revision: request.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED})
 		return nil
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	owned := &ownedTunnel{cancel: cancel, done: make(chan struct{}), revision: request.Revision, generation: 1, state: proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING}
-	s.mu.Lock()
-	s.owned[request.TunnelName] = owned
-	s.mu.Unlock()
-	s.emit(&proto.TunnelStatus{TunnelName: request.TunnelName, Revision: request.Revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING})
-	s.expire(request.TunnelName, owned, owned.generation, time.Duration(request.LeaseSeconds)*time.Second)
-	go s.run(ctx, request.TunnelName, owned)
+	s.startLocked(request.TunnelName, request.Revision, expires)
 	return nil
+}
+
+// startLocked starts a drained tunnel with the remaining lease; s.mu is held.
+func (s *Service) startLocked(tunnelName string, revision uint64, expires time.Time) {
+	ctx, cancel := context.WithCancel(context.Background())
+	owned := &ownedTunnel{
+		cancel: cancel, done: make(chan struct{}), revision: revision, generation: 1,
+		state: proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING, wantRun: true, expires: expires,
+	}
+	s.owned[tunnelName] = owned
+	s.emit(statusMessage(tunnelName, owned))
+	s.expire(tunnelName, owned, owned.generation, time.Until(expires))
+	go s.run(ctx, tunnelName, owned)
 }
 
 // run executes and restarts one tunnel until cancellation.
@@ -282,31 +280,44 @@ func (s *Service) expire(tunnelName string, owned *ownedTunnel, generation uint6
 		timer := time.NewTimer(duration)
 		defer timer.Stop()
 		<-timer.C
-		s.applyMu.Lock()
-		defer s.applyMu.Unlock()
 		s.mu.Lock()
+		defer s.mu.Unlock()
 		current := s.owned[tunnelName]
 		expired := current == owned && current.generation == generation
-		s.mu.Unlock()
 		if expired {
-			_ = s.stop(tunnelName, owned)
+			owned.wantRun = false
+			s.stopLocked(tunnelName, owned)
 		}
 	}()
 }
 
-// stop waits for revocation, retaining ownership if the drain fails.
-func (s *Service) stop(tunnelName string, owned *ownedTunnel) error {
+// stopLocked starts revocation without blocking other tunnels; s.mu is held.
+func (s *Service) stopLocked(tunnelName string, owned *ownedTunnel) {
 	owned.cancel()
+	if owned.stopping || errors.Is(owned.runErr, ErrDrain) {
+		return
+	}
+	owned.stopping = true
+	owned.state = proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING
+	owned.runErr = nil
+	s.emit(statusMessage(tunnelName, owned))
+	go s.finishStop(tunnelName, owned)
+}
+
+// finishStop acknowledges a drain or starts the latest still-leased replacement.
+func (s *Service) finishStop(tunnelName string, owned *ownedTunnel) {
 	<-owned.done
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if errors.Is(owned.runErr, ErrDrain) {
-		return owned.runErr
+	if s.owned[tunnelName] != owned || errors.Is(owned.runErr, ErrDrain) {
+		return
 	}
-	if s.owned[tunnelName] == owned {
-		delete(s.owned, tunnelName)
+	delete(s.owned, tunnelName)
+	if owned.wantRun && time.Now().Before(owned.expires) {
+		s.startLocked(tunnelName, owned.revision, owned.expires)
+	} else {
+		s.emit(&proto.TunnelStatus{TunnelName: tunnelName, Revision: owned.revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED})
 	}
-	return nil
 }
 
 // stopAll stops all tunnels during supervisor shutdown.
@@ -315,37 +326,32 @@ func (s *Service) stopAll() error {
 	owned := make(map[string]*ownedTunnel, len(s.owned))
 	for name, tunnel := range s.owned {
 		owned[name] = tunnel
+		tunnel.wantRun = false
+		s.stopLocked(name, tunnel)
 	}
 	s.mu.Unlock()
 	var err error
-	for name, tunnel := range owned {
-		err = errors.Join(err, s.stop(name, tunnel))
+	for _, tunnel := range owned {
+		<-tunnel.done
+		s.mu.Lock()
+		if errors.Is(tunnel.runErr, ErrDrain) {
+			err = errors.Join(err, tunnel.runErr)
+		}
+		s.mu.Unlock()
 	}
 	return err
 }
 
-// setStatus stores and emits a current tunnel status.
+// setStatus stores current status; a draining run can only report fatal failure.
 func (s *Service) setStatus(tunnelName string, owned *ownedTunnel, state proto.TunnelStatus_State, runErr error) {
 	s.mu.Lock()
-	if s.owned[tunnelName] != owned {
-		s.mu.Unlock()
+	defer s.mu.Unlock()
+	if s.owned[tunnelName] != owned || (owned.stopping && !errors.Is(runErr, ErrDrain)) {
 		return
 	}
 	owned.state = state
 	owned.runErr = runErr
-	message := statusMessage(tunnelName, owned)
-	s.mu.Unlock()
-	s.emit(message)
-}
-
-// currentStatus returns the latest status for one running tunnel.
-func (s *Service) currentStatus(tunnelName string) *proto.TunnelStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if owned := s.owned[tunnelName]; owned != nil {
-		return statusMessage(tunnelName, owned)
-	}
-	return nil
+	s.emit(statusMessage(tunnelName, owned))
 }
 
 // statusMessage builds a wire status while the caller holds s.mu.

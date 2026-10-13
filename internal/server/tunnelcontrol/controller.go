@@ -31,7 +31,7 @@ const (
 // ErrUnavailable indicates that no shard-leader tunnel service is available.
 var ErrUnavailable = errors.New("tunnel supervisor unavailable")
 
-// result is a terminal status for one desired-state revision.
+// result is the latest completed status for one desired-state revision.
 type result struct {
 	status *proto.TunnelStatus
 	err    error
@@ -138,30 +138,29 @@ func (c *Controller) SetDesired(tunnelName string, state proto.TunnelDesiredStat
 	return revision, nil
 }
 
-// Wait waits for a revision to become ready, failed, or stopped.
+// Wait returns a revision's current ready, failed, or stopped status.
 func (c *Controller) Wait(ctx context.Context, tunnelName string, revision uint64) (*proto.TunnelStatus, error) {
 	k := key{tunnelName: tunnelName, revision: revision}
-	c.mu.Lock()
-	if r, ok := c.results[k]; ok {
-		c.mu.Unlock()
-		return r.status, r.err
-	}
-	if !c.active {
-		c.mu.Unlock()
-		return nil, ErrUnavailable
-	}
-	ch := make(chan struct{})
-	c.waiters[k] = append(c.waiters[k], ch)
-	c.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		c.removeWaiter(k, ch)
-		return nil, ctx.Err()
-	case <-ch:
+	for {
 		c.mu.Lock()
-		r := c.results[k]
+		if r, ok := c.results[k]; ok {
+			c.mu.Unlock()
+			return r.status, r.err
+		}
+		if !c.active {
+			c.mu.Unlock()
+			return nil, ErrUnavailable
+		}
+		ch := make(chan struct{})
+		c.waiters[k] = append(c.waiters[k], ch)
 		c.mu.Unlock()
-		return r.status, r.err
+		select {
+		case <-ctx.Done():
+			c.removeWaiter(k, ch)
+			return nil, ctx.Err()
+		case <-ch:
+			// Readiness may have been withdrawn again before this waiter woke.
+		}
 	}
 }
 
@@ -302,39 +301,37 @@ func (c *Controller) sendDesired(stream grpc.BidiStreamingServer[proto.TunnelSta
 	return nil
 }
 
-// recordStatus stores terminal statuses and wakes their waiters.
+// recordStatus updates current results, withdrawing readiness on STARTING.
 func (c *Controller) recordStatus(message *proto.TunnelStatus) {
 	if message == nil || message.TunnelName == "" || message.Revision == 0 {
 		return
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	desired, ok := c.desired[message.TunnelName]
-	c.mu.Unlock()
 	if !ok || desired.revision != message.Revision {
 		return
 	}
+	k := key{tunnelName: message.TunnelName, revision: message.Revision}
 	switch message.State {
-	case proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED:
-		c.complete(key{tunnelName: message.TunnelName, revision: message.Revision}, result{status: message})
-	case proto.TunnelStatus_TUNNEL_STATUS_STATE_READY:
+	case proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING:
 		if desired.state == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
-			c.complete(key{tunnelName: message.TunnelName, revision: message.Revision}, result{status: message})
+			delete(c.results, k)
+		}
+		return
+	case proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED:
+	case proto.TunnelStatus_TUNNEL_STATUS_STATE_READY:
+		if desired.state != proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING {
+			return
 		}
 	case proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED:
-		if desired.state == proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED {
-			c.complete(key{tunnelName: message.TunnelName, revision: message.Revision}, result{status: message})
+		if desired.state != proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED {
+			return
 		}
-	}
-}
-
-// complete stores a result once and wakes its waiters.
-func (c *Controller) complete(k key, r result) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, exists := c.results[k]; exists {
+	default:
 		return
 	}
-	c.results[k] = r
+	c.results[k] = result{status: message}
 	for _, waiter := range c.waiters[k] {
 		close(waiter)
 	}

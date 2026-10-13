@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/nstance-dev/nstance/v2/internal/proto"
+	"github.com/nstance-dev/nstance/v2/internal/server/tunnelcontrol"
 )
 
 // fakeRunner records starts and exits when its context is canceled.
@@ -28,22 +29,30 @@ type fakeRunner struct {
 	started   chan context.Context
 	unhealthy chan struct{}
 	stopErr   error
+	drain     map[string]<-chan struct{}
 }
 
-// Run reports readiness and waits for cancellation.
-func (r *fakeRunner) Run(ctx context.Context, _ string, ready func(bool)) error {
+// Run reports readiness, with optional failure injection and blocked revocation.
+func (r *fakeRunner) Run(ctx context.Context, name string, ready func(bool)) error {
 	r.mu.Lock()
 	r.runs++
 	r.mu.Unlock()
 	r.started <- ctx
 	ready(true)
+	var err error
 	select {
 	case <-r.unhealthy:
 		ready(false)
+		err = errors.New("lost readiness")
+		if r.drain[name] == nil {
+			<-ctx.Done()
+		}
 	case <-ctx.Done():
 	}
-	<-ctx.Done()
-	return errors.Join(ctx.Err(), r.stopErr)
+	if gate := r.drain[name]; gate != nil {
+		<-gate
+	}
+	return errors.Join(err, ctx.Err(), r.stopErr)
 }
 
 // streamServer exposes supervisor connections to a test.
@@ -231,6 +240,9 @@ func TestServiceReportsDrainFailure(t *testing.T) {
 				}
 			}
 			status := receiveStatus(t, stream)
+			for status.State == proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING {
+				status = receiveStatus(t, stream)
+			}
 			if status.State != proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED || status.GetError() == "" || (!expiry && status.Revision != 2) {
 				t.Fatalf("drain failure status = %v", status)
 			}
@@ -243,6 +255,181 @@ func TestServiceReportsDrainFailure(t *testing.T) {
 				t.Fatal("supervisor retried after drain failure")
 			}
 		})
+	}
+}
+
+// TestServiceDrainsIndependently verifies leases, renewals and statuses keep
+// flowing while another tunnel drains, without overlapping or reviving runs.
+func TestServiceDrainsIndependently(t *testing.T) {
+	for _, lease := range []uint32{1, 5} {
+		t.Run(map[uint32]string{1: "expired-replacement", 5: "leased-replacement"}[lease], func(t *testing.T) {
+			dir, err := os.MkdirTemp("/tmp", "nstance-drain-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = os.RemoveAll(dir) }()
+			listener, err := net.Listen("unix", filepath.Join(dir, "control.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := grpc.NewServer()
+			peer := &streamServer{connected: make(chan grpc.BidiStreamingServer[proto.TunnelStatus, proto.TunnelDesiredState], 1)}
+			proto.RegisterTunnelServiceServer(server, peer)
+			go func() { _ = server.Serve(listener) }()
+			defer server.Stop()
+			gate := make(chan struct{})
+			runner := &fakeRunner{started: make(chan context.Context, 8), drain: map[string]<-chan struct{}{"known": gate}}
+			service, err := NewService(listener.Addr().String(), []string{"known", "expire", "renew"}, runner, slog.Default())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			done := make(chan error, 1)
+			go func() { done <- service.Run(ctx) }()
+			defer func() {
+				select {
+				case <-gate:
+				default:
+					close(gate)
+				}
+				cancel()
+				if err := <-done; !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					t.Errorf("service shutdown: %v", err)
+				}
+			}()
+			stream := <-peer.connected
+			mayStart := false
+			// await also rejects an early restart or an incorrectly expired renewal.
+			await := func(name string, revision uint64, state proto.TunnelStatus_State) {
+				t.Helper()
+				for {
+					status := receiveStatus(t, stream)
+					if status.TunnelName == "known" && status.Revision == 3 && status.State == proto.TunnelStatus_TUNNEL_STATUS_STATE_READY && !mayStart {
+						t.Fatal("replacement ran before revocation or after its lease expired")
+					}
+					if status.TunnelName == "renew" && status.Revision == 2 && status.State == proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED {
+						t.Fatal("renewed tunnel expired on its previous lease")
+					}
+					if status.TunnelName == name && status.Revision == revision && status.State == state {
+						return
+					}
+				}
+			}
+			// send preserves names and revisions while driving the public stream.
+			send := func(name string, revision uint64, leaseSeconds uint32) {
+				t.Helper()
+				state := runningState(revision, leaseSeconds)
+				state.TunnelName = name
+				if leaseSeconds == 0 {
+					state.State = proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_STOPPED
+				}
+				if err := stream.Send(state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, name := range []string{"known", "expire", "renew"} {
+				send(name, 1, 1)
+				await(name, 1, proto.TunnelStatus_TUNNEL_STATUS_STATE_READY)
+			}
+			send("known", 2, 0)
+			await("known", 2, proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING)
+			send("known", 3, lease)
+			await("known", 3, proto.TunnelStatus_TUNNEL_STATUS_STATE_STARTING)
+			send("renew", 2, 3)
+			await("renew", 2, proto.TunnelStatus_TUNNEL_STATUS_STATE_READY)
+			await("expire", 1, proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED)
+			// Cross both original one-second leases, including the pending restart.
+			time.Sleep(400 * time.Millisecond)
+			send("renew", 3, 0)
+			await("renew", 3, proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED)
+			mayStart = lease == 5
+			close(gate)
+			if mayStart {
+				await("known", 3, proto.TunnelStatus_TUNNEL_STATUS_STATE_READY)
+			} else {
+				await("known", 3, proto.TunnelStatus_TUNNEL_STATUS_STATE_STOPPED)
+			}
+		})
+	}
+}
+
+// TestServiceWithdrawsControllerReadiness exercises live readiness across the
+// actual control stream, including a readiness failure and successful retry.
+func TestServiceWithdrawsControllerReadiness(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "nstance-readiness-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	path := filepath.Join(dir, "control.sock")
+	controller, err := tunnelcontrol.New(path, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.Start(); err != nil {
+		t.Fatal(err)
+	}
+	gate := make(chan struct{})
+	runner := &fakeRunner{started: make(chan context.Context, 4), unhealthy: make(chan struct{}, 1), drain: map[string]<-chan struct{}{"known": gate}}
+	service := newTestService(t, path, runner)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	done := make(chan error, 1)
+	go func() { done <- service.Run(ctx) }()
+	defer func() {
+		select {
+		case <-gate:
+		default:
+			close(gate)
+		}
+		controller.Stop()
+		cancel()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Errorf("service shutdown: %v", err)
+		}
+	}()
+	revision, err := controller.SetDesired("known", proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := controller.Wait(ctx, "known", revision)
+	if err != nil || status.GetState() != proto.TunnelStatus_TUNNEL_STATUS_STATE_READY {
+		t.Fatalf("initial readiness = %v, %v", status, err)
+	}
+	runner.unhealthy <- struct{}{}
+	deadline := time.Now().Add(time.Second)
+	for {
+		waiting, stopWaiting := context.WithTimeout(ctx, 50*time.Millisecond)
+		status, err = controller.Wait(waiting, "known", revision)
+		stopWaiting()
+		if errors.Is(err, context.DeadlineExceeded) {
+			break
+		}
+		if err != nil || time.Now().After(deadline) {
+			t.Fatalf("withdrawn readiness still returns %v, %v", status, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(gate)
+	status, err = controller.Wait(ctx, "known", revision)
+	if err != nil || status.GetState() != proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED {
+		t.Fatalf("failure did not replace READY: %v, %v", status, err)
+	}
+	retry, err := controller.SetDesired("known", proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING)
+	if err != nil || retry == revision {
+		t.Fatalf("retry revision = %d, %v", retry, err)
+	}
+	for {
+		status, err = controller.Wait(ctx, "known", retry)
+		if err != nil || status.GetState() == proto.TunnelStatus_TUNNEL_STATUS_STATE_READY {
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatal("retry retained a historical failure")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err != nil || status.GetState() != proto.TunnelStatus_TUNNEL_STATUS_STATE_READY {
+		t.Fatalf("retry readiness = %v, %v", status, err)
 	}
 }
 

@@ -97,7 +97,8 @@ func TestControllerIgnoresStaleStatus(t *testing.T) {
 	}
 }
 
-// TestControllerRetriesFailedRevision verifies a failed run gets new authority.
+// TestControllerRetriesFailedRevision verifies failure replaces prior readiness
+// and retrying grants new authority, even without an intervening STARTING status.
 func TestControllerRetriesFailedRevision(t *testing.T) {
 	controller, stream := startController(t)
 	revision, err := controller.SetDesired("api", proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING)
@@ -105,11 +106,25 @@ func TestControllerRetriesFailedRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = receiveDesired(t, stream)
+	if err := stream.Send(&proto.TunnelStatus{TunnelName: "api", Revision: revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_READY}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := testContext(t)
+	if status, err := controller.Wait(ctx, "api", revision); err != nil || status.GetState() != proto.TunnelStatus_TUNNEL_STATUS_STATE_READY {
+		t.Fatalf("initial readiness = %v, %v", status, err)
+	}
 	if err := stream.Send(&proto.TunnelStatus{TunnelName: "api", Revision: revision, State: proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.Wait(testContext(t), "api", revision); err != nil {
-		t.Fatal(err)
+	for {
+		status, err := controller.Wait(ctx, "api", revision)
+		if err != nil || ctx.Err() != nil {
+			t.Fatalf("failure did not replace READY: %v, %v", status, err)
+		}
+		if status.GetState() == proto.TunnelStatus_TUNNEL_STATUS_STATE_FAILED {
+			break
+		}
+		time.Sleep(time.Millisecond)
 	}
 	retry, err := controller.SetDesired("api", proto.TunnelDesiredState_TUNNEL_DESIRED_STATE_RUNNING)
 	if err != nil {
