@@ -6,8 +6,8 @@ apiVersion: v2
 name: nstance-operator
 description: Nstance Operator for Kubernetes with support for Cluster API
 type: application
-version: 2.1.0
-appVersion: "2.1.0"
+version: 2.1.1
+appVersion: "2.1.1"
 keywords:
   - nstance
   - infrastructure
