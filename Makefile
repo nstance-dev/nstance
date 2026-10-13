@@ -70,13 +70,15 @@ setup: ## Verify required tools and install git hooks
 	@$(MAKE) git-hooks
 	@echo "Setup complete. All dependencies are installed."
 
-git-hooks: ## Install git pre-commit and commit-msg hooks
+git-hooks: ## Install git pre-commit, commit-msg, and pre-push hooks
 	@echo "Installing git hooks..."
 	@mkdir -p $(CURRENT).git/hooks
 	@cp $(CURRENT)scripts/git-hooks/pre-commit $(CURRENT).git/hooks/pre-commit
 	@chmod +x $(CURRENT).git/hooks/pre-commit
 	@cp $(CURRENT)scripts/git-hooks/commit-msg $(CURRENT).git/hooks/commit-msg
 	@chmod +x $(CURRENT).git/hooks/commit-msg
+	@cp $(CURRENT)scripts/git-hooks/pre-push $(CURRENT).git/hooks/pre-push
+	@chmod +x $(CURRENT).git/hooks/pre-push
 	@echo "Git hooks installed!"
 
 ##@ Build & Test
@@ -142,6 +144,7 @@ precommit: ## Check formatting and run linters (read-only)
 
 test: ## Run tests
 	@echo "Running tests..."
+	bash $(CURRENT)scripts/test-git-hooks.sh
 	go test -v -race -coverprofile=coverage.out ./...
 
 e2e-admin: ## Run e2e test for admin CLI (requires dev-tmux running)

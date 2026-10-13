@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Nstance <https://nstance.dev>
+# Copyright The Nstance Authors
+# SPDX-License-Identifier: Apache-2.0
+set -eo pipefail
+
+while read -r _localRef localOid remoteRef _remoteOid; do
+	# Match the release workflow's destination tags, including explicit refspecs.
+	case "$remoteRef" in
+		refs/tags/v*) ;;
+		*) continue ;;
+	esac
+	# A zero object ID denotes a deletion, which does not trigger a release.
+	if [[ "$localOid" =~ ^0+$ ]]; then
+		continue
+	fi
+
+	tag=${remoteRef#refs/tags/}
+	version=${tag#v}
+	# Dereference annotated tags and read the committed chart, not the working tree.
+	if ! chart=$(git show "$localOid^{commit}:deploy/helm/Chart.yaml"); then
+		echo "ERROR: cannot read deploy/helm/Chart.yaml from the commit being pushed as '$tag'." >&2
+		exit 1
+	fi
+	for field in version appVersion; do
+		actual=$(awk -v field="$field:" '$1 == field { gsub(/["\047]/, "", $2); print $2 }' <<< "$chart")
+		if [[ "$actual" != "$version" ]]; then
+			echo "ERROR: refusing to push '$tag': deploy/helm/Chart.yaml $field is '$actual', expected '$version'." >&2
+			echo "Commit both Helm chart versions as '$version', then recreate the local tag on that commit before pushing." >&2
+			exit 1
+		fi
+	done
+done
