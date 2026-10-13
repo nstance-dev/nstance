@@ -107,7 +107,7 @@ helm-validate: helm-lint ## Render and validate all Helm chart manifests
 	@command -v kubeconform >/dev/null 2>&1 || { echo "Error: kubeconform is not installed."; exit 1; }
 	helm template nstance-operator $(CURRENT)deploy/helm | kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.34.0
 
-tf-validate: ## Check and validate OpenTofu modules and examples
+tf-validate: ## Check, validate, and test OpenTofu modules and examples
 	@command -v tofu >/dev/null 2>&1 || { echo "Error: tofu is not installed."; exit 1; }
 	tofu fmt -check -recursive $(CURRENT)deploy/tf
 	@set -e; for dir in \
@@ -126,6 +126,7 @@ tf-validate: ## Check and validate OpenTofu modules and examples
 		$(CURRENT)deploy/tf/examples/multi-cloud; do \
 		tofu -chdir="$$dir" init -backend=false -input=false >/dev/null; \
 		tofu -chdir="$$dir" validate; \
+		if [ -d "$$dir/tests" ]; then tofu -chdir="$$dir" test; fi; \
 	done
 
 precommit: ## Check formatting and run linters (read-only)

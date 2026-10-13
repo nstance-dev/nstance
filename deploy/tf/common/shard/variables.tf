@@ -207,6 +207,25 @@ variable "nat" {
   default     = {}
 }
 
+variable "tunnels" {
+  description = "Tunnels keyed by logical backend name. Each entry combines listeners (target_port and proxy_port) with the server configuration tunnels shape. Files contain configuration or secret/storage references, never credential values."
+  type        = any
+  default     = {}
+  nullable    = false
+
+  validation {
+    condition = try(alltrue([
+      for tunnel in values(var.tunnels) : length(tunnel.listeners) > 0 && alltrue([
+        for listener in tunnel.listeners : alltrue([
+          for port in [listener.target_port, listener.proxy_port] :
+          port == floor(port) && port >= 1 && port <= 65535
+        ])
+      ])
+    ]), false)
+    error_message = "Each tunnel must have a non-empty listeners list with integer target_port and proxy_port values between 1 and 65535."
+  }
+}
+
 ################################################################################
 # Binary Distribution
 ################################################################################

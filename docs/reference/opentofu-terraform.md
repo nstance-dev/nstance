@@ -802,6 +802,46 @@ replace the template userdata with their own hardened host configuration.
 | `dynamic_subnet_pools` | List of subnet pools allowed for dynamic groups (empty = all) | `[]` |
 | `groups` | Map of group configurations (each group references a role from network subnets) | - |
 | `templates` | Instance templates (if empty, uses default; if specified, used as-is) | `{}` |
+| `tunnels` | Named tunnel definitions: a `listeners` list of `target_port` and `proxy_port`, plus the [server tunnel configuration](../server-config/#tunnels); credentials are secret references only | `{}` |
+
+**Tunnels:**
+
+Each `tunnels` entry combines listener ports with its image, arguments, files,
+and readiness settings. The module generates the matching server tunnel and
+backend definitions; groups reference the name in `load_balancers`. These
+server-host tunnels provide a wake path while the tenant is asleep.
+Tunnel names must not overlap cloud load balancer names. For tunnel-only
+exposure, leave the network module's `load_balancers` empty.
+Supply `server_userdata` that starts the tunnel supervisor and kubelet;
+the built-in installer does not install the tunnel runtime.
+
+For example, these shard inputs reference an existing user-managed tunnel:
+
+```hcl
+tunnels = {
+  api = {
+    listeners     = [{ target_port = 6443, proxy_port = 16443 }]
+    image         = "registry.example/tunnel@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    args          = ["tunnel", "--config", "/run/tunnel/config.json"]
+    readiness_url = "http://127.0.0.1:2000/ready"
+    files = {
+      "/run/tunnel/config.json" = {
+        kind     = "json"
+        template = { tunnel = "existing-tunnel-id" }
+      }
+      "/run/tunnel/credentials.json" = { kind = "secret", source = "tunnel-credentials" }
+    }
+  }
+}
+```
+
+Pre-create the referenced secret in the cloud account/project before applying:
+use a `SecureString` in Parameter Store or an enabled version in Secret Manager.
+`source` is relative to `cluster.secrets.prefix`: with default prefixes and cluster
+ID `my-cluster`, `tunnel-credentials` names `/my-cluster/tunnel-credentials` in AWS
+Parameter Store or `my-cluster-tunnel-credentials` in Google Secret Manager.
+Nstance reads the value at runtime; Terraform only stores the reference. These
+inputs do not create provider tunnels, credentials, or DNS records.
 
 **Subnet Filtering:**
 

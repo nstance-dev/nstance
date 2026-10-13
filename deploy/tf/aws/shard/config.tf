@@ -167,12 +167,25 @@ resource "aws_s3_object" "shard_config" {
       )
       certificates = var.certificates
       templates    = local.templates
-      load_balancers = {
-        for lb_key, lb in var.network.load_balancers : lb_key => {
-          provider      = "aws"
-          target_groups = lb.target_groups
+      tunnels = {
+        for name, tunnel in var.tunnels : name => {
+          for key, value in tunnel : key => value if key != "listeners"
         }
       }
+      load_balancers = merge(
+        {
+          for lb_key, lb in var.network.load_balancers : lb_key => {
+            provider      = "aws"
+            target_groups = lb.target_groups
+          }
+        },
+        {
+          for name, tunnel in var.tunnels : name => {
+            provider  = "tunnel"
+            listeners = tunnel.listeners
+          }
+        }
+      )
       groups = {
         # Groups are nested by tenant: { tenant -> { group_name -> GroupConfig } }
         for tenant, tenant_groups in var.groups : tenant => {
@@ -246,4 +259,11 @@ resource "aws_s3_object" "shard_config" {
     aws_security_group.agent,
     aws_security_group.nat
   ]
+
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(toset(keys(var.network.load_balancers)), toset(keys(var.tunnels)))) == 0
+      error_message = "Tunnel and cloud load balancer names must be distinct."
+    }
+  }
 }

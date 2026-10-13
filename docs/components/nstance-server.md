@@ -55,6 +55,34 @@ When the flag is present with no value, the server fetches the shard config from
 
 In both cases, the server exits after validation with a zero exit code on success or non-zero on failure.
 
+## Proxy Command
+
+`nstance-server proxy` holds incoming connections while waking a sleeping tenant,
+then forwards them to a healthy tenant upstream. It gets listener configuration
+from the main `nstance-server` process locally via a Unix socket; it needs no storage or cloud credentials.
+
+```bash
+nstance-server proxy
+```
+
+Use `--socket` to override `/run/nstance/nstance-server.sock`. See
+[Sleep and Wake](../features/sleep-and-wake.md) for traffic handling details.
+
+## Tunnel Command
+
+`nstance-server tunnel` runs a tunnel in front of a `nstance-server proxy` to enable continuity of inbound connections to a cluster even while the cluster is asleep.
+
+It runs a tunnel process as kubelet static Pod on the `nstance-server` host. It independently loads the shard configuration and referenced files. It starts and stops tunnels as directed by the local `nstance-server`, and stops them if contact with `nstance-server` is lost for too long.
+
+```bash
+nstance-server tunnel --shard us-west-2a --storage s3 --bucket my-cluster-bucket --files-mode 0644
+```
+
+This requires kubelet, access to configuration storage and referenced secrets,
+and permission to write static Pod manifests. `--files-mode 0644` lets nonroot
+containers read the resolved files; their host directories remain restricted.
+See [Tunnel Configuration](../reference/server-config.md#tunnels) for an example.
+
 ## Configuration
 
 Server configuration consists of two files per zone shard, stored in object storage:

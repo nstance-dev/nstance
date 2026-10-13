@@ -132,6 +132,39 @@ Below is an example/reference configuration file for Nstance Server, using examp
         "target_port": 443,
         "proxy_port": 8443
       }]
+    },
+    "web-tunnel": {
+      "provider": "tunnel",
+      "listeners": [{"target_port": 80, "proxy_port": 8080}]
+    }
+  },
+  "tunnels": {
+    "web-tunnel": {
+      // Example cloudflared tunnel (replace the digest with a real pinned image digest)
+      "image": "cloudflare/cloudflared@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "args": ["tunnel", "--config", "/run/tunnel/config.json", "run"],
+      "files": {
+        "/run/tunnel/config.json": {
+          "kind": "json",
+          "template": {
+            "tunnel": "6ff42ae2-765d-4adf-8112-31c55c1551ef", // replace with a real tunnel ID
+            "credentials-file": "/run/tunnel/credentials.json",
+            "metrics": "127.0.0.1:2000",
+            "ingress": [
+              {"hostname": "www.example.com", "service": "http://127.0.0.1:8080"},
+              {"service": "http_status:404"}
+            ]
+          }
+        },
+        "/run/tunnel/credentials.json": {
+          // Pre-create /example-cluster/tunnel-credentials as a SecureString
+          // containing the existing tunnel's credentials JSON.
+          "kind": "secret",
+          "source": "tunnel-credentials"
+        }
+      },
+      "readiness_url": "http://127.0.0.1:2000/ready",
+      "readiness_timeout": "30s"
     }
   },
   // Optional: protected files generated for unrelated services local to the server host.
@@ -410,7 +443,7 @@ Below is an example/reference configuration file for Nstance Server, using examp
       "ingress": {
         "template": "knd",
         "subnet_pool": "ingress",
-        "load_balancers": ["www"],
+        "load_balancers": ["www", "web-tunnel"],
         "vars": {
           "KUBELET_NODE_LABELS": "traefik"
         }
@@ -519,25 +552,9 @@ Each tunnel load balancer requires a same-named `tunnels` entry.
 files; the server process sends only the tunnel name, desired state, revision,
 and renewable lease.
 
-Each tunnel uses one digest-pinned image:
-
-```jsonc
-"tunnels": {
-  "cluster-api": {
-    "image": "registry.example/tunnel@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    "args": ["tunnel", "--config", "/run/tunnel/config.json"],
-    "files": {
-      "/run/tunnel/config.json": {
-        "kind": "json",
-        "template": {"some-key": "some-value"}
-      },
-      "/run/tunnel/credentials.json": {"kind": "secret", "source": "cluster-api-tunnel"}
-    },
-    "readiness_url": "http://127.0.0.1:2000/ready",
-    "readiness_timeout": "30s"
-  }
-}
-```
+The main example shows an existing tunnel routing web traffic to the local wake
+proxy. Replace its tunnel ID, hostname, and image digest with your own values;
+pre-create the referenced credential secret before deployment.
 
 `files` maps absolute container paths to `secret`, `storage`, or `json` files.
 For `json`, `template` must be an object and is written literally, without

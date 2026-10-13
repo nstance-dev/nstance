@@ -163,14 +163,27 @@ resource "google_storage_bucket_object" "shard_config" {
       )
       certificates = var.certificates
       templates    = local.templates
-      load_balancers = {
-        for lb_key, lb in var.network.load_balancers : lb_key => {
-          provider                = "google"
-          network_endpoint_groups = try(lb.network_endpoint_groups[var.zone], [])
-          frontends               = lb.frontends
+      tunnels = {
+        for name, tunnel in var.tunnels : name => {
+          for key, value in tunnel : key => value if key != "listeners"
         }
-        if length(try(lb.network_endpoint_groups[var.zone], [])) > 0
       }
+      load_balancers = merge(
+        {
+          for lb_key, lb in var.network.load_balancers : lb_key => {
+            provider                = "google"
+            network_endpoint_groups = try(lb.network_endpoint_groups[var.zone], [])
+            frontends               = lb.frontends
+          }
+          if length(try(lb.network_endpoint_groups[var.zone], [])) > 0
+        },
+        {
+          for name, tunnel in var.tunnels : name => {
+            provider  = "tunnel"
+            listeners = tunnel.listeners
+          }
+        }
+      )
       nat = var.network.nat_mode == "nstance" ? {
         for tenant, config in var.nat : tenant => merge(config, {
           mode = var.network.ipv4_enabled ? "nat44" : "nat64"
@@ -208,4 +221,11 @@ resource "google_storage_bucket_object" "shard_config" {
   depends_on = [
     google_compute_address.server_leader
   ]
+
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(toset(keys(var.network.load_balancers)), toset(keys(var.tunnels)))) == 0
+      error_message = "Tunnel and cloud load balancer names must be distinct."
+    }
+  }
 }
