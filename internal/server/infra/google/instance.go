@@ -83,7 +83,6 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 			AutoDelete: proto.Bool(true),
 			InitializeParams: &computepb.AttachedDiskInitializeParams{
 				SourceImage: proto.String("projects/debian-cloud/global/images/family/debian-13"),
-				DiskSizeGb:  proto.Int64(30),
 				DiskType:    proto.String(fmt.Sprintf("zones/%s/diskTypes/pd-standard", p.config.Zone)),
 			},
 		},
@@ -694,6 +693,19 @@ func (p *Provider) applyProviderArgs(instance *computepb.Instance, args map[stri
 			} else {
 				return fmt.Errorf("SourceImage must be a string")
 			}
+		case "DiskSizeGb":
+			data, err := json.Marshal(val)
+			if err != nil {
+				return fmt.Errorf("failed to marshal DiskSizeGb: %w", err)
+			}
+			var size int64
+			if err := json.Unmarshal(data, &size); err != nil {
+				return fmt.Errorf("DiskSizeGb must be a positive integer: %w", err)
+			}
+			if size <= 0 {
+				return fmt.Errorf("DiskSizeGb must be a positive integer")
+			}
+			instance.Disks[0].InitializeParams.DiskSizeGb = proto.Int64(size)
 		case "ServiceAccount":
 			if email, ok := val.(string); ok {
 				instance.ServiceAccounts = []*computepb.ServiceAccount{

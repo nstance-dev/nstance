@@ -32,6 +32,8 @@ Nstance uses Compute Engine for virtual machine lifecycle management across mult
 - Label-based instance identification and filtering (see [Instance Labels](#instance-labels))
 - Preemptible and Spot VM support with termination detection
 
+Boot disks use the source image's size unless overridden with `args.DiskSizeGb` (a positive integer).
+
 ### 2. Cloud Storage (GCS)
 
 GCS serves as the object storage backend for all persistent state:
