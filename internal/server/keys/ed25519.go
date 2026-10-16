@@ -18,6 +18,7 @@ func ParseEd25519PrivateKey(data []byte) (ed25519.PrivateKey, error) {
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
 	}
+	defer clear(block.Bytes)
 
 	if block.Type != "PRIVATE KEY" {
 		return nil, fmt.Errorf("invalid PEM block type: %s (expected PRIVATE KEY)", block.Type)
@@ -45,6 +46,7 @@ func MarshalEd25519PrivateKey(key ed25519.PrivateKey) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal private key: %w", err)
 	}
+	defer clear(keyBytes)
 
 	block := &pem.Block{
 		Type:  "PRIVATE KEY",

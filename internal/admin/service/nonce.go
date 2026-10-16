@@ -9,9 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nstance-dev/nstance/v2/internal/server/instances"
-	"github.com/nstance-dev/nstance/v2/internal/server/keys"
 	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 // NonceRequest contains parameters for generating a registration nonce.
@@ -52,18 +51,7 @@ func (s *NonceService) Generate(ctx context.Context, req NonceRequest) (*NonceRe
 		return nil, fmt.Errorf("load registration nonce key: %w", err)
 	}
 
-	noncePrivateKey, err := keys.ParseEd25519PrivateKey(nonceKeyData)
-	if err != nil {
-		return nil, fmt.Errorf("parse registration nonce key: %w", err)
-	}
-
-	jwt, err := instances.NewJWTSigner(noncePrivateKey).GenerateRegistrationNonce(instances.RegistrationNonceParams{
-		SubjectID: req.ClusterID,
-		Kind:      "operator",
-		ClusterID: req.ClusterID,
-		Tenant:    req.Tenant,
-		Expiry:    req.Expiry,
-	})
+	jwt, err := nonce.GenerateOperatorToken(nonceKeyData, req.ClusterID, req.Tenant, req.Expiry)
 	if err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}

@@ -12,10 +12,10 @@ import (
 
 	"github.com/nstance-dev/nstance/v2/internal/server/config"
 	"github.com/nstance-dev/nstance/v2/internal/server/election"
-	"github.com/nstance-dev/nstance/v2/internal/server/keys"
 	"github.com/nstance-dev/nstance/v2/internal/server/pki"
 	"github.com/nstance-dev/nstance/v2/internal/server/secrets"
 	"github.com/nstance-dev/nstance/v2/internal/server/storage"
+	"github.com/nstance-dev/nstance/v2/pkg/nonce"
 )
 
 // ErrCAGenerationRequiresLeadership is returned when CA needs generation but this server is not leader.
@@ -157,13 +157,9 @@ func ensureRegistrationNonceKey(ctx context.Context, secretsStore secrets.Store,
 	}
 
 	logger.Info("Generating new registration nonce private key as leader")
-	privateKey, err := keys.GenerateEd25519Key()
+	keyPEM, err := nonce.GenerateSigningKey()
 	if err != nil {
 		return fmt.Errorf("failed to generate registration nonce private key: %w", err)
-	}
-	keyPEM, err := keys.MarshalEd25519PrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("failed to encode registration nonce private key: %w", err)
 	}
 	if err := secretsStore.Set(ctx, registrationNonceKeyName, keyPEM); err != nil {
 		return fmt.Errorf("failed to store registration nonce private key: %w", err)

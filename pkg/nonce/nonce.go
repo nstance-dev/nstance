@@ -2,7 +2,6 @@
 // Copyright The Nstance Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package nonce signs and validates single-use registration credentials.
 package nonce
 
 import (
