@@ -10,12 +10,15 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,7 +28,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	infrastructurev1beta1 "github.com/nstance-dev/nstance/v2/api/v1beta1"
 	"github.com/nstance-dev/nstance/v2/internal/operator/config"
 	"github.com/nstance-dev/nstance/v2/internal/operator/connection"
 	"github.com/nstance-dev/nstance/v2/internal/proto"
@@ -33,23 +38,35 @@ import (
 
 type sleepOperatorServer struct {
 	proto.UnimplementedOperatorServiceServer
+	mu     sync.Mutex
 	sleep  func() (*proto.SleepTenantResponse, error)
 	status proto.TenantSleepStatus
 	wakes  int
 }
 
 func (s *sleepOperatorServer) SleepTenant(context.Context, *proto.SleepTenantRequest) (*proto.SleepTenantResponse, error) {
-	return s.sleep()
+	response, err := s.sleep()
+	if response != nil {
+		s.mu.Lock()
+		s.status = response.GetStatus()
+		s.mu.Unlock()
+	}
+	return response, err
 }
 
 // GetTenantStatus returns the configured shard status.
 func (s *sleepOperatorServer) GetTenantStatus(context.Context, *proto.GetTenantStatusRequest) (*proto.GetTenantStatusResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return &proto.GetTenantStatusResponse{Status: s.status}, nil
 }
 
 // WakeTenant records a wake and reports the shard awake.
 func (s *sleepOperatorServer) WakeTenant(context.Context, *proto.WakeTenantRequest) (*proto.WakeTenantResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.wakes++
+	s.status = proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE
 	return &proto.WakeTenantResponse{Status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE}, nil
 }
 
@@ -216,6 +233,94 @@ func TestReconcileCheckpointsBeforeFinalShard(t *testing.T) {
 	}
 	if progress.Phase != sleepPhaseFinalizing || cluster.Annotations[SleepRequestAnnotation] != request {
 		t.Fatalf("annotations = %#v, want retained finalizing transaction", cluster.Annotations)
+	}
+}
+
+// TestReconcileRecoversInterruptedSleep verifies that losing Kubernetes writes
+// after a non-final shard sleeps cannot strand it across operator restart.
+func TestReconcileRecoversInterruptedSleep(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		for _, interruptedShard := range []string{"a", "b"} {
+			t.Run(fmt.Sprintf("force=%t/shard=%s", force, interruptedShard), func(t *testing.T) {
+				ctx := context.Background()
+				scheme := runtime.NewScheme()
+				for _, add := range []func(*runtime.Scheme) error{clusterv1.AddToScheme, corev1.AddToScheme, batchv1.AddToScheme, infrastructurev1beta1.AddToScheme} {
+					if err := add(scheme); err != nil {
+						t.Fatal(err)
+					}
+				}
+				request := time.Now().UTC().Format(time.RFC3339Nano)
+				if force {
+					request = "force:" + request
+				}
+				cluster := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{
+					Namespace: "nstance-system", Name: "cluster--red",
+					Annotations: map[string]string{SleepRequestAnnotation: request},
+				}}
+				node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "operator-node", Labels: map[string]string{corev1.LabelTopologyZone: "c"}}}
+				kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, node).Build()
+				var unavailable atomic.Bool
+				interruptedClient := interceptor.NewClient(kube, interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if unavailable.Load() {
+							return fmt.Errorf("Kubernetes unavailable after shard sleep")
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				})
+				connections := make(map[string]*grpc.ClientConn)
+				for _, shard := range []string{"a", "b", "c"} {
+					connections[shard] = newSleepConnection(t, &sleepOperatorServer{
+						status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE,
+						sleep: func() (*proto.SleepTenantResponse, error) {
+							if shard == interruptedShard {
+								unavailable.Store(true)
+							}
+							return &proto.SleepTenantResponse{Result: proto.SleepTenantResponse_RESULT_SLEPT, Status: proto.TenantSleepStatus_TENANT_SLEEP_STATUS_ASLEEP}, nil
+						},
+					})
+				}
+				provider := connection.NewProvider()
+				provider.Set(connections)
+				newReconciler := func(c client.Client) *SleepReconciler {
+					return &SleepReconciler{
+						Client: c, ConnProvider: provider, Recorder: record.NewFakeRecorder(1), NodeName: node.Name,
+						Config: &config.OperatorConfig{ClusterID: "cluster", Tenant: "red",
+							Shards: map[string]config.ShardEndpoints{"a": {}, "b": {}, "c": {}},
+							Sleep:  config.SleepPolicy{RemainingNodes: 1, ReconcilePeriod: config.Duration{Duration: time.Minute}},
+						},
+					}
+				}
+				req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}
+				if _, err := newReconciler(interruptedClient).Reconcile(ctx, req); err == nil || !strings.Contains(err.Error(), "Kubernetes unavailable") {
+					t.Fatalf("first reconcile = %v, want interrupted progress write", err)
+				}
+				status, err := proto.NewOperatorServiceClient(connections[interruptedShard]).GetTenantStatus(ctx, &proto.GetTenantStatusRequest{Tenant: "red"})
+				if err != nil || status.GetStatus() != proto.TenantSleepStatus_TENANT_SLEEP_STATUS_ASLEEP {
+					t.Fatalf("interrupted shard status = %v, error = %v, want asleep", status, err)
+				}
+				// Eligibility can change while the operator is down. Recovery must
+				// wake all possibly slept shards rather than merely reject the request.
+				if err := kube.Create(ctx, &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Namespace: cluster.Namespace, Name: "new-work"}}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := newReconciler(kube).Reconcile(ctx, req); err != nil {
+					t.Fatal(err)
+				}
+				for shard, conn := range connections {
+					status, err := proto.NewOperatorServiceClient(conn).GetTenantStatus(ctx, &proto.GetTenantStatusRequest{Tenant: "red"})
+					if err != nil || status.GetStatus() != proto.TenantSleepStatus_TENANT_SLEEP_STATUS_AWAKE {
+						t.Errorf("shard %s status = %v, error = %v, want awake after restart", shard, status, err)
+					}
+				}
+				if err := kube.Get(ctx, req.NamespacedName, cluster); err != nil {
+					t.Fatal(err)
+				}
+				if cluster.Annotations[SleepRequestAnnotation] != "" || cluster.Annotations[SleepProgressAnnotation] != "" {
+					t.Fatalf("annotations = %#v, want completed compensation", cluster.Annotations)
+				}
+			})
+		}
 	}
 }
 

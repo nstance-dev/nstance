@@ -167,9 +167,16 @@ func (r *SleepReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if shard == finalShard {
 			progress.Phase = sleepPhaseFinalizing
 			progress.FinalShard = shard
-			if err := r.storeProgress(ctx, &cluster, progress); err != nil {
-				return ctrl.Result{}, err
-			}
+		} else {
+			// Until success is durably recorded, a restart must compensate even
+			// if the sleep call never arrived or its response was lost.
+			progress.Phase = sleepPhaseCompensating
+			progress.Reason = "sleep interrupted before shard confirmation"
+			progress.Accepted = append(progress.Accepted, shard)
+			accepted[shard] = true
+		}
+		if err := r.storeProgress(ctx, &cluster, progress); err != nil {
+			return ctrl.Result{}, err
 		}
 		var wakeAt *timestamppb.Timestamp
 		if state.WakeAt != nil && shard == finalShard {
@@ -203,7 +210,8 @@ func (r *SleepReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if shard == finalShard {
 			return ctrl.Result{RequeueAfter: r.Config.Sleep.ReconcilePeriod.Duration}, nil
 		}
-		progress.Accepted = append(progress.Accepted, shard)
+		progress.Phase = sleepPhaseSleeping
+		progress.Reason = ""
 		if err := r.storeProgress(ctx, &cluster, progress); err != nil {
 			return ctrl.Result{}, err
 		}
