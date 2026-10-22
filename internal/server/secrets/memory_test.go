@@ -10,17 +10,21 @@ import (
 	"testing"
 )
 
+// TestMemoryStore verifies text round trips and invalid writes leave stored values intact.
 func TestMemoryStore(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
 	// Test basic operations
-	testData := []byte("test secret data")
+	testData := []byte("  café �\r\nYWJjZA==\n")
 
 	// Test Set
 	err := store.Set(ctx, "test-secret", testData)
 	if err != nil {
 		t.Fatalf("Failed to set secret: %v", err)
+	}
+	if err := store.Set(ctx, "test-secret", []byte{0xff}); err == nil {
+		t.Fatal("accepted invalid UTF-8")
 	}
 
 	// Test Get

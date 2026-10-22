@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -56,14 +57,17 @@ func (a *AWSSecretsManager) Get(ctx context.Context, name string) ([]byte, error
 	return nil, fmt.Errorf("secret %s contains no data", name)
 }
 
-// Set stores a secret in AWS Secrets Manager
+// Set stores UTF-8 text as SecretString in AWS Secrets Manager.
 func (a *AWSSecretsManager) Set(ctx context.Context, name string, data []byte) error {
+	if !utf8.Valid(data) {
+		return fmt.Errorf("secret %s contains invalid UTF-8", name)
+	}
 	secretName := a.prefix + name
 
 	// Try to update existing secret first
 	updateInput := &secretsmanager.UpdateSecretInput{
 		SecretId:     aws.String(secretName),
-		SecretBinary: data,
+		SecretString: aws.String(string(data)),
 	}
 
 	_, err := a.client.UpdateSecret(ctx, updateInput)
@@ -79,7 +83,7 @@ func (a *AWSSecretsManager) Set(ctx context.Context, name string, data []byte) e
 	// If secret doesn't exist, create it
 	createInput := &secretsmanager.CreateSecretInput{
 		Name:         aws.String(secretName),
-		SecretBinary: data,
+		SecretString: aws.String(string(data)),
 		Description:  aws.String(fmt.Sprintf("Nstance secret: %s", name)),
 	}
 

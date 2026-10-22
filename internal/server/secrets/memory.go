@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"unicode/utf8"
 )
 
 // Memory implements Store using in-memory storage
@@ -39,8 +40,11 @@ func (m *Memory) Get(ctx context.Context, name string) ([]byte, error) {
 	return result, nil
 }
 
-// Set stores a secret in memory
+// Set stores a copy of UTF-8 text in memory.
 func (m *Memory) Set(ctx context.Context, name string, data []byte) error {
+	if !utf8.Valid(data) {
+		return fmt.Errorf("secret %s contains invalid UTF-8", name)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

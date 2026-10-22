@@ -4,7 +4,18 @@
 
 package secrets
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+// TestGoogleSecretManagerSetRejectsBinary verifies malformed UTF-8 fails before accessing Google.
+func TestGoogleSecretManagerSetRejectsBinary(t *testing.T) {
+	store := NewGoogleSecretManagerStore(nil, "test-project", "example-cluster-")
+	if err := store.Set(context.Background(), "ca.key", []byte{0xff}); err == nil {
+		t.Fatal("accepted invalid UTF-8")
+	}
+}
 
 // TestGoogleSecretManagerSecretID verifies logical secret names become valid Google IDs.
 func TestGoogleSecretManagerSecretID(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	secretmanagerpb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -55,8 +56,11 @@ func (g *GoogleSecretManager) Get(ctx context.Context, name string) ([]byte, err
 	return resp.Payload.Data, nil
 }
 
-// Set stores a secret in Google Cloud Secret Manager
+// Set stores UTF-8 text unchanged in Google Cloud Secret Manager.
 func (g *GoogleSecretManager) Set(ctx context.Context, name string, data []byte) error {
+	if !utf8.Valid(data) {
+		return fmt.Errorf("secret %s contains invalid UTF-8", name)
+	}
 	secretID := g.secretID(name)
 	parent := fmt.Sprintf("projects/%s", g.project)
 	secretPath := fmt.Sprintf("%s/secrets/%s", parent, secretID)

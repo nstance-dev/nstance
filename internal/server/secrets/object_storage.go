@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
@@ -50,8 +51,11 @@ func (s *ObjectStorageStore) Get(ctx context.Context, name string) ([]byte, erro
 	return data, nil
 }
 
-// Set stores a secret in object storage
+// Set stores UTF-8 text in object storage, encrypting it when keys are configured.
 func (s *ObjectStorageStore) Set(ctx context.Context, name string, data []byte) error {
+	if !utf8.Valid(data) {
+		return fmt.Errorf("secret %s contains invalid UTF-8", name)
+	}
 	key := s.prefix + name
 
 	// Encrypt if encryption keys are provided (use first key for encryption)

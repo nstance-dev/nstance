@@ -13,6 +13,7 @@ import (
 	"github.com/nstance-dev/nstance/v2/internal/server/storage"
 )
 
+// TestObjectStorageStore verifies text preservation and invalid-write rejection with and without encryption.
 func TestObjectStorageStore(t *testing.T) {
 	// Create temp directory for mock storage
 	tempDir := filepath.Join(os.TempDir(), "nstance-object-storage-store-test")
@@ -27,11 +28,14 @@ func TestObjectStorageStore(t *testing.T) {
 
 	t.Run("WithoutEncryptionKey", func(t *testing.T) {
 		store := NewObjectStorageStore(mockStorage, "secret/", nil)
-		testData := []byte("unencrypted secret")
+		testData := []byte("  café �\r\nYWJjZA==\n")
 
 		err := store.Set(ctx, "test", testData)
 		if err != nil {
 			t.Fatalf("Failed to set secret: %v", err)
+		}
+		if err := store.Set(ctx, "test", []byte{0xff}); err == nil {
+			t.Fatal("accepted invalid UTF-8")
 		}
 
 		retrieved, err := store.Get(ctx, "test")
@@ -47,11 +51,14 @@ func TestObjectStorageStore(t *testing.T) {
 	t.Run("WithEncryptionKey", func(t *testing.T) {
 		key := []byte("test-key-32-characters-long!!!!!")
 		store := NewObjectStorageStore(mockStorage, "encrypted/", [][]byte{key})
-		testData := []byte("encrypted secret")
+		testData := []byte("  café �\r\nYWJjZA==\n")
 
 		err := store.Set(ctx, "test", testData)
 		if err != nil {
 			t.Fatalf("Failed to set encrypted secret: %v", err)
+		}
+		if err := store.Set(ctx, "test", []byte{0xff}); err == nil {
+			t.Fatal("accepted invalid UTF-8")
 		}
 
 		retrieved, err := store.Get(ctx, "test")
